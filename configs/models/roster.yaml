@@ -1,0 +1,25 @@
+schema_version: "1.0"
+name: default_roster
+default_profile: mock_player
+profiles:
+  mock_player:
+    provider: mock
+    model: deterministic
+    temperature: 0
+    personality_tags: []
+  llm_player:
+    provider: openai
+    model_env: LITELLM_MODEL
+    temperature: 0.7
+    personality_tags: []
+seats:
+  1: mock_player
+  2: mock_player
+  3: mock_player
+  4: mock_player
+  5: mock_player
+  6: mock_player
+  7: mock_player
+  8: mock_player
+budget:
+  tokens_per_game: 100000

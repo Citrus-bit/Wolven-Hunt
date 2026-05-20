@@ -1,0 +1,73 @@
+schema_version: "1.0"
+name: majority_or_massacre_all
+first_night_can_die: true
+first_speaker_seat: 1
+speech:
+  language: zh
+  max_chars: 300
+win_conditions:
+  check_after:
+    - NIGHT_RESOLVE
+    - KNIGHT_CHALLENGE_RESOLVE
+    - DAY_EXILE
+  wolf_wins_when:
+    - alive_wolves_gt_alive_good_players
+    - alive_good_players_eq_0
+  good_wins_when:
+    - alive_wolves_eq_0
+seer:
+  can_check_dead: true
+  can_check_self: false
+  result_granularity: camp_only
+guard:
+  can_guard_first_night: true
+  can_guard_self: true
+  can_guard_same_target_consecutive_nights: false
+wolves:
+  night_chat_rounds: 1
+  kill_vote_mode: simultaneous
+  kill_decision: majority
+  tie_break: deterministic_random_among_voted_targets
+  can_no_kill: false
+  can_kill_wolf_teammate: false
+knight:
+  max_uses_per_game: 1
+  can_act_first_day: true
+  can_act_at_night: false
+  window: after_day_announce_before_day_vote
+  after_action_skip_remaining_day: true
+vote:
+  mode: simultaneous
+  public_ballot: true
+  can_abstain: false
+  can_change_vote: false
+  sheriff: false
+  can_vote_self: true
+  first_round_targets: alive_players
+  pk_round_targets: pk_alive_players
+  pk_players_vote_in_pk_round: false
+  second_tie_result: peaceful_day
+last_words:
+  allowed:
+    - day_exiled
+    - knight_wrong_and_knight_dies
+    - first_night_killed
+  denied:
+    - night_death_after_first_night
+    - wolf_killed_by_knight
+fallback:
+  max_retries: 2
+  actions:
+    NIGHT_GUARD: random_legal_target_excluding_previous_guard
+    NIGHT_WOLF_CHAT: silence_message
+    NIGHT_WOLF_VOTE: random_legal_target
+    NIGHT_SEER: random_non_self_player
+    DAY_SPEECH: default_no_more_information
+    DAY_KNIGHT_INTERRUPT: do_not_activate
+    DAY_VOTE: random_alive_player_allow_self
+    DAY_VOTE_PK: random_pk_alive_player_by_non_pk_voter_or_peaceful_day
+    DAY_LAST_WORDS: default_no_last_words
+replay:
+  deterministic: true
+  resimulate: true
+  random_events_record_candidates_and_selected: true

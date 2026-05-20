@@ -1,0 +1,19 @@
+schema_version: "1.0"
+name: classic_8
+description: "首版固定 8 人板：3 狼人、2 村民、1 预言家、1 骑士、1 守卫。"
+seat_range:
+  start: 1
+  end: 8
+role_pack: _role_packs/classic_8_three_gods.yaml
+rule_set: _rule_sets/majority_or_massacre_all.yaml
+model_roster: ../models/roster.yaml
+prompt_pack:
+  language: zh
+  root: ../prompts/zh
+  version_policy: filename
+random_seed:
+  required: true
+  source: game_start
+metadata:
+  config_hash_required: true
+  replay_requires_same_metadata: true

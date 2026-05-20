@@ -1,0 +1,15 @@
+schema_version: "1.0"
+providers:
+  mock:
+    kind: mock
+    purpose: ci_and_golden_tests
+  openai:
+    kind: litellm
+    api_key_env: OPENAI_API_KEY
+    base_url_env: OPENAI_BASE_URL
+    enabled_by_default: false
+  custom_litellm:
+    kind: litellm
+    api_key_env: LITELLM_API_KEY
+    base_url_env: LITELLM_BASE_URL
+    enabled_by_default: false
