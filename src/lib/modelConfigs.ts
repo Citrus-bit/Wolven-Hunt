@@ -59,6 +59,50 @@ export const EMPTY_USER_INPUT: ModelConfigUserInput = {
   modelName: '',
 };
 
+export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
+  {
+    baseUrl: 'https://yunwu.ai/v1',
+    apiKey: 'sk-6seLrmgf7fZgAyt3vF8XtdzeZtZn6msQnBiqOvyOpdvQPsTP',
+    modelName: 'MiniMax-M2.7',
+  },
+  {
+    baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    apiKey:
+      'sk-sp-D.HDXRM.WBYB.MEUCIQDsTRWgINcmA5E+3jY2ESrb/zPm3LwWcbPBQ6HxCxq6lAIgLWMi8mhr+FFH3q6fQxCqWSp4UUQEOLWLK1zHgnCQKj0=',
+    modelName: 'qwen3.6-plus',
+  },
+  {
+    baseUrl: 'https://yunwu.ai/v1',
+    apiKey: 'sk-oYxZIF9K6UWfnodFX8mWoSer32fzlnTlFU18uLAznCC6UWOQ',
+    modelName: 'kimi-k2.5',
+  },
+  {
+    baseUrl: 'https://api.xiaomimimo.com/v1',
+    apiKey: 'sk-sek59eyxlq0v7b4g3riaejerfdlyryyzp6go04umhts1q009',
+    modelName: 'mimo-v2.5-pro',
+  },
+  {
+    baseUrl: 'https://yunwu.ai/v1',
+    apiKey: 'sk-3xVFT4xdHR3DYvBf7haR7A1Fb1ndJznxwrs1onoZ5JrywzRV',
+    modelName: 'glm-5.1',
+  },
+  {
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3',
+    apiKey: 'ark-febcfb7e-75eb-4764-bc12-526dd293d0fb-7bab0',
+    modelName: 'doubao-seed-2.0-pro',
+  },
+  {
+    baseUrl: 'https://yunwu.ai/v1',
+    apiKey: 'sk-fsxGOvfC9bNdRPopgB1ldIwWIBLn6oTQPUlYPHNvb1VQfxHC',
+    modelName: 'deepseek-v4-pro',
+  },
+  {
+    baseUrl: 'https://api.lkeap.cloud.tencent.com/plan/v3',
+    apiKey: 'sk-tp-BU7lFgCBrhOAAUBy2kQSY4lvMbMqPPXUNiQoyska14l8iVRC',
+    modelName: 'hy3-preview',
+  },
+] as const;
+
 export const VOLUME_DEFAULT = 80;
 export const VOLUME_MIN = 0;
 export const VOLUME_MAX = 100;

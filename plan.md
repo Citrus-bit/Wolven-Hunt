@@ -303,7 +303,8 @@ GAME_END
 ├── docs/
 │   └── specs/                               # 阶段交付规格（GPT 执行手册 + 验收指标）
 │       ├── STEP-01-lobby-home.md
-│       └── STEP-02-lobby-modal-and-settings.md
+│       ├── STEP-02-lobby-modal-and-settings.md
+│       └── STEP-03-game-preparation-page.md
 ├── .env.example
 ├── package.json                             # 前端入口壳（Vite + React + TS），见 §14
 ├── package-lock.json                        # npm 依赖锁文件
@@ -312,22 +313,26 @@ GAME_END
 ├── tsconfig.json
 ├── tsconfig.node.json
 ├── public/
-│   └── assets/lobby/                        # 大厅静态资源（ASCII 命名）
-│       ├── lobby_pingpong.mp4               # 由 scripts/build-lobby-pingpong.mjs 生成；产物随仓库提交
-│       ├── lobby_bgm.mp3
-│       ├── lobby_poster.jpg
-│       ├── btn_start.png
-│       ├── btn_history.png
-│       ├── btn_settings.png
-│       ├── settings_panel_bg.png            # 大厅弹窗背景框（见 §14.10）
-│       ├── model_icon_minimax_laoshi.png    # 系统设置 8 个模型图标（见 §14.11）
-│       ├── model_icon_wanwen.png
-│       ├── model_icon_guangzhimingmian.png
-│       ├── model_icon_dami.png
-│       ├── model_icon_xueba.png
-│       ├── model_icon_xiaodoubao.png
-│       ├── model_icon_haiseyin.png
-│       └── model_icon_ayuan_tishenban.png
+│   └── assets/
+│       ├── lobby/                              # 大厅静态资源（ASCII 命名）
+│       │   ├── lobby_pingpong.mp4              # 由 scripts/build-lobby-pingpong.mjs 生成；产物随仓库提交
+│       │   ├── lobby_bgm.mp3
+│       │   ├── lobby_poster.jpg
+│       │   ├── btn_start.png
+│       │   ├── btn_history.png
+│       │   ├── btn_settings.png
+│       │   ├── settings_panel_bg.png           # 大厅弹窗背景框（见 §14.10）
+│       │   ├── model_icon_minimax_laoshi.png   # 系统设置 8 个模型图标（见 §14.11）
+│       │   ├── model_icon_wanwen.png
+│       │   ├── model_icon_guangzhimingmian.png
+│       │   ├── model_icon_dami.png
+│       │   ├── model_icon_xueba.png
+│       │   ├── model_icon_xiaodoubao.png
+│       │   ├── model_icon_haiseyin.png
+│       │   └── model_icon_ayuan_tishenban.png
+│       └── game/                               # 游戏页静态资源（见 §14.13）
+│           ├── day_bg.png                      # 白天背景
+│           └── night_bg.png                    # 夜晚背景预备
 ├── 素材/                                    # 中文原始素材，仅作为构建输入，不参与运行时
 ├── scripts/
 │   └── build-lobby-pingpong.mjs             # 跨平台 Node 脚本（依赖 ffmpeg-static），生成 ping-pong mp4
@@ -346,18 +351,22 @@ GAME_END
 │   ├── lib/
 │   │   └── modelConfigs.ts                  # 8 个模型 slot 静态配置（见 §14.11）
 │   ├── components/
-│   │   └── Lobby/
-│   │       ├── LobbyHome.tsx
-│   │       ├── LobbyVideo.tsx
-│   │       ├── LobbyButtons.tsx
-│   │       ├── MuteToggle.tsx
-│   │       ├── LobbyModal.tsx               # 通用弹窗外壳（见 §14.10）
-│   │       └── modals/
-│   │           ├── StartModal.tsx
-│   │           ├── HistoryModal.tsx
-│   │           ├── SettingsModal.tsx
-│   │           ├── VolumeSlider.tsx
-│   │           └── ModelConfigList.tsx
+│   │   ├── Lobby/
+│   │   │   ├── LobbyHome.tsx
+│   │   │   ├── LobbyVideo.tsx
+│   │   │   ├── LobbyButtons.tsx
+│   │   │   ├── MuteToggle.tsx
+│   │   │   ├── LobbyModal.tsx               # 通用弹窗外壳（见 §14.10）
+│   │   │   └── modals/
+│   │   │       ├── StartModal.tsx
+│   │   │       ├── HistoryModal.tsx
+│   │   │       ├── SettingsModal.tsx
+│   │   │       ├── VolumeSlider.tsx
+│   │   │       └── ModelConfigList.tsx
+│   │   └── Game/                            # 游戏准备页（见 §14.13）
+│   │       ├── GamePage.tsx
+│   │       ├── GameSeat.tsx
+│   │       └── ModelPicker.tsx
 │   └── hooks/
 │       ├── useLobbyAudio.ts                 # 含 muted + volume + ensureUnlock
 │       └── useLocalStorage.ts               # 通用受控 localStorage hook
@@ -603,14 +612,30 @@ GAME_END
 
 - 系统设置弹窗内含 8 个模型 slot，每个 slot 由两部分组成：
   - **静态部分**（不进 `localStorage`）：`slot` 索引、中文 `nickname`、ASCII `iconPath`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_SLOTS` 常量数组。
-  - **用户输入部分**：`baseUrl` / `apiKey` / `modelName`，初始全空，由用户在 UI 中自填。
-- 用户输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName}`；不存在 key 视为未配置。
+  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置。
+  - **用户覆盖部分**：用户在 UI 中修改的 `baseUrl` / `apiKey` / `modelName`。
+- 用户覆盖输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName}`；不存在 key 时使用仓库默认配置显示。
 - 写入采用 300ms debounce，避免每次按键打 storage；读 / 写失败仅 `console.warn`，不阻塞 UI。
 - 第一阶段大厅页**不读出**这些字段进任何 fetch / WebSocket / SSE；模型条目仅作为 UI 占位。P2 FastAPI 接入时由后端读取并通过 spectator 视角脱敏（与 §14.1 不绕过 Referee 的硬约束一致）。
-- API key 在 `localStorage` 中明文存储；`<input type="password">` 仅是视觉掩码，不提供加密保护，文档中需提示风险。
+- API key 在前端源码默认值与 `localStorage` 用户覆盖值中均为明文；`<input type="password">` 仅是视觉掩码，不提供加密保护，文档中需提示风险。
 
 ### 14.12 弹窗内 CTA
 
-- StartModal 含「进入游戏」stub 按钮：第一阶段 `console.log('[lobby] enter game')` + 关闭弹窗；留给 STEP-03 接入路由 / 对局准备页。
+- StartModal 含「进入游戏」CTA 按钮：第一阶段 `console.log('[lobby] enter game')` + 关闭弹窗（已在 STEP-02 落地）；STEP-03 改为调用 `onEnterGame()` 回调，触发 App 层级页面切换 + 过渡动画。
 - HistoryModal 仅展示「功能开发中」占位文案，不放任何 CTA。
 - SettingsModal 不含 CTA：所有改动通过受控输入实时 / debounce 写 `localStorage`，无「保存」按钮。
+
+### 14.13 游戏准备页（Game Preparation Page）
+
+- 应用顶层 `App.tsx` 维护 `page: 'lobby' | 'game'` 状态，配合 `phase: 'idle' | 'fade-out' | 'fade-in'` 过渡相控制全屏黑色 overlay 的显隐；不引入路由库。
+- 进入游戏过渡：`fade-out`（600ms ease-in 渐黑）→ `setPage('game')` + 下一帧切到 `fade-in`（800ms ease-out 渐亮）→ `idle`。总时长 1.4s。
+- 过渡触发时同步调用 `useLobbyAudio.toggleMute()` 静音 BGM（仅当当前未 muted）；不新增 fadeOut API。
+- 游戏页布局：白天背景图全屏 cover，8 个席位分左右两列（左 4 / 右 4）垂直居中分布；席位圆圈使用 `clamp(60px, 8vw, 100px)` 响应式尺寸。
+- 席位状态：空态显示圆形虚线边框 + lucide `Plus` 图标；已分配态显示模型头像 + 加粗昵称（昵称在圆圈外侧，左列右侧 / 右列左侧，白天背景下需增强文字阴影）。
+- 席位编号：每个席位圆圈始终显示 1-based 编号徽标；左列自上而下 1–4 且徽标在左下角，右列自上而下 5–8 且徽标在右下角。编号仅是游戏准备页 UI 辅助，不进入 Referee / FSM / RuleEngine 边界。
+- 席位身份位（`.game-seat-role`）本步骤为占位 `<span>`（`display: none`），留给后续步骤填充。
+- 模型选择：点击席位（无论空态或已分配）→ 打开 `ModelPicker`（复用 `LobbyModal`）→ 列出 8 个模型卡片 → 已被其他席位占用的卡片置灰 + `disabled` → 当前席位已选项黄色边框高亮。
+- 模型分配规则：每个 model slot 在 8 席位中至多出现一次；点击已分配头像可重新选择，旧 slot 释放回可选池。
+- 游戏页本身**不持久化**席位分配到 `localStorage`，刷新页面后回大厅初始态（与 §14.1 不引入额外网络/状态边界一致）。
+- 游戏页**不发起任何网络请求**，不引入游戏逻辑（FSM / Referee / RuleEngine），仅前端 UI 编排，与 §14.1 / §14.10 边界一致。
+- 游戏准备页复用 `MODEL_SLOTS` 头像与昵称；模型 API 默认值只用于系统设置弹窗预填，不在本步骤用于席位分配或网络调用。

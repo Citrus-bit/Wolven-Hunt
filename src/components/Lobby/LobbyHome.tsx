@@ -7,7 +7,11 @@ import { HistoryModal } from './modals/HistoryModal';
 import { SettingsModal } from './modals/SettingsModal';
 import { StartModal } from './modals/StartModal';
 
-export function LobbyHome() {
+type LobbyHomeProps = {
+  onEnterGame: () => void;
+};
+
+export function LobbyHome({ onEnterGame }: LobbyHomeProps) {
   const { ensureUnlock } = useLobbyAudio();
   const [activeModal, setActiveModal] = useState<LobbyAction | null>(null);
 
@@ -44,7 +48,11 @@ export function LobbyHome() {
       <div className="lobby-shade" aria-hidden="true" />
       <MuteToggle />
       <LobbyButtons onAction={(kind) => setActiveModal(kind)} />
-      <StartModal open={activeModal === 'start'} onClose={() => setActiveModal(null)} />
+      <StartModal
+        open={activeModal === 'start'}
+        onClose={() => setActiveModal(null)}
+        onEnterGame={onEnterGame}
+      />
       <HistoryModal
         open={activeModal === 'history'}
         onClose={() => setActiveModal(null)}

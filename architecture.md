@@ -453,14 +453,32 @@ FastAPI 属于 P2，不在第一阶段实现。边界先冻结：
 
 - 系统设置弹窗内含 8 个模型 slot。每个 slot 由两部分组成：
   - **静态部分**（不进 `localStorage`）：`slot` 索引、中文 `nickname`、ASCII `iconPath`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_SLOTS` 常量数组。
-  - **用户输入部分**：`baseUrl` / `apiKey` / `modelName`，初始全空，由用户在 UI 中自填。
-- 用户输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName}`；不存在 key 视为未配置。
+  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置。
+  - **用户覆盖部分**：用户在 UI 中修改的 `baseUrl` / `apiKey` / `modelName`。
+- 用户覆盖输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName}`；不存在 key 时使用仓库默认配置显示。
 - 写入采用 300ms debounce；读 / 写失败仅 `console.warn`，不阻塞 UI。
 - 第一阶段大厅页**不读出**这些字段进任何 fetch / WebSocket / SSE；模型条目仅作为 UI 占位。P2 FastAPI 接入时由后端读取并通过 spectator 视角脱敏（与 §18.1 不绕过 Referee 的硬约束一致）。
-- API key 在 `localStorage` 中明文存储；`<input type="password">` 仅是视觉掩码，不提供加密保护，文档中需提示风险。
+- API key 在前端源码默认值与 `localStorage` 用户覆盖值中均为明文；`<input type="password">` 仅是视觉掩码，不提供加密保护，文档中需提示风险。
 
 ### 18.11 弹窗内 CTA Stubs
 
-- StartModal 含「进入游戏」stub 按钮：第一阶段 `console.log('[lobby] enter game')` + 关闭弹窗；留给 STEP-03 接入路由 / 对局准备页。
+- StartModal 含「进入游戏」CTA 按钮：第一阶段 `console.log('[lobby] enter game')` + 关闭弹窗（已在 STEP-02 落地）；STEP-03 改为通过 `onEnterGame` prop 上报 App 层，由 App 触发 `lobby → game` 页面切换 + 过渡动画。
 - HistoryModal 仅展示「功能开发中」占位文案，不放任何 CTA。
 - SettingsModal 不含 CTA：所有改动通过受控输入实时 / debounce 写 `localStorage`，无「保存」按钮。
+
+### 18.12 游戏准备页（Game Preparation Page）
+
+- `App.tsx` 顶层维护 `page: 'lobby' | 'game'` 与 `phase: 'idle' | 'fade-out' | 'fade-in'` 两个 state；不引入路由库，避免增加依赖（与 §18.1 极小依赖原则一致）。
+- 进入游戏过渡时序：`fade-out` 600ms ease-in（overlay 0→1，画面渐黑）→ `setPage('game')` 切换组件树 → 下一帧（`requestAnimationFrame`）切到 `fade-in` 800ms ease-out（overlay 1→0，白天背景渐亮）→ `idle`。
+- 过渡 overlay 是固定挂在 `App.tsx` 的 `<div className="page-transition-overlay">`，z-index 9999，`pointer-events` 在 `fade-out` 阶段为 `all`（防止过渡中重复点击触发），其他阶段为 `none`。
+- 进入游戏触发时同步调用 `useLobbyAudio.toggleMute()` 静音 BGM（仅当未 muted）；audio store 是模块级单例，lobby 卸载后 mute 状态保留。不新增 fadeOut ramp API；如需平滑淡出留给后续步骤。
+- 游戏准备页 `<GamePage />`：白天背景图（`/assets/game/day_bg.png`）`object-fit: cover` 全屏；席位区分左右两列，每列 4 个席位垂直 flex 居中分布。
+- 席位组件 `<GameSeat />` 两态：
+  - 空态：圆形虚线边框 + lucide `Plus` 图标；点击触发 `ModelPicker` 弹窗。
+  - 已分配态：圆形模型头像 + 外侧加粗昵称文字；点击头像同样触发 picker，可重新选择。昵称需带增强文字阴影，避免白天背景下可读性不足。
+- 席位编号是 `<GameSeat />` 的纯 UI 徽标：基于 `seatIndex + 1` 显示 1–8，左列编号位于圆圈左下角，右列编号位于圆圈右下角；编号不写入 `assignments`，也不进入 Referee / FSM / RuleEngine 边界。
+- 模型选择 `<ModelPicker />`：复用 `<LobbyModal>`（variant="default"），渲染 `MODEL_SLOTS` 8 张卡片网格；已被其他席位占用的卡片 `disabled` + 灰度滤镜，当前席位已选卡片黄色边框高亮。
+- 分配状态 `assignments: (number | null)[]`（长度 8）保存在 `<GamePage />` 内部 state；不写 `localStorage`，刷新页面恢复初态。每个 model slot 在 8 席位中至多出现一次。
+- 席位身份占位 `.game-seat-role` 本步骤 `display: none`，作为 `身份分配 / 标识展示` 的扩展点，**不进入** Referee 边界；后续与游戏阶段同步显示分配结果时仍由 Referee 提供脱敏视角，不绕过 §18.1 单一权限边界。
+- 游戏准备页**不发起任何网络请求**、**不引入游戏逻辑**、**不读取 `wolven_hunt/*` 模块**，与 §18.1 / §18.7 / §18.9 同等边界一致。
+- 游戏准备页复用 `MODEL_SLOTS` 头像与昵称；模型 API 默认值只用于系统设置弹窗预填，不在本步骤用于席位分配或网络调用。

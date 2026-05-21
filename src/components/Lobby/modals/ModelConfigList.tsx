@@ -2,6 +2,7 @@ import { useId } from 'react';
 import { useLocalStorage } from '../../../hooks/useLocalStorage';
 import {
   EMPTY_USER_INPUT,
+  MODEL_CONFIG_DEFAULTS,
   MODEL_SLOTS,
   type ModelConfigSlot,
   type ModelConfigUserInput,
@@ -28,9 +29,10 @@ const serializer = {
 
 function ModelConfigRow({ slot }: { slot: ModelConfigSlot }) {
   const inputId = useId();
+  const defaultConfig = MODEL_CONFIG_DEFAULTS[slot.slot] ?? EMPTY_USER_INPUT;
   const [config, setConfig] = useLocalStorage<ModelConfigUserInput>(
     `wolven_hunt.lobby.model_config.${slot.slot}`,
-    EMPTY_USER_INPUT,
+    defaultConfig,
     serializer,
     { debounceMs: 300 },
   );
