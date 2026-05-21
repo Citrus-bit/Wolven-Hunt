@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useMemo } from 'react';
 import { useLocalStorage } from '../../../hooks/useLocalStorage';
 import {
   EMPTY_USER_INPUT,
@@ -8,28 +8,45 @@ import {
   type ModelConfigUserInput,
 } from '../../../lib/modelConfigs';
 
-const serializer = {
-  read: (raw: string): ModelConfigUserInput => {
-    const parsed: unknown = JSON.parse(raw);
+function createSerializer(defaultConfig: ModelConfigUserInput) {
+  return {
+    read: (raw: string): ModelConfigUserInput => {
+      const parsed: unknown = JSON.parse(raw);
 
-    if (typeof parsed !== 'object' || parsed === null) {
-      return EMPTY_USER_INPUT;
-    }
+      if (typeof parsed !== 'object' || parsed === null) {
+        return defaultConfig;
+      }
 
-    const input = parsed as Partial<ModelConfigUserInput>;
+      const input = parsed as Partial<ModelConfigUserInput>;
 
-    return {
-      baseUrl: typeof input.baseUrl === 'string' ? input.baseUrl : '',
-      apiKey: typeof input.apiKey === 'string' ? input.apiKey : '',
-      modelName: typeof input.modelName === 'string' ? input.modelName : '',
-    };
-  },
-  write: (value: ModelConfigUserInput) => JSON.stringify(value),
-};
+      return {
+        baseUrl:
+          typeof input.baseUrl === 'string'
+            ? input.baseUrl
+            : defaultConfig.baseUrl,
+        apiKey:
+          typeof input.apiKey === 'string' ? input.apiKey : defaultConfig.apiKey,
+        modelName:
+          typeof input.modelName === 'string'
+            ? input.modelName
+            : defaultConfig.modelName,
+        thinkingEnabled:
+          typeof input.thinkingEnabled === 'boolean'
+            ? input.thinkingEnabled
+            : defaultConfig.thinkingEnabled,
+      };
+    },
+    write: (value: ModelConfigUserInput) => JSON.stringify(value),
+  };
+}
 
 function ModelConfigRow({ slot }: { slot: ModelConfigSlot }) {
   const inputId = useId();
   const defaultConfig = MODEL_CONFIG_DEFAULTS[slot.slot] ?? EMPTY_USER_INPUT;
+  const serializer = useMemo(
+    () => createSerializer(defaultConfig),
+    [defaultConfig],
+  );
   const [config, setConfig] = useLocalStorage<ModelConfigUserInput>(
     `wolven_hunt.lobby.model_config.${slot.slot}`,
     defaultConfig,
@@ -53,6 +70,7 @@ function ModelConfigRow({ slot }: { slot: ModelConfigSlot }) {
       </label>
       <input
         id={`${inputId}-base-url`}
+        className="lobby-model-input lobby-model-input--base"
         type="text"
         value={config.baseUrl}
         onChange={(event) => update({ baseUrl: event.target.value })}
@@ -65,6 +83,7 @@ function ModelConfigRow({ slot }: { slot: ModelConfigSlot }) {
       </label>
       <input
         id={`${inputId}-api-key`}
+        className="lobby-model-input lobby-model-input--api"
         type="password"
         value={config.apiKey}
         onChange={(event) => update({ apiKey: event.target.value })}
@@ -77,6 +96,7 @@ function ModelConfigRow({ slot }: { slot: ModelConfigSlot }) {
       </label>
       <input
         id={`${inputId}-model-name`}
+        className="lobby-model-input lobby-model-input--model"
         type="text"
         value={config.modelName}
         onChange={(event) => update({ modelName: event.target.value })}
@@ -84,6 +104,17 @@ function ModelConfigRow({ slot }: { slot: ModelConfigSlot }) {
         aria-label={`${slot.nickname} model 名`}
         autoComplete="off"
       />
+      <label className="lobby-model-thinking" htmlFor={`${inputId}-thinking`}>
+        <input
+          id={`${inputId}-thinking`}
+          type="checkbox"
+          checked={config.thinkingEnabled}
+          onChange={(event) =>
+            update({ thinkingEnabled: event.target.checked })
+          }
+        />
+        <span>思考模式</span>
+      </label>
     </div>
   );
 }

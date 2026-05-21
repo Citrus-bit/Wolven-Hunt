@@ -612,9 +612,10 @@ GAME_END
 
 - 系统设置弹窗内含 8 个模型 slot，每个 slot 由两部分组成：
   - **静态部分**（不进 `localStorage`）：`slot` 索引、中文 `nickname`、ASCII `iconPath`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_SLOTS` 常量数组。
-  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置。
-  - **用户覆盖部分**：用户在 UI 中修改的 `baseUrl` / `apiKey` / `modelName`。
-- 用户覆盖输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName}`；不存在 key 时使用仓库默认配置显示。
+  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置；8 个默认 slot 的 `thinkingEnabled` 固定为 `true`。
+  - **用户覆盖部分**：用户在 UI 中修改的 `baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`。
+- 用户覆盖输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName, thinkingEnabled}`；不存在 key 时使用仓库默认配置显示。
+- 读取旧版 `{baseUrl, apiKey, modelName}` 缓存时必须兼容：`thinkingEnabled` 缺失或不是 boolean 时回退对应 slot 的默认值。
 - 写入采用 300ms debounce，避免每次按键打 storage；读 / 写失败仅 `console.warn`，不阻塞 UI。
 - 第一阶段大厅页**不读出**这些字段进任何 fetch / WebSocket / SSE；模型条目仅作为 UI 占位。P2 FastAPI 接入时由后端读取并通过 spectator 视角脱敏（与 §14.1 不绕过 Referee 的硬约束一致）。
 - API key 在前端源码默认值与 `localStorage` 用户覆盖值中均为明文；`<input type="password">` 仅是视觉掩码，不提供加密保护，文档中需提示风险。
@@ -653,12 +654,12 @@ GAME_END
   - "测试模型连通性" 按钮：8 席全部分配前 disabled；填满后启用，点击触发并行 LLM 测试。
   - "夜深了…" 按钮：8 席全部分配且全部测试 ✓ 前 disabled；点击触发 `transitionToStage({ dayNumber, phase: 'night' })`。
 - **席位测试态**：`<GameSeat />` 新增 `testStatus?: ModelTestStatus` prop。`testing` 显示头像灰度 + 三点 pulse 动画（JSX 实现）；`pass` 显示绿色 ✓ 徽标（lucide `Check`）；`fail` 显示红色 ✗ 徽标（lucide `X`）。徽标位于圆圈右上角。
-- **测试逻辑**：`src/lib/modelTest.ts` 提供 `testModelConnection(req)` 与 `readModelConfig(slot)`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`。GamePage `testResults: Record<number, ModelTestResult>` 与测试状态提示仅在内存（不写 localStorage）。改 `assignments` 时清除被覆盖 slot 的测试结果。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要。
+- **测试逻辑**：`src/lib/modelTest.ts` 提供 `testModelConnection(req)` 与 `readModelConfig(slot)`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`，并兼容旧缓存的 `thinkingEnabled` 默认回退。GamePage `testResults: Record<number, ModelTestResult>` 与测试状态提示仅在内存（不写 localStorage）。改 `assignments` 时清除被覆盖 slot 的测试结果。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要。
 - **退出流程**：点退出图标 → `ExitConfirmModal`（游戏页自有紧凑确认面板，不复用大厅 `settings_panel_bg.png`；含取消/确认两按钮）→ 确认后调 `onExitGame`（来自 App 层）→ App 反向过渡（600ms 黑屏 → `setPage('lobby')` → 800ms 亮起）。退出后不自动还原 BGM 静音状态；用户可手动取消静音。
 - **倒计时**：本步骤暂不实现，留给后续步骤（如需要可由 GamePage 透传一个 `seconds` prop 给后续 `<CountdownBar />`）。
 - **DEV-only [debug] 推进按钮**：`import.meta.env.DEV` 守卫；点击 `transitionToStage(...)` 切换白天/黑夜并自增 dayNumber，仅供开发期预览，生产 build tree-shake 掉。
 - **网络请求豁免登记**（与 §14.1 "前端不发起 fetch / WebSocket / SSE" 的关系）：
   - **豁免 A — 同源静态资源 fetch**：`RulesModal` 通过 `fetch('/assets/game/rules.md')` 读取打包到 `public/` 的纯文本规则文档。属于浏览器对自身静态资源的请求（与 `<img>` / `<video>` 同性质），不构成跨域 / 后端 / LLM 调用，不破坏 §14.1 边界精神。
-  - **豁免 B — 用户主动触发的 LLM 配置自检 fetch**：`testModelConnection` 仅在用户点击"测试模型连通性"按钮时执行；用 OpenAI 兼容协议（`POST {baseUrl}/chat/completions`，`Authorization: Bearer {apiKey}`，body `{model, messages, max_tokens: 1}`），15s 超时。其用途是"配置自检"而非"游戏逻辑驱动"，不构成 PlayerView，不进事件日志，不参与胜负判定。P2 接入 FastAPI 后改走后端代理 `/api/test-model`，前端只发同域请求；STEP-04 直连仅是过渡方案。
+  - **豁免 B — 用户主动触发的 LLM 配置自检 fetch**：`testModelConnection` 仅在用户点击"测试模型连通性"按钮时执行；用 OpenAI 兼容协议（`POST {baseUrl}/chat/completions`，`Authorization: Bearer {apiKey}`，基础 body `{model, messages, max_tokens: 1}`），15s 超时。若该 slot `thinkingEnabled === true`，请求体按模型名追加思考模式字段：`qwen*` 用 `enable_thinking: true`；`kimi*` / `mimo*` / `deepseek*` / `glm*` / `doubao*` 用 `thinking: {type: "enabled"}`；`hy3*` 用 `chat_template_kwargs: {thinking: true, reasoning_effort: "medium"}`；`MiniMax*` 用 `reasoning_effort: "medium"`。若 `thinkingEnabled === false`，不发送任何 thinking / reasoning 附加字段。其用途是"配置自检"而非"游戏逻辑驱动"，不构成 PlayerView，不进事件日志，不参与胜负判定。P2 接入 FastAPI 后改走后端代理 `/api/test-model`，前端只发同域请求；STEP-04 直连仅是过渡方案。
   - 上述两类 fetch 不允许扩展到游戏逻辑、对局推进、聊天消息收发等任何运行时数据流；引擎相关交互必须等 P2 走 Referee。
   - 风险登记：apiKey 在 fetch header 中明文传输（HTTPS 下加密，HTTP 下泄漏）——文档需提示仅在 HTTPS 部署或本地 dev 使用。CORS 失败由用户感知为席位 ✗，不静默吞错。

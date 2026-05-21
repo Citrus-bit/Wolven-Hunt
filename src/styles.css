@@ -463,7 +463,8 @@ button {
     "icon name"
     "base base"
     "api api"
-    "model model";
+    "model model"
+    "thinking thinking";
   gap: 6px 8px;
   align-items: center;
   min-width: 0;
@@ -496,7 +497,7 @@ button {
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
-.lobby-model-row input {
+.lobby-model-input {
   width: 100%;
   min-width: 0;
   min-height: 32px;
@@ -512,20 +513,44 @@ button {
     0 4px 14px rgba(0, 0, 0, 0.16);
 }
 
-.lobby-model-row input:nth-of-type(1) {
+.lobby-model-input--base {
   grid-area: base;
 }
 
-.lobby-model-row input:nth-of-type(2) {
+.lobby-model-input--api {
   grid-area: api;
 }
 
-.lobby-model-row input:nth-of-type(3) {
+.lobby-model-input--model {
   grid-area: model;
 }
 
-.lobby-model-row input::placeholder {
+.lobby-model-input::placeholder {
   color: rgba(255, 247, 223, 0.52);
+}
+
+.lobby-model-thinking {
+  grid-area: thinking;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  width: fit-content;
+  max-width: 100%;
+  color: #fff7df;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.42);
+}
+
+.lobby-model-thinking input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #ffe8a6;
+  cursor: pointer;
 }
 
 .lobby-sr-only {

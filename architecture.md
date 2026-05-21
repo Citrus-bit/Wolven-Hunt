@@ -453,9 +453,10 @@ FastAPI 属于 P2，不在第一阶段实现。边界先冻结：
 
 - 系统设置弹窗内含 8 个模型 slot。每个 slot 由两部分组成：
   - **静态部分**（不进 `localStorage`）：`slot` 索引、中文 `nickname`、ASCII `iconPath`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_SLOTS` 常量数组。
-  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置。
-  - **用户覆盖部分**：用户在 UI 中修改的 `baseUrl` / `apiKey` / `modelName`。
-- 用户覆盖输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName}`；不存在 key 时使用仓库默认配置显示。
+  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置；8 个默认 slot 的 `thinkingEnabled` 固定为 `true`。
+  - **用户覆盖部分**：用户在 UI 中修改的 `baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`。
+- 用户覆盖输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName, thinkingEnabled}`；不存在 key 时使用仓库默认配置显示。
+- 读取旧版 `{baseUrl, apiKey, modelName}` 缓存时必须兼容：`thinkingEnabled` 缺失或不是 boolean 时回退对应 slot 的默认值。
 - 写入采用 300ms debounce；读 / 写失败仅 `console.warn`，不阻塞 UI。
 - 第一阶段大厅页**不读出**这些字段进任何 fetch / WebSocket / SSE；模型条目仅作为 UI 占位。P2 FastAPI 接入时由后端读取并通过 spectator 视角脱敏（与 §18.1 不绕过 Referee 的硬约束一致）。
 - API key 在前端源码默认值与 `localStorage` 用户覆盖值中均为明文；`<input type="password">` 仅是视觉掩码，不提供加密保护，文档中需提示风险。
@@ -491,10 +492,10 @@ FastAPI 属于 P2，不在第一阶段实现。边界先冻结：
 - **GamePage 内部 stage 状态机**：`stage: { dayNumber, phase }` 与 `bgPhase: 'idle' | 'fade-out' | 'fade-in'` 由 GamePage 持有；`pendingStageRef` 临时记录待切换的 stage。`<img class="game-bg" src={...}>` src 由 `stage.phase` 派生。`.game-stage-overlay` 的 z-index = 4，覆盖背景图但低于顶栏（z=5）和模态弹窗（createPortal 到 body）。**不复用** App 层 `.page-transition-overlay`，避免白天↔黑夜与 lobby↔game 切换互相耦合。
 - **阶段与布局修正**：`StageIndicator` 显示太阳/月亮 + `第{dayNumber}天`，图标与文案垂直居中。席位昵称显示在头像下方并限制宽度；聊天区位于两列席位之间（当前 `left/right: clamp(118px, 25vw, 220px)`），底部预留操作区空间（当前 `bottom: clamp(240px, 24vh, 310px)`），在约 500px 宽 in-app browser 下也不得与昵称或底部按钮重叠。
 - **GameTopBar / StageIndicator / GameChat / GameBottomActions / RulesModal / ExitConfirmModal** 全部位于 `src/components/Game/` 命名空间。`RulesModal` 使用游戏页自有弹窗外壳与滚动正文背景，不复用大厅 `settings_panel_bg.png`，并对 `rules.md` 做轻量 markdown 解析（标题 / 列表 / 加粗）后渲染为结构化正文；`ExitConfirmModal` 使用游戏页自有紧凑确认面板，不复用大厅竖版背景图；游戏页跨命名空间复用仅限通用 UI 外壳与 `MODEL_SLOTS` 静态配置。
-- **席位测试态边界**：`<GameSeat testStatus>` 仅是 UI hint，不进入 Referee / FSM / RuleEngine；testStatus 由 GamePage 派生自 `testResults[assignment]`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`。`testResults` 与测试状态提示不写 `localStorage`，刷新或退出大厅再进入即重置。改 assignments 时清除被覆盖 slot 的 testResult。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要。
+- **席位测试态边界**：`<GameSeat testStatus>` 仅是 UI hint，不进入 Referee / FSM / RuleEngine；testStatus 由 GamePage 派生自 `testResults[assignment]`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`，并兼容旧缓存的 `thinkingEnabled` 默认回退。`testResults` 与测试状态提示不写 `localStorage`，刷新或退出大厅再进入即重置。改 assignments 时清除被覆盖 slot 的 testResult。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要。
 - **网络请求边界（§18.1 / §18.7 豁免登记）**：STEP-04 首次允许前端代码出现 `fetch()`，仅在以下两类受限场景：
   - **同源静态资源 fetch**（`/assets/game/rules.md`）：等价于 `<img>` / `<video>` 的资源加载，不构成跨域 / 后端 / LLM 调用，不破坏单一权限边界。
-  - **用户主动触发的 LLM 配置自检 fetch**（`testModelConnection`）：仅响应"测试模型连通性"按钮点击；OpenAI 兼容协议；返回值仅用于 ✓/✗ 视觉反馈，**不构成 PlayerView**、**不进事件日志**、**不参与胜负判定**。属于工具型调用，与 §18.1 "Referee 唯一权限边界"不冲突——因为它不产生任何游戏状态。
+  - **用户主动触发的 LLM 配置自检 fetch**（`testModelConnection`）：仅响应"测试模型连通性"按钮点击；OpenAI 兼容协议，基础 body 为 `{model, messages, max_tokens: 1}`。若该 slot `thinkingEnabled === true`，请求体按模型名追加思考模式字段：`qwen*` 用 `enable_thinking: true`；`kimi*` / `mimo*` / `deepseek*` / `glm*` / `doubao*` 用 `thinking: {type: "enabled"}`；`hy3*` 用 `chat_template_kwargs: {thinking: true, reasoning_effort: "medium"}`；`MiniMax*` 用 `reasoning_effort: "medium"`。若 `thinkingEnabled === false`，不发送任何 thinking / reasoning 附加字段。返回值仅用于 ✓/✗ 视觉反馈，**不构成 PlayerView**、**不进事件日志**、**不参与胜负判定**。属于工具型调用，与 §18.1 "Referee 唯一权限边界"不冲突——因为它不产生任何游戏状态。
   - 这两类豁免**不允许**扩展到对局推进、聊天消息收发、玩家行动同步等任何 runtime 数据流；引擎数据流必须等 P2 接入 FastAPI 后由 Referee 控制。
   - apiKey 在 fetch header 明文传输；文档明确要求仅在 HTTPS 或本地 dev 使用。CORS 失败由用户感知为 ✗，不静默吞错。
   - **未来规划**：P2 接入 FastAPI 后，连通性测试改走后端 `POST /api/test-model`，前端只发同域请求；STEP-04 直连是过渡方案。届时 §18.13 本节豁免 B 收紧。

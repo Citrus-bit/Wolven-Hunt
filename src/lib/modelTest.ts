@@ -15,6 +15,7 @@ export type ModelTestRequest = {
   baseUrl: string;
   apiKey: string;
   modelName: string;
+  thinkingEnabled: boolean;
 };
 
 const MODEL_CONFIG_STORAGE_PREFIX = 'wolven' + '_hunt.lobby.model_config.';
@@ -27,8 +28,72 @@ function isCompleteConfig(
 
 type ModelConfigRequestInput = Pick<
   ModelConfigUserInput,
-  'baseUrl' | 'apiKey' | 'modelName'
+  'baseUrl' | 'apiKey' | 'modelName' | 'thinkingEnabled'
 >;
+
+type ChatCompletionRequestBody = {
+  model: string;
+  messages: { role: 'user'; content: string }[];
+  max_tokens: number;
+  enable_thinking?: true;
+  thinking?: { type: 'enabled' };
+  chat_template_kwargs?: {
+    thinking: true;
+    reasoning_effort: 'medium';
+  };
+  reasoning_effort?: 'medium';
+};
+
+export function buildThinkingPayload(
+  modelName: string,
+  enabled: boolean,
+): Partial<ChatCompletionRequestBody> {
+  if (!enabled) {
+    return {};
+  }
+
+  const normalizedModelName = modelName.trim().toLowerCase();
+
+  if (normalizedModelName.startsWith('qwen')) {
+    return { enable_thinking: true };
+  }
+
+  if (
+    normalizedModelName.startsWith('kimi') ||
+    normalizedModelName.startsWith('mimo') ||
+    normalizedModelName.startsWith('deepseek') ||
+    normalizedModelName.startsWith('glm') ||
+    normalizedModelName.startsWith('doubao')
+  ) {
+    return { thinking: { type: 'enabled' } };
+  }
+
+  if (normalizedModelName.startsWith('hy3')) {
+    return {
+      chat_template_kwargs: {
+        thinking: true,
+        reasoning_effort: 'medium',
+      },
+    };
+  }
+
+  if (normalizedModelName.startsWith('minimax')) {
+    return { reasoning_effort: 'medium' };
+  }
+
+  return {};
+}
+
+function buildChatCompletionRequestBody(
+  req: ModelTestRequest,
+): ChatCompletionRequestBody {
+  return {
+    model: req.modelName,
+    messages: [{ role: 'user', content: 'ping' }],
+    max_tokens: 1,
+    ...buildThinkingPayload(req.modelName, req.thinkingEnabled),
+  };
+}
 
 export async function testModelConnection(
   req: ModelTestRequest,
@@ -48,11 +113,7 @@ export async function testModelConnection(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${req.apiKey}`,
       },
-      body: JSON.stringify({
-        model: req.modelName,
-        messages: [{ role: 'user', content: 'ping' }],
-        max_tokens: 1,
-      }),
+      body: JSON.stringify(buildChatCompletionRequestBody(req)),
       signal: controller.signal,
     });
 
@@ -105,6 +166,10 @@ export function readModelConfig(slot: number): ModelTestRequest | null {
         typeof input.modelName === 'string'
           ? input.modelName
           : defaultConfig.modelName,
+      thinkingEnabled:
+        typeof input.thinkingEnabled === 'boolean'
+          ? input.thinkingEnabled
+          : defaultConfig.thinkingEnabled,
     };
 
     if (!isCompleteConfig(mergedConfig)) {
