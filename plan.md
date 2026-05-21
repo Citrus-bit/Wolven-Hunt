@@ -639,3 +639,26 @@ GAME_END
 - 游戏页本身**不持久化**席位分配到 `localStorage`，刷新页面后回大厅初始态（与 §14.1 不引入额外网络/状态边界一致）。
 - 游戏页**不发起任何网络请求**，不引入游戏逻辑（FSM / Referee / RuleEngine），仅前端 UI 编排，与 §14.1 / §14.10 边界一致。
 - 游戏准备页复用 `MODEL_SLOTS` 头像与昵称；模型 API 默认值只用于系统设置弹窗预填，不在本步骤用于席位分配或网络调用。
+
+### 14.14 游戏内 UI 增强（Game Page Enhancements）
+
+本节是 STEP-04 的契约。在 §14.13 游戏准备页基础上叠加：
+
+- **顶栏右上**：固定两个 40×40 圆形按钮——规则（lucide `BookOpen`）+ 退出（lucide `X`），点规则打开 `RulesModal`，点退出打开 `ExitConfirmModal`。
+- **规则弹窗**：`RulesModal` 不复用大厅 `settings_panel_bg.png` 背景图，使用游戏页自有弹窗面板与滚动正文背景承载规则文本；`rules.md` 仍作为唯一静态来源，但前端只做轻量 markdown 解析（标题 / 有序列表 / 无序列表 / 加粗），渲染成人类可读的结构化正文，不用 `<pre>` 直出 `#` 标记，不引入 markdown 富文本依赖。
+- **顶部中心**：阶段指示器 `<StageIndicator />`，显示太阳/月亮（lucide `Sun` / `Moon`）+ `第{dayNumber}天` 文案。图标与文案必须垂直居中对齐。`stage: { dayNumber, phase }` 由 `GamePage` 内部 state 持有，初值 `{ dayNumber: 1, phase: 'day' }`，不写 `localStorage`。
+- **白天 ↔ 黑夜过渡**：GamePage 内部独立的 `.game-stage-overlay`（z-index 4，作用域为 GamePage 内部，不复用 App 层级的 `.page-transition-overlay`），动画与进出大厅相同：600ms 黑屏 + 800ms 亮起。`bgSrc` 由 `stage.phase` 派生，黑屏期间 React re-render 自动换 `<img>` src。`transitionToStage(next: GameStage)` helper 触发动画。
+- **中心聊天区**：`<GameChat />` 显示左右两栏永远并存——左 `通用聊天框`、右 `狼人聊天框`。两栏 `<input>` 本步骤 `disabled`（无消息总线）。狼人栏边框使用红色调以视觉区分。席位昵称显示在头像下方并限制宽度，聊天区夹在两列席位之间（当前 `left/right: clamp(118px, 25vw, 220px)`），底部预留操作区空间（当前 `bottom: clamp(240px, 24vh, 310px)`），在约 500px 宽 in-app browser 下也不得与昵称或底部按钮重叠。
+- **底部按钮区** `<GameBottomActions />`：
+  - "测试模型连通性" 按钮：8 席全部分配前 disabled；填满后启用，点击触发并行 LLM 测试。
+  - "夜深了…" 按钮：8 席全部分配且全部测试 ✓ 前 disabled；点击触发 `transitionToStage({ dayNumber, phase: 'night' })`。
+- **席位测试态**：`<GameSeat />` 新增 `testStatus?: ModelTestStatus` prop。`testing` 显示头像灰度 + 三点 pulse 动画（JSX 实现）；`pass` 显示绿色 ✓ 徽标（lucide `Check`）；`fail` 显示红色 ✗ 徽标（lucide `X`）。徽标位于圆圈右上角。
+- **测试逻辑**：`src/lib/modelTest.ts` 提供 `testModelConnection(req)` 与 `readModelConfig(slot)`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`。GamePage `testResults: Record<number, ModelTestResult>` 与测试状态提示仅在内存（不写 localStorage）。改 `assignments` 时清除被覆盖 slot 的测试结果。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要。
+- **退出流程**：点退出图标 → `ExitConfirmModal`（游戏页自有紧凑确认面板，不复用大厅 `settings_panel_bg.png`；含取消/确认两按钮）→ 确认后调 `onExitGame`（来自 App 层）→ App 反向过渡（600ms 黑屏 → `setPage('lobby')` → 800ms 亮起）。退出后不自动还原 BGM 静音状态；用户可手动取消静音。
+- **倒计时**：本步骤暂不实现，留给后续步骤（如需要可由 GamePage 透传一个 `seconds` prop 给后续 `<CountdownBar />`）。
+- **DEV-only [debug] 推进按钮**：`import.meta.env.DEV` 守卫；点击 `transitionToStage(...)` 切换白天/黑夜并自增 dayNumber，仅供开发期预览，生产 build tree-shake 掉。
+- **网络请求豁免登记**（与 §14.1 "前端不发起 fetch / WebSocket / SSE" 的关系）：
+  - **豁免 A — 同源静态资源 fetch**：`RulesModal` 通过 `fetch('/assets/game/rules.md')` 读取打包到 `public/` 的纯文本规则文档。属于浏览器对自身静态资源的请求（与 `<img>` / `<video>` 同性质），不构成跨域 / 后端 / LLM 调用，不破坏 §14.1 边界精神。
+  - **豁免 B — 用户主动触发的 LLM 配置自检 fetch**：`testModelConnection` 仅在用户点击"测试模型连通性"按钮时执行；用 OpenAI 兼容协议（`POST {baseUrl}/chat/completions`，`Authorization: Bearer {apiKey}`，body `{model, messages, max_tokens: 1}`），15s 超时。其用途是"配置自检"而非"游戏逻辑驱动"，不构成 PlayerView，不进事件日志，不参与胜负判定。P2 接入 FastAPI 后改走后端代理 `/api/test-model`，前端只发同域请求；STEP-04 直连仅是过渡方案。
+  - 上述两类 fetch 不允许扩展到游戏逻辑、对局推进、聊天消息收发等任何运行时数据流；引擎相关交互必须等 P2 走 Referee。
+  - 风险登记：apiKey 在 fetch header 中明文传输（HTTPS 下加密，HTTP 下泄漏）——文档需提示仅在 HTTPS 部署或本地 dev 使用。CORS 失败由用户感知为席位 ✗，不静默吞错。

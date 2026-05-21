@@ -66,9 +66,8 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
     modelName: 'MiniMax-M2.7',
   },
   {
-    baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
-    apiKey:
-      'sk-sp-D.HDXRM.WBYB.MEUCIQDsTRWgINcmA5E+3jY2ESrb/zPm3LwWcbPBQ6HxCxq6lAIgLWMi8mhr+FFH3q6fQxCqWSp4UUQEOLWLK1zHgnCQKj0=',
+    baseUrl: 'https://yunwu.ai/v1',
+    apiKey: 'sk-hxPnpVvndFQNyNr3AcgxintDYBAIgPDZcjrls9V0o9THsZnQ',
     modelName: 'qwen3.6-plus',
   },
   {
@@ -87,9 +86,9 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
     modelName: 'glm-5.1',
   },
   {
-    baseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3',
-    apiKey: 'ark-febcfb7e-75eb-4764-bc12-526dd293d0fb-7bab0',
-    modelName: 'doubao-seed-2.0-pro',
+    baseUrl: 'https://yunwu.ai/v1',
+    apiKey: 'sk-pM36Wb0voJI7mhfvgQSf5eGfXPvisvXSmiN6fm0ZrW2hmKUZ',
+    modelName: 'doubao-seed-2-0-pro-260215',
   },
   {
     baseUrl: 'https://yunwu.ai/v1',

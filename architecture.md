@@ -482,3 +482,20 @@ FastAPI 属于 P2，不在第一阶段实现。边界先冻结：
 - 席位身份占位 `.game-seat-role` 本步骤 `display: none`，作为 `身份分配 / 标识展示` 的扩展点，**不进入** Referee 边界；后续与游戏阶段同步显示分配结果时仍由 Referee 提供脱敏视角，不绕过 §18.1 单一权限边界。
 - 游戏准备页**不发起任何网络请求**、**不引入游戏逻辑**、**不读取 `wolven_hunt/*` 模块**，与 §18.1 / §18.7 / §18.9 同等边界一致。
 - 游戏准备页复用 `MODEL_SLOTS` 头像与昵称；模型 API 默认值只用于系统设置弹窗预填，不在本步骤用于席位分配或网络调用。
+
+### 18.13 游戏内 UI 增强（Game Page Enhancements）
+
+本节是 STEP-04 的架构契约，与 `plan.md` §14.14 一致。在 §18.12 基础上叠加：
+
+- **`App.tsx` 双向页面切换**：新增 `targetPageRef: useRef<Page | null>` 记录 fade-out 后的目标页；`handleEnterGame` 设 `targetPageRef.current = 'game'` + `phase = 'fade-out'`，`handleExitGame` 设 `targetPageRef.current = 'lobby'` + `phase = 'fade-out'`。`onTransitionEnd` 在 fade-out 结束时读 `targetPageRef.current` 切页面 + 下一帧切 fade-in。退出时不自动还原 BGM 静音。
+- **GamePage 内部 stage 状态机**：`stage: { dayNumber, phase }` 与 `bgPhase: 'idle' | 'fade-out' | 'fade-in'` 由 GamePage 持有；`pendingStageRef` 临时记录待切换的 stage。`<img class="game-bg" src={...}>` src 由 `stage.phase` 派生。`.game-stage-overlay` 的 z-index = 4，覆盖背景图但低于顶栏（z=5）和模态弹窗（createPortal 到 body）。**不复用** App 层 `.page-transition-overlay`，避免白天↔黑夜与 lobby↔game 切换互相耦合。
+- **阶段与布局修正**：`StageIndicator` 显示太阳/月亮 + `第{dayNumber}天`，图标与文案垂直居中。席位昵称显示在头像下方并限制宽度；聊天区位于两列席位之间（当前 `left/right: clamp(118px, 25vw, 220px)`），底部预留操作区空间（当前 `bottom: clamp(240px, 24vh, 310px)`），在约 500px 宽 in-app browser 下也不得与昵称或底部按钮重叠。
+- **GameTopBar / StageIndicator / GameChat / GameBottomActions / RulesModal / ExitConfirmModal** 全部位于 `src/components/Game/` 命名空间。`RulesModal` 使用游戏页自有弹窗外壳与滚动正文背景，不复用大厅 `settings_panel_bg.png`，并对 `rules.md` 做轻量 markdown 解析（标题 / 列表 / 加粗）后渲染为结构化正文；`ExitConfirmModal` 使用游戏页自有紧凑确认面板，不复用大厅竖版背景图；游戏页跨命名空间复用仅限通用 UI 外壳与 `MODEL_SLOTS` 静态配置。
+- **席位测试态边界**：`<GameSeat testStatus>` 仅是 UI hint，不进入 Referee / FSM / RuleEngine；testStatus 由 GamePage 派生自 `testResults[assignment]`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`。`testResults` 与测试状态提示不写 `localStorage`，刷新或退出大厅再进入即重置。改 assignments 时清除被覆盖 slot 的 testResult。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要。
+- **网络请求边界（§18.1 / §18.7 豁免登记）**：STEP-04 首次允许前端代码出现 `fetch()`，仅在以下两类受限场景：
+  - **同源静态资源 fetch**（`/assets/game/rules.md`）：等价于 `<img>` / `<video>` 的资源加载，不构成跨域 / 后端 / LLM 调用，不破坏单一权限边界。
+  - **用户主动触发的 LLM 配置自检 fetch**（`testModelConnection`）：仅响应"测试模型连通性"按钮点击；OpenAI 兼容协议；返回值仅用于 ✓/✗ 视觉反馈，**不构成 PlayerView**、**不进事件日志**、**不参与胜负判定**。属于工具型调用，与 §18.1 "Referee 唯一权限边界"不冲突——因为它不产生任何游戏状态。
+  - 这两类豁免**不允许**扩展到对局推进、聊天消息收发、玩家行动同步等任何 runtime 数据流；引擎数据流必须等 P2 接入 FastAPI 后由 Referee 控制。
+  - apiKey 在 fetch header 明文传输；文档明确要求仅在 HTTPS 或本地 dev 使用。CORS 失败由用户感知为 ✗，不静默吞错。
+  - **未来规划**：P2 接入 FastAPI 后，连通性测试改走后端 `POST /api/test-model`，前端只发同域请求；STEP-04 直连是过渡方案。届时 §18.13 本节豁免 B 收紧。
+- **DEV-only 调试入口**：`import.meta.env.DEV` 守卫的 [debug] 推进按钮仅供开发期预览白天/黑夜切换；生产 Vite 构建会 tree-shake；不进入交付路径。

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { GamePage } from './components/Game/GamePage';
 import { LobbyHome } from './components/Lobby/LobbyHome';
 import { useLobbyAudio } from './hooks/useLobbyAudio';
@@ -9,6 +9,7 @@ type TransitionPhase = 'idle' | 'fade-out' | 'fade-in';
 export default function App() {
   const [page, setPage] = useState<Page>('lobby');
   const [phase, setPhase] = useState<TransitionPhase>('idle');
+  const targetPageRef = useRef<Page | null>(null);
   const { muted, toggleMute } = useLobbyAudio();
 
   const handleEnterGame = useCallback(() => {
@@ -20,12 +21,23 @@ export default function App() {
       toggleMute();
     }
 
+    targetPageRef.current = 'game';
     setPhase('fade-out');
   }, [muted, phase, toggleMute]);
 
+  const handleExitGame = useCallback(() => {
+    if (phase !== 'idle') {
+      return;
+    }
+
+    targetPageRef.current = 'lobby';
+    setPhase('fade-out');
+  }, [phase]);
+
   const handleTransitionEnd = () => {
-    if (phase === 'fade-out') {
-      setPage('game');
+    if (phase === 'fade-out' && targetPageRef.current) {
+      setPage(targetPageRef.current);
+      targetPageRef.current = null;
       requestAnimationFrame(() => {
         setPhase('fade-in');
       });
@@ -40,7 +52,7 @@ export default function App() {
   return (
     <>
       {page === 'lobby' && <LobbyHome onEnterGame={handleEnterGame} />}
-      {page === 'game' && <GamePage />}
+      {page === 'game' && <GamePage onExitGame={handleExitGame} />}
       <div
         className={`page-transition-overlay ${
           phase !== 'idle' ? `page-transition-overlay--${phase}` : ''
