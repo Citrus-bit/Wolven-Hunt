@@ -379,3 +379,60 @@ FastAPI 属于 P2，不在第一阶段实现。边界先冻结：
 `plan.md` 是项目基准。任何后续实现若需要改变规则、状态机、事件 schema、目录边界、配置字段、prompt 版本策略、fallback 或 replay 语义，必须同步更新 `plan.md`。
 
 普通代码变更也必须检查 `plan.md` 是否需要同步记录。若无需更新，应在提交说明或变更说明中明确该变更只是落实现有计划，不改变项目契约。
+
+## 18. Web Shell Boundary
+
+本节是 `plan.md` §14「前端入口骨架（Web Lobby Shell）」的契约落地。前端壳与 Python 引擎在同一仓库共存，但权限边界、数据流与命名空间必须严格切开。
+
+### 18.1 模块边界
+
+- 前端入口壳的源码位于仓库根目录：`package.json`、`package-lock.json`、`index.html`、`vite.config.ts`、`tsconfig.json`、`tsconfig.node.json`、`src/components/`、`src/hooks/`、`src/main.tsx`、`src/App.tsx`、`src/styles.css`、`public/`。
+- 与 `src/wolven_hunt/*` 双向不导入：前端不得引用 `src/wolven_hunt/*` 或 `configs/*`；Python 引擎不得依赖前端代码。
+- 前端只消费 spectator 脱敏视角。任何玩家视角、行动校验、私有信息均通过 §15 FastAPI 边界（P2 实现）；前端**不得绕过 Referee**。
+- 第一阶段大厅页**没有任何后端调用**：纯静态资源 + UI 状态，不发起 HTTP / WebSocket / SSE 请求。
+
+### 18.2 前端栈
+
+- Vite + React 18 + TypeScript。
+- 使用 npm 管理依赖，`package-lock.json` 必须随 `package.json` 提交以保证安装可复现。
+- 图标使用 `lucide-react`。
+- 不引入额外的 CSS 框架；不引入路由库（按钮 click 仅 stub）。
+
+### 18.3 静态资源命名与构建
+
+- 运行时资源放在 `public/assets/lobby/`，文件名 ASCII 小写蛇形：`lobby_pingpong.mp4`、`lobby_bgm.mp3`、`lobby_poster.jpg`、`btn_start.png`、`btn_history.png`、`btn_settings.png`。
+- 中文素材保留在 `素材/`，仅作为构建输入，不被运行时直接引用。
+- ping-pong 视频以脚本可复现方式生成：`scripts/build-lobby-pingpong.mjs` 是跨平台 Node 脚本，通过 npm devDependency `ffmpeg-static` 提供的 ffmpeg 二进制把 `素材/大厅界面_动图.mp4` 正放 + 倒放拼接为 `public/assets/lobby/lobby_pingpong.mp4`。脚本不依赖系统 ffmpeg 与 bash；`ffmpeg-static` 已覆盖 Linux / macOS / Windows × x64 / arm64。
+- 第一阶段的 ping-pong 产物 `public/assets/lobby/lobby_pingpong.mp4` 随仓库提交，确保 `git clone && npm install && npm run dev` 即可启动；脚本只在替换素材时重跑。替换素材时以重跑脚本为唯一路径，不得依赖不可重建产物。
+
+### 18.4 大厅动图
+
+- 实现方式固定为预生成 ping-pong MP4，运行时仅用 `<video autoplay muted loop playsInline>`。
+- 禁止使用 `playbackRate=-1`、`currentTime` 反向 seek、运行时双 video 切换等替代方案。
+
+### 18.5 BGM 自动播放策略
+
+- 初始 `muted=true` 自动播放。
+- **首次**用户交互（`pointerdown` 或 `keydown`）后立即解除静音并继续播放；解锁失败保持静音并 `console.warn`，不抛错。
+- 用户可通过右上角浮动按钮在「有声 / 静音」之间切换。
+- 不允许在未解锁前发声；不允许把 BGM 状态写入 `localStorage` 之外的任何来源。
+
+### 18.6 大厅按钮
+
+- 大厅下方水平显示三个按钮，从左到右：开始游戏 → 历史复盘 → 系统设置。
+- 三张图标固定取自 §18.3 命名的 PNG。
+- 第一阶段 click 仅 stub（`console.log('[lobby] click: start|history|settings')`），并暴露可选回调 `onAction(kind)` 供后续步骤接入。
+- `<button>` 可键盘聚焦；`aria-label` 与 `<img alt>` 使用中文按钮名。
+
+### 18.7 行为禁区
+
+第一阶段大厅页代码**不允许**包含：
+
+- LLM 调用、随机数、规则判定、角色分配、投票、FSM 关键字。
+- 直接读取 `src/wolven_hunt/*`、`configs/*`、事件日志或 game state。
+- HTTP / WebSocket / SSE / Worker 请求。
+- 写入 `localStorage` 以外的持久化存储。
+
+### 18.8 阶段交付规格
+
+每个阶段的执行规格放在 `docs/specs/STEP-{NN}-{slug}.md`，由本仓库代理写入，作为实施手册与验收指标的镜像。第一阶段对应 `docs/specs/STEP-01-lobby-home.md`。

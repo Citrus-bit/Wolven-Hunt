@@ -300,8 +300,28 @@ GAME_END
 │   └── prompts/
 │       ├── zh/{seer,guard,wolf,knight,villager}/{night_action,speech,vote,last_words}.v1.md
 │       └── en/...
+├── docs/
+│   └── specs/                               # 阶段交付规格（GPT 执行手册 + 验收指标）
+│       └── STEP-01-lobby-home.md
 ├── .env.example
-├── src/wolven_hunt/
+├── package.json                             # 前端入口壳（Vite + React + TS），见 §14
+├── package-lock.json                        # npm 依赖锁文件
+├── index.html                               # 前端入口 HTML
+├── vite.config.ts
+├── tsconfig.json
+├── tsconfig.node.json
+├── public/
+│   └── assets/lobby/                        # 大厅静态资源（ASCII 命名）
+│       ├── lobby_pingpong.mp4               # 由 scripts/build-lobby-pingpong.mjs 生成；产物随仓库提交
+│       ├── lobby_bgm.mp3
+│       ├── lobby_poster.jpg
+│       ├── btn_start.png
+│       ├── btn_history.png
+│       └── btn_settings.png
+├── 素材/                                    # 中文原始素材，仅作为构建输入，不参与运行时
+├── scripts/
+│   └── build-lobby-pingpong.mjs             # 跨平台 Node 脚本（依赖 ffmpeg-static），生成 ping-pong mp4
+├── src/wolven_hunt/                         # Python 引擎
 │   ├── core/                                # GameState, Event, Role, RuleEngine, WinCondition
 │   ├── referee/                             # PlayerView, validate_action, visibility filter
 │   ├── orchestration/                       # FSM；后续 LangGraph adapter 边界
@@ -309,6 +329,18 @@ GAME_END
 │   ├── llm/                                 # LiteLLM 网关、structured output、重试、fallback、成本记录
 │   ├── storage/                             # 事件日志、快照、回放（两种模式）
 │   └── api/                                 # FastAPI 控制接口
+├── src/                                     # 前端入口壳（与 wolven_hunt/ 互不导入），见 §14
+│   ├── main.tsx
+│   ├── App.tsx
+│   ├── styles.css
+│   ├── components/
+│   │   └── Lobby/
+│   │       ├── LobbyHome.tsx
+│   │       ├── LobbyVideo.tsx
+│   │       ├── LobbyButtons.tsx
+│   │       └── MuteToggle.tsx
+│   └── hooks/
+│       └── useLobbyAudio.ts
 └── tests/
     ├── unit/                                # RuleEngine 纯函数单测
     ├── integration/                         # FSM 全流程
@@ -417,6 +449,7 @@ GAME_END
 | P0 | 写完 `architecture.md` 并冻结：FSM 子状态、事件枚举、夜晚结算顺序、LLM fallback 表 | 规则骨架，缺了无法写代码 |
 | P0 | 目录骨架 + 配置模板（classic_8.yaml + rule_set + role_pack） | 第一阶段交付物 |
 | P0 | `.env.example` + `.gitignore` | 安全前置 |
+| P0 | 前端入口壳（大厅 Home）+ 资源构建脚本 | 单独交付物，不阻塞 Python 引擎进度；契约见 §14 |
 | P1 | RuleEngine 纯函数 + 事件 schema 实现 | 核心 |
 | P1 | Referee + PlayerView + 泄漏测试 | 权限边界 |
 | P1 | FSM 编排 + mock Agent + 100 局集成测试 | 跑通闭环 |
@@ -450,3 +483,77 @@ GAME_END
 - `architecture.md` 是本计划第一阶段的架构契约落地文档。后续实现不得绕过其中定义的 Referee 权限边界、事件日志单一事实源、配置驱动规则、纯 Python FSM 优先、可复现 replay 和 LLM fallback 约束。
 
 以上假设若有不同意见，请在进入实施前明确。
+
+## 14. 前端入口骨架（Web Lobby Shell）
+
+第一阶段除了 Python 引擎骨架外，前端只交付一个**大厅 Home 壳**，用于承接素材并作为后续接入 FastAPI 的可见入口。本节冻结前端壳的契约，使其与 §1–§6 的规则契约**互不影响、互不导入**。
+
+### 14.1 模块边界
+
+- 前端代码统一放在仓库根目录：`package.json`、`package-lock.json`、`index.html`、`vite.config.ts`、`tsconfig.json`、`tsconfig.node.json`、`src/components/`、`src/hooks/`、`src/main.tsx`、`src/App.tsx`、`src/styles.css`、`public/`。
+- 与 `src/wolven_hunt/` Python 引擎在同一仓库下共存，但**双向不导入**：前端不通过任何方式引用 `src/wolven_hunt/*` 或 `configs/*`；Python 引擎也不依赖前端。
+- 前端只消费 **spectator 脱敏视角**。任何玩家视角、行动校验、私有信息均通过后续 P2 FastAPI（§9.2）暴露，**不得绕过 Referee**。
+- 第一阶段大厅页**没有任何后端调用**：纯静态资源 + UI 状态，不发起 HTTP / WebSocket / SSE 请求。
+
+### 14.2 前端栈
+
+- Vite + React 18 + TypeScript（与既有 `dist/` 产物一致）。
+- 使用 npm 管理依赖，`package-lock.json` 必须随 `package.json` 提交以保证安装可复现。
+- 图标使用 `lucide-react`。
+- 不引入额外的 CSS 框架；样式集中在 `src/styles.css` 与组件局部 className。
+- 不引入路由库；按钮 click 仅 stub（`console.log` + 可选回调），等待后续步骤接入二级页。
+
+### 14.3 静态资源命名规范
+
+- 运行时资源放在 `public/assets/lobby/`，文件名一律 **ASCII 小写蛇形**，例如：
+  - `lobby_pingpong.mp4`
+  - `lobby_bgm.mp3`
+  - `lobby_poster.jpg`
+  - `btn_start.png`
+  - `btn_history.png`
+  - `btn_settings.png`
+- 中文素材保留在 `素材/` 目录，仅作为构建输入，不被运行时直接引用。
+
+### 14.4 大厅动图（ping-pong）
+
+- 大厅首页以「大厅界面_动图」为主视觉，要求**正放→倒放→正放**无缝循环。
+- 实现方式固定为「**预生成 ping-pong MP4**」：构建期由跨平台 Node 脚本 `scripts/build-lobby-pingpong.mjs` 调用 npm devDependency `ffmpeg-static` 提供的 ffmpeg 二进制，把原片正放 + 倒放拼接为单段 mp4；运行时只用 `<video autoplay muted loop playsInline>`。
+- 脚本不依赖系统 ffmpeg，也不依赖 bash；`ffmpeg-static` 已覆盖 Linux / macOS / Windows × x64 / arm64。贡献者只需 `npm install && npm run assets:lobby` 即可重新生成 ping-pong mp4。
+- 不允许使用 `playbackRate=-1`、`currentTime` 反向 seek 或运行时双 video 切换等替代方案（避免跨浏览器抖动与移动端发热）。
+- 视频源固定为 `素材/大厅界面_动图.mp4`，构建产物固定为 `public/assets/lobby/lobby_pingpong.mp4`。
+- 海报兜底：`public/assets/lobby/lobby_poster.jpg`，源自 `素材/大厅界面.jpg`。
+
+### 14.5 BGM 自动播放策略
+
+- BGM 源固定为 `public/assets/lobby/lobby_bgm.mp3`（`素材/游戏大厅待机音乐.mp3`）。
+- 进入大厅时音频元素 `muted=true` 自动播放（满足浏览器 autoplay policy）。
+- **首次**用户交互（`pointerdown` 或 `keydown`）后立即解除静音并继续播放；解锁失败时（被浏览器拒绝）保持静音并 `console.warn`，不抛错。
+- 用户可通过右上角浮动按钮在「有声 / 静音」之间切换。
+- 不允许在未解锁前发声，不允许把 BGM 状态写入 `localStorage` 之外的任何来源（防止绕过 §3.1 单一事实源约束）。
+
+### 14.6 大厅按钮
+
+- 大厅下方水平显示三个按钮，从左到右顺序固定为：**开始游戏 → 历史复盘 → 系统设置**。
+- 三张图标固定取自 `public/assets/lobby/btn_start.png` / `btn_history.png` / `btn_settings.png`。
+- 第一阶段每个按钮 click 仅 stub：`console.log('[lobby] click: start' | 'history' | 'settings')`，并暴露可选回调 `onAction(kind)` 供后续步骤接入路由。
+- `<button>` 必须可键盘聚焦，`aria-label` 与 `<img alt>` 使用中文按钮名。
+
+### 14.7 行为禁区
+
+第一阶段大厅页代码**不允许**包含以下内容：
+
+- 任何 LLM 调用、随机数、规则判定、角色分配、投票、FSM 关键字。
+- 直接读取 `src/wolven_hunt/*`、`configs/*`、事件日志或 game state。
+- HTTP / WebSocket / SSE / Worker 请求。
+- 写入 `localStorage` 以外的持久化存储。
+
+### 14.8 资源构建脚本
+
+- `scripts/build-lobby-pingpong.mjs` 是跨平台 Node 脚本，通过 npm devDependency `ffmpeg-static` 提供的 ffmpeg 生成 ping-pong mp4，可重入；输入与输出路径默认值固定如 §14.4。
+- 第一阶段的 ping-pong 产物 `public/assets/lobby/lobby_pingpong.mp4` 随仓库提交，确保 `git clone && npm install && npm run dev` 即可看到大厅动图；脚本仅在替换素材时重跑。
+- 替换素材时以「重跑脚本」为唯一可复现路径，不允许把生成产物当作不可重建素材纳入仓库假设。
+
+### 14.9 阶段交付规格目录
+
+- 每个阶段的执行规格放在 `docs/specs/STEP-{NN}-{slug}.md`，由本仓库代理（Kiro）写入，作为 GPT 实施手册与验收指标的镜像。
+- 第一阶段对应 `docs/specs/STEP-01-lobby-home.md`。
