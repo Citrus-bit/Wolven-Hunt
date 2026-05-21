@@ -302,7 +302,8 @@ GAME_END
 │       └── en/...
 ├── docs/
 │   └── specs/                               # 阶段交付规格（GPT 执行手册 + 验收指标）
-│       └── STEP-01-lobby-home.md
+│       ├── STEP-01-lobby-home.md
+│       └── STEP-02-lobby-modal-and-settings.md
 ├── .env.example
 ├── package.json                             # 前端入口壳（Vite + React + TS），见 §14
 ├── package-lock.json                        # npm 依赖锁文件
@@ -317,7 +318,16 @@ GAME_END
 │       ├── lobby_poster.jpg
 │       ├── btn_start.png
 │       ├── btn_history.png
-│       └── btn_settings.png
+│       ├── btn_settings.png
+│       ├── settings_panel_bg.png            # 大厅弹窗背景框（见 §14.10）
+│       ├── model_icon_minimax_laoshi.png    # 系统设置 8 个模型图标（见 §14.11）
+│       ├── model_icon_wanwen.png
+│       ├── model_icon_guangzhimingmian.png
+│       ├── model_icon_dami.png
+│       ├── model_icon_xueba.png
+│       ├── model_icon_xiaodoubao.png
+│       ├── model_icon_haiseyin.png
+│       └── model_icon_ayuan_tishenban.png
 ├── 素材/                                    # 中文原始素材，仅作为构建输入，不参与运行时
 ├── scripts/
 │   └── build-lobby-pingpong.mjs             # 跨平台 Node 脚本（依赖 ffmpeg-static），生成 ping-pong mp4
@@ -333,14 +343,24 @@ GAME_END
 │   ├── main.tsx
 │   ├── App.tsx
 │   ├── styles.css
+│   ├── lib/
+│   │   └── modelConfigs.ts                  # 8 个模型 slot 静态配置（见 §14.11）
 │   ├── components/
 │   │   └── Lobby/
 │   │       ├── LobbyHome.tsx
 │   │       ├── LobbyVideo.tsx
 │   │       ├── LobbyButtons.tsx
-│   │       └── MuteToggle.tsx
+│   │       ├── MuteToggle.tsx
+│   │       ├── LobbyModal.tsx               # 通用弹窗外壳（见 §14.10）
+│   │       └── modals/
+│   │           ├── StartModal.tsx
+│   │           ├── HistoryModal.tsx
+│   │           ├── SettingsModal.tsx
+│   │           ├── VolumeSlider.tsx
+│   │           └── ModelConfigList.tsx
 │   └── hooks/
-│       └── useLobbyAudio.ts
+│       ├── useLobbyAudio.ts                 # 含 muted + volume + ensureUnlock
+│       └── useLocalStorage.ts               # 通用受控 localStorage hook
 └── tests/
     ├── unit/                                # RuleEngine 纯函数单测
     ├── integration/                         # FSM 全流程
@@ -512,7 +532,17 @@ GAME_END
   - `btn_start.png`
   - `btn_history.png`
   - `btn_settings.png`
+  - `settings_panel_bg.png`（弹窗背景框，源自 `素材/大厅设置栏.png`）
+  - `model_icon_minimax_laoshi.png`（源自 `素材/minimax老师.png`）
+  - `model_icon_wanwen.png`（源自 `素材/万问.png`）
+  - `model_icon_guangzhimingmian.png`（源自 `素材/光之明面.png`）
+  - `model_icon_dami.png`（源自 `素材/大米.png`）
+  - `model_icon_xueba.png`（源自 `素材/学霸.png`）
+  - `model_icon_xiaodoubao.png`（源自 `素材/小豆包儿.png`）
+  - `model_icon_haiseyin.png`（源自 `素材/海瑟音.png`）
+  - `model_icon_ayuan_tishenban.png`（源自 `素材/阿元替身版.png`）
 - 中文素材保留在 `素材/` 目录，仅作为构建输入，不被运行时直接引用。
+- **中文昵称作为数据**由 TS 配置驱动（见 §14.11），不进文件名；运行时 UI 标签从 `MODEL_SLOTS` 读取。
 
 ### 14.4 大厅动图（ping-pong）
 
@@ -523,19 +553,21 @@ GAME_END
 - 视频源固定为 `素材/大厅界面_动图.mp4`，构建产物固定为 `public/assets/lobby/lobby_pingpong.mp4`。
 - 海报兜底：`public/assets/lobby/lobby_poster.jpg`，源自 `素材/大厅界面.jpg`。
 
-### 14.5 BGM 自动播放策略
+### 14.5 音频控制（BGM 与音量）
 
 - BGM 源固定为 `public/assets/lobby/lobby_bgm.mp3`（`素材/游戏大厅待机音乐.mp3`）。
 - 进入大厅时音频元素 `muted=true` 自动播放（满足浏览器 autoplay policy）。
 - **首次**用户交互（`pointerdown` 或 `keydown`）后立即解除静音并继续播放；解锁失败时（被浏览器拒绝）保持静音并 `console.warn`，不抛错。
 - 用户可通过右上角浮动按钮在「有声 / 静音」之间切换。
 - 不允许在未解锁前发声，不允许把 BGM 状态写入 `localStorage` 之外的任何来源（防止绕过 §3.1 单一事实源约束）。
+- 用户可在系统设置弹窗里通过 0–100 整数滑块调节 BGM 音量；当前值持久化到 `localStorage` key `wolven_hunt.lobby.volume`（默认 80）。volume 与 muted 语义独立：滑到 0 不自动静音，按下静音按钮也不会清零 volume。
+- muted 状态同样持久化到 `localStorage` key `wolven_hunt.lobby.muted`，刷新后保留。
 
 ### 14.6 大厅按钮
 
 - 大厅下方水平显示三个按钮，从左到右顺序固定为：**开始游戏 → 历史复盘 → 系统设置**。
 - 三张图标固定取自 `public/assets/lobby/btn_start.png` / `btn_history.png` / `btn_settings.png`。
-- 第一阶段每个按钮 click 仅 stub：`console.log('[lobby] click: start' | 'history' | 'settings')`，并暴露可选回调 `onAction(kind)` 供后续步骤接入路由。
+- 第一阶段每个按钮 click 仍是 stub：`console.log('[lobby] click: start' | 'history' | 'settings')`；同时 `onAction(kind)` 必须接到统一弹窗状态（见 §14.10），由 `LobbyHome` 维护 `activeModal`，按 kind 切换打开 StartModal / HistoryModal / SettingsModal。
 - `<button>` 必须可键盘聚焦，`aria-label` 与 `<img alt>` 使用中文按钮名。
 
 ### 14.7 行为禁区
@@ -557,3 +589,28 @@ GAME_END
 
 - 每个阶段的执行规格放在 `docs/specs/STEP-{NN}-{slug}.md`，由本仓库代理（Kiro）写入，作为 GPT 实施手册与验收指标的镜像。
 - 第一阶段对应 `docs/specs/STEP-01-lobby-home.md`。
+
+### 14.10 大厅弹窗层（Lobby Modal Layer）
+
+- 大厅三个按钮（开始游戏 / 历史复盘 / 系统设置）共用一个通用弹窗外壳 `LobbyModal`，按 kind 切换内容（StartModal / HistoryModal / SettingsModal），同一时刻最多打开一个弹窗。
+- 弹窗状态 `activeModal: 'start' | 'history' | 'settings' | null` 存放在 `LobbyHome` 内部 state；`LobbyButtons.onAction(kind)` 直接 `setActiveModal(kind)`。
+- 弹窗背景固定为 `public/assets/lobby/settings_panel_bg.png`；弹窗主体通过 `createPortal` 挂载到 `document.body`。
+- 关闭方式三选一：右上角 `<X />` 按钮、`Esc` 键、点击遮罩区。三种都调用 `onClose`。
+- 打开时焦点进入弹窗，关闭时还原焦点；`role="dialog"`、`aria-modal="true"`、`aria-labelledby` 指向标题元素。
+- 弹窗层 z-index 高于 lobby 视频 / shade / 按钮 / mute toggle，但仍属于前端壳，**不发起任何网络请求**。
+
+### 14.11 模型配置存储（Model Configs）
+
+- 系统设置弹窗内含 8 个模型 slot，每个 slot 由两部分组成：
+  - **静态部分**（不进 `localStorage`）：`slot` 索引、中文 `nickname`、ASCII `iconPath`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_SLOTS` 常量数组。
+  - **用户输入部分**：`baseUrl` / `apiKey` / `modelName`，初始全空，由用户在 UI 中自填。
+- 用户输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName}`；不存在 key 视为未配置。
+- 写入采用 300ms debounce，避免每次按键打 storage；读 / 写失败仅 `console.warn`，不阻塞 UI。
+- 第一阶段大厅页**不读出**这些字段进任何 fetch / WebSocket / SSE；模型条目仅作为 UI 占位。P2 FastAPI 接入时由后端读取并通过 spectator 视角脱敏（与 §14.1 不绕过 Referee 的硬约束一致）。
+- API key 在 `localStorage` 中明文存储；`<input type="password">` 仅是视觉掩码，不提供加密保护，文档中需提示风险。
+
+### 14.12 弹窗内 CTA
+
+- StartModal 含「进入游戏」stub 按钮：第一阶段 `console.log('[lobby] enter game')` + 关闭弹窗；留给 STEP-03 接入路由 / 对局准备页。
+- HistoryModal 仅展示「功能开发中」占位文案，不放任何 CTA。
+- SettingsModal 不含 CTA：所有改动通过受控输入实时 / debounce 写 `localStorage`，无「保存」按钮。

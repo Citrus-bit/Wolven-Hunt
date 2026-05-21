@@ -1,11 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useLobbyAudio } from '../../hooks/useLobbyAudio';
-import { LobbyButtons } from './LobbyButtons';
+import { LobbyButtons, type LobbyAction } from './LobbyButtons';
 import { LobbyVideo } from './LobbyVideo';
 import { MuteToggle } from './MuteToggle';
+import { HistoryModal } from './modals/HistoryModal';
+import { SettingsModal } from './modals/SettingsModal';
+import { StartModal } from './modals/StartModal';
 
 export function LobbyHome() {
   const { ensureUnlock } = useLobbyAudio();
+  const [activeModal, setActiveModal] = useState<LobbyAction | null>(null);
 
   useEffect(() => {
     let removed = false;
@@ -39,7 +43,16 @@ export function LobbyHome() {
       <LobbyVideo />
       <div className="lobby-shade" aria-hidden="true" />
       <MuteToggle />
-      <LobbyButtons />
+      <LobbyButtons onAction={(kind) => setActiveModal(kind)} />
+      <StartModal open={activeModal === 'start'} onClose={() => setActiveModal(null)} />
+      <HistoryModal
+        open={activeModal === 'history'}
+        onClose={() => setActiveModal(null)}
+      />
+      <SettingsModal
+        open={activeModal === 'settings'}
+        onClose={() => setActiveModal(null)}
+      />
     </main>
   );
 }
