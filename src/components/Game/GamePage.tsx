@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { INITIAL_STAGE, type GameStage } from '../../lib/gameStage';
+import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import {
   readModelConfig,
   testModelConnection,
@@ -23,6 +24,17 @@ type BgPhase = 'idle' | 'fade-out' | 'fade-in';
 type GamePageProps = {
   onExitGame: () => void;
 };
+
+function shuffledModelSlots() {
+  const slots = MODEL_SLOTS.map((slot) => slot.slot);
+
+  for (let index = slots.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [slots[index], slots[swapIndex]] = [slots[swapIndex], slots[index]];
+  }
+
+  return slots;
+}
 
 export function GamePage({ onExitGame }: GamePageProps) {
   const [assignments, setAssignments] = useState<(number | null)[]>(() =>
@@ -66,6 +78,19 @@ export function GamePage({ onExitGame }: GamePageProps) {
     }
 
     const previousSlot = assignments[pickerSeat];
+    if (previousSlot === slotIndex) {
+      setPickerSeat(null);
+      return;
+    }
+
+    const occupiedSeat = assignments.findIndex(
+      (assignment, seatIndex) =>
+        seatIndex !== pickerSeat && assignment === slotIndex,
+    );
+    if (occupiedSeat !== -1) {
+      return;
+    }
+
     setAssignments((prev) => {
       const next = [...prev];
       next[pickerSeat] = slotIndex;
@@ -83,6 +108,44 @@ export function GamePage({ onExitGame }: GamePageProps) {
     });
     setTestMessage(null);
     setPickerSeat(null);
+  };
+
+  const handleSwapModel = (slotIndex: number) => {
+    if (pickerSeat === null || isTesting) {
+      return;
+    }
+
+    const currentSlot = assignments[pickerSeat];
+    if (currentSlot === null || currentSlot === slotIndex) {
+      return;
+    }
+
+    const targetSeat = assignments.findIndex(
+      (assignment, seatIndex) =>
+        seatIndex !== pickerSeat && assignment === slotIndex,
+    );
+    if (targetSeat === -1) {
+      return;
+    }
+
+    setAssignments((prev) => {
+      const next = [...prev];
+      next[pickerSeat] = slotIndex;
+      next[targetSeat] = currentSlot;
+      return next;
+    });
+    setPickerSeat(null);
+  };
+
+  const handleQuickAssign = () => {
+    if (isTesting) {
+      return;
+    }
+
+    setPickerSeat(null);
+    setAssignments(shuffledModelSlots());
+    setTestResults({});
+    setTestMessage(null);
   };
 
   const transitionToStage = (next: GameStage) => {
@@ -229,6 +292,21 @@ export function GamePage({ onExitGame }: GamePageProps) {
       />
       <StageIndicator stage={stage} />
       <GameChat />
+      <div className="game-quick-assign-helper">
+        <img
+          src="/assets/game/quick_assign_raccoon.png"
+          alt=""
+          className="game-quick-assign-mascot"
+        />
+        <button
+          type="button"
+          className="game-quick-assign"
+          onClick={handleQuickAssign}
+          disabled={isTesting}
+        >
+          一键分配
+        </button>
+      </div>
       <div className="game-seats" aria-label="席位区">
         <div className="game-seats-col game-seats-col--left">
           {leftSeats.map((seatIndex) => {
@@ -300,6 +378,7 @@ export function GamePage({ onExitGame }: GamePageProps) {
         currentAssignment={pickerSeat !== null ? assignments[pickerSeat] : null}
         usedSlots={assignments.filter((slot): slot is number => slot !== null)}
         onPick={handlePickModel}
+        onSwap={handleSwapModel}
       />
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
       <ExitConfirmModal

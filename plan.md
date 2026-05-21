@@ -550,6 +550,7 @@ GAME_END
   - `model_icon_xiaodoubao.png`（源自 `素材/小豆包儿.png`）
   - `model_icon_haiseyin.png`（源自 `素材/海瑟音.png`）
   - `model_icon_ayuan_tishenban.png`（源自 `素材/阿元替身版.png`）
+  - 游戏页附加资源放在 `public/assets/game/`，例如 `quick_assign_raccoon.png`（源自 `素材/小浣熊.png`，用于「一键分配」入口装饰）。
 - 中文素材保留在 `素材/` 目录，仅作为构建输入，不被运行时直接引用。
 - **中文昵称作为数据**由 TS 配置驱动（见 §14.11），不进文件名；运行时 UI 标签从 `MODEL_SLOTS` 读取。
 
@@ -635,8 +636,8 @@ GAME_END
 - 席位状态：空态显示圆形虚线边框 + lucide `Plus` 图标；已分配态显示模型头像 + 加粗昵称（昵称在圆圈外侧，左列右侧 / 右列左侧，白天背景下需增强文字阴影）。
 - 席位编号：每个席位圆圈始终显示 1-based 编号徽标；左列自上而下 1–4 且徽标在左下角，右列自上而下 5–8 且徽标在右下角。编号仅是游戏准备页 UI 辅助，不进入 Referee / FSM / RuleEngine 边界。
 - 席位身份位（`.game-seat-role`）本步骤为占位 `<span>`（`display: none`），留给后续步骤填充。
-- 模型选择：点击席位（无论空态或已分配）→ 打开 `ModelPicker`（复用 `LobbyModal`）→ 列出 8 个模型卡片 → 已被其他席位占用的卡片置灰 + `disabled` → 当前席位已选项黄色边框高亮。
-- 模型分配规则：每个 model slot 在 8 席位中至多出现一次；点击已分配头像可重新选择，旧 slot 释放回可选池。
+- 模型选择：点击席位（无论空态或已分配）→ 打开游戏页自有 `ModelPicker` 弹窗（不复用大厅 `LobbyModal` 或 `settings_panel_bg.png`）→ 列出 8 个模型卡片 → 已被其他席位占用的卡片主体置灰 + `disabled`，但在右下角显示图标型「交换」按钮；点击该图标只把当前席位模型与该模型所在席位互换，不产生重复 slot。当前席位已选项黄色边框高亮。
+- 模型分配规则：每个 model slot 在 8 席位中至多出现一次；点击已分配头像可重新选择，旧 slot 释放回可选池。交换席位只调换 `assignments` 中两个位置，不写 `localStorage`、事件日志或 replay，也不清空按 model slot 记录的连通性测试结果。左下角显示小浣熊装饰入口（`quick_assign_raccoon.png`）与「一键分配」按钮，点击后仅在前端 UI 内用 Fisher-Yates 洗牌把 8 个 `MODEL_SLOTS` 随机分散到 8 个席位；该随机只影响当前页面内存中的 `assignments`，不写事件日志、不参与 replay、不进入 Referee / FSM / RuleEngine。触发后清空旧 `testResults` 与测试状态提示，用户需重新测试模型连通性。
 - 游戏页本身**不持久化**席位分配到 `localStorage`，刷新页面后回大厅初始态（与 §14.1 不引入额外网络/状态边界一致）。
 - 游戏页**不发起任何网络请求**，不引入游戏逻辑（FSM / Referee / RuleEngine），仅前端 UI 编排，与 §14.1 / §14.10 边界一致。
 - 游戏准备页复用 `MODEL_SLOTS` 头像与昵称；模型 API 默认值只用于系统设置弹窗预填，不在本步骤用于席位分配或网络调用。
@@ -649,7 +650,7 @@ GAME_END
 - **规则弹窗**：`RulesModal` 不复用大厅 `settings_panel_bg.png` 背景图，使用游戏页自有弹窗面板与滚动正文背景承载规则文本；`rules.md` 仍作为唯一静态来源，但前端只做轻量 markdown 解析（标题 / 有序列表 / 无序列表 / 加粗），渲染成人类可读的结构化正文，不用 `<pre>` 直出 `#` 标记，不引入 markdown 富文本依赖。
 - **顶部中心**：阶段指示器 `<StageIndicator />`，显示太阳/月亮（lucide `Sun` / `Moon`）+ `第{dayNumber}天` 文案。图标与文案必须垂直居中对齐。`stage: { dayNumber, phase }` 由 `GamePage` 内部 state 持有，初值 `{ dayNumber: 1, phase: 'day' }`，不写 `localStorage`。
 - **白天 ↔ 黑夜过渡**：GamePage 内部独立的 `.game-stage-overlay`（z-index 4，作用域为 GamePage 内部，不复用 App 层级的 `.page-transition-overlay`），动画与进出大厅相同：600ms 黑屏 + 800ms 亮起。`bgSrc` 由 `stage.phase` 派生，黑屏期间 React re-render 自动换 `<img>` src。`transitionToStage(next: GameStage)` helper 触发动画。
-- **中心聊天区**：`<GameChat />` 显示左右两栏永远并存——左 `通用聊天框`、右 `狼人聊天框`。两栏 `<input>` 本步骤 `disabled`（无消息总线）。狼人栏边框使用红色调以视觉区分。席位昵称显示在头像下方并限制宽度，聊天区夹在两列席位之间（当前 `left/right: clamp(118px, 25vw, 220px)`），底部预留操作区空间（当前 `bottom: clamp(240px, 24vh, 310px)`），在约 500px 宽 in-app browser 下也不得与昵称或底部按钮重叠。
+- **中心聊天区**：`<GameChat />` 显示左右两栏永远并存——左 `通用聊天框`、右 `狼人聊天框`。两栏 `<input>` 本步骤 `disabled`（无消息总线）。狼人栏边框使用红色调以视觉区分。席位昵称显示在头像下方并限制宽度，聊天区夹在两列席位之间（当前 `left/right: clamp(118px, 25vw, 220px)`），底部预留操作区空间（当前 `bottom: clamp(200px, 20vh, 260px)`），在约 500px 宽 in-app browser 下也不得与昵称或底部按钮重叠。
 - **底部按钮区** `<GameBottomActions />`：
   - "测试模型连通性" 按钮：8 席全部分配前 disabled；填满后启用，点击触发并行 LLM 测试。
   - "夜深了…" 按钮：8 席全部分配且全部测试 ✓ 前 disabled；点击触发 `transitionToStage({ dayNumber, phase: 'night' })`。

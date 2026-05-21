@@ -29,6 +29,7 @@
 10. 点退出 → 二次确认弹窗（取消 / 确认）→ 确认后 600ms 黑屏 + 800ms 亮起 → 切回大厅。
 11. 切回大厅后 BGM **保持静音**（不自动还原）；用户可手动取消静音。
 12. DEV 模式下显示一个 `[debug] 推进` 按钮，用于切换白天/黑夜并 +1 dayNumber；生产 build tree-shake。
+13. 8 席填满后仍可调整席位：打开任一已分配席位的 `ModelPicker`，它使用游戏页自有弹窗外壳，不复用大厅竖版背景图；其它已占用模型卡片主体保持置灰不可直接选择，但右下角提供图标型「交换」按钮，点击后当前席位与该模型所在席位互换。
 
 ---
 
@@ -41,8 +42,9 @@
 | 源 | 目标 |
 |---|---|
 | `素材/Wolven Hunt游戏规则.md`（去除首末围栏） | `public/assets/game/rules.md` |
+| `素材/小浣熊.png` | `public/assets/game/quick_assign_raccoon.png` |
 
-`day_bg.png` / `night_bg.png` 已在 STEP-03 拷贝到 `public/assets/game/`，本步骤直接复用。
+`day_bg.png` / `night_bg.png` 已在 STEP-03 拷贝到 `public/assets/game/`，本步骤直接复用。`quick_assign_raccoon.png` 仅用于左下角「一键分配」装饰入口。
 
 **`素材/` 原文件不得改名 / 删除 / 移动。**
 
@@ -232,7 +234,7 @@ export default function App() {
 src/components/Game/
 ├── GamePage.tsx              # STEP-03 已存在，本步骤大改
 ├── GameSeat.tsx              # STEP-03 已存在，本步骤新增 testStatus prop
-├── ModelPicker.tsx           # STEP-03 已存在，本步骤不改
+├── ModelPicker.tsx           # STEP-03 已存在，本步骤改成游戏页自有弹窗 + 已占用模型交换入口
 ├── GameTopBar.tsx            # 新建
 ├── StageIndicator.tsx        # 新建
 ├── GameChat.tsx              # 新建
@@ -587,6 +589,7 @@ import { RulesModal } from './RulesModal';
 import { ExitConfirmModal } from './ExitConfirmModal';
 import { INITIAL_STAGE } from '../../lib/gameStage';
 import type { GameStage } from '../../lib/gameStage';
+import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import {
   readModelConfig,
   testModelConnection,
@@ -599,6 +602,15 @@ type BgPhase = 'idle' | 'fade-out' | 'fade-in';
 type GamePageProps = {
   onExitGame: () => void;
 };
+
+function shuffledModelSlots() {
+  const slots = MODEL_SLOTS.map((slot) => slot.slot);
+  for (let index = slots.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [slots[index], slots[swapIndex]] = [slots[swapIndex], slots[index]];
+  }
+  return slots;
+}
 
 export function GamePage({ onExitGame }: GamePageProps) {
   const [assignments, setAssignments] = useState<(number | null)[]>(
@@ -640,6 +652,13 @@ export function GamePage({ onExitGame }: GamePageProps) {
       return next;
     });
     setPickerSeat(null);
+  };
+
+  const handleQuickAssign = () => {
+    if (isTesting) return;
+    setPickerSeat(null);
+    setAssignments(shuffledModelSlots());
+    setTestResults({});
   };
 
   const transitionToStage = (next: GameStage) => {
@@ -725,6 +744,16 @@ export function GamePage({ onExitGame }: GamePageProps) {
       />
       <StageIndicator stage={stage} />
       <GameChat />
+      <div className="game-quick-assign-helper">
+        <img
+          src="/assets/game/quick_assign_raccoon.png"
+          alt=""
+          className="game-quick-assign-mascot"
+        />
+        <button type="button" className="game-quick-assign" onClick={handleQuickAssign} disabled={isTesting}>
+          一键分配
+        </button>
+      </div>
       <div className="game-seats" aria-label="席位区">
         <div className="game-seats-col game-seats-col--left">
           {leftSeats.map((seatIndex) => {
@@ -919,7 +948,7 @@ STEP-03 已经把 `onEnterGame` 一路从 `App` → `LobbyHome` → `StartModal`
   top: 80px;
   left: clamp(118px, 25vw, 220px);
   right: clamp(118px, 25vw, 220px);
-  bottom: clamp(240px, 24vh, 310px);
+  bottom: clamp(200px, 20vh, 260px);
   z-index: 2;
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1017,24 +1046,24 @@ STEP-03 已经把 `onEnterGame` 一路从 `App` → `LobbyHome` → `StartModal`
 }
 
 .game-bottom-btn:disabled {
-  background: rgba(120, 120, 120, 0.5);
+  background: rgba(28, 28, 34, 0.62);
   cursor: not-allowed;
   color: rgba(255, 255, 255, 0.6);
 }
 
 .game-bottom-btn--test:not(:disabled) {
-  background: rgba(60, 130, 230, 0.85);
+  background: rgba(22, 72, 148, 0.94);
 }
 .game-bottom-btn--test:not(:disabled):hover {
-  background: rgba(60, 130, 230, 1);
+  background: rgba(28, 86, 176, 0.98);
   transform: translateY(-1px);
 }
 
 .game-bottom-btn--night:not(:disabled) {
-  background: rgba(180, 60, 60, 0.85);
+  background: rgba(118, 34, 38, 0.94);
 }
 .game-bottom-btn--night:not(:disabled):hover {
-  background: rgba(180, 60, 60, 1);
+  background: rgba(150, 42, 46, 0.98);
   transform: translateY(-1px);
 }
 
@@ -1217,6 +1246,7 @@ STEP-03 已经把 `onEnterGame` 一路从 `App` → `LobbyHome` → `StartModal`
 | 文件 | 操作 | 说明 |
 |---|---|---|
 | `public/assets/game/rules.md` | 新建（去围栏拷贝） | 规则文档运行时来源 |
+| `public/assets/game/quick_assign_raccoon.png` | 新建（拷贝） | 左下角一键分配装饰入口 |
 | `src/lib/gameStage.ts` | 新建 | DayPhase / GameStage / INITIAL_STAGE |
 | `src/lib/modelTest.ts` | 新建 | testModelConnection / readModelConfig + 类型 |
 | `src/App.tsx` | 修改 | 增加 `targetPageRef` 与 `handleExitGame`；将 `<GamePage />` 改成 `<GamePage onExitGame={handleExitGame} />` |
@@ -1227,6 +1257,7 @@ STEP-03 已经把 `onEnterGame` 一路从 `App` → `LobbyHome` → `StartModal`
 | `src/components/Game/RulesModal.tsx` | 新建 | fetch rules.md + 轻量解析为可读正文 |
 | `src/components/Game/ExitConfirmModal.tsx` | 新建 | 游戏页自有紧凑确认面板 + 取消 / 确认两按钮 |
 | `src/components/Game/GameSeat.tsx` | 修改 | 新增 `testStatus` prop + 三点动画 + ✓/✗ 徽标 |
+| `src/components/Game/ModelPicker.tsx` | 修改 | 改成游戏页自有弹窗；已占用模型卡片保留右下角图标型「交换」按钮 |
 | `src/components/Game/GamePage.tsx` | 修改 | 整合 stage / overlay / 各子组件 / 测试逻辑 / DEV [debug] 按钮 |
 | `src/styles.css` | 修改 | 追加顶栏 / 阶段指示 / overlay / 聊天 / 底部按钮 / 席位测试态 / 规则与退出弹窗样式 |
 | `plan.md` | 已修改（参考） | 已新增 §14.14 |
@@ -1242,10 +1273,11 @@ STEP-03 已经把 `onEnterGame` 一路从 `App` → `LobbyHome` → `StartModal`
 3. 修改 `src/App.tsx`：增加 `targetPageRef` + `handleExitGame`，把 onExitGame 传给 GamePage。
 4. 新建顺序：`GameTopBar` → `StageIndicator` → `GameChat` → `GameBottomActions` → `RulesModal` → `ExitConfirmModal`。
 5. 修改 `GameSeat.tsx`：testStatus prop + 三点动画 JSX + ✓/✗ 徽标。
-6. 重写 `GamePage.tsx`：整合 stage / overlay / 各子组件 / 测试逻辑 / DEV 推进按钮。
-7. 追加 `src/styles.css`：顶栏 / 阶段指示 / overlay / 聊天 / 底部按钮 / 席位测试态 / 规则与退出弹窗。
-8. 验证：`npm run typecheck` + `npm run build`。
-9. 浏览器手测：参见 §9 验收指标。
+6. 修改 `ModelPicker.tsx`：移除对 `LobbyModal` 的复用，改成游戏页自有弹窗外壳；已占用模型卡片主体置灰 disabled，但右下角提供图标型「交换」按钮。
+7. 重写 `GamePage.tsx`：整合 stage / overlay / 各子组件 / 测试逻辑 / DEV 推进按钮 / 模型交换逻辑。
+8. 追加 `src/styles.css`：顶栏 / 阶段指示 / overlay / 聊天 / 底部按钮 / 席位测试态 / 模型交换图标按钮 / 规则与退出弹窗。
+9. 验证：`npm run typecheck` + `npm run build`。
+10. 浏览器手测：参见 §9 验收指标。
 
 ---
 
@@ -1294,16 +1326,21 @@ STEP-03 已经把 `onEnterGame` 一路从 `App` → `LobbyHome` → `StartModal`
 
 | ID | 检查项 |
 |---|---|
-| E1 | 8 席未填满时「测试模型连通性」按钮灰态 disabled |
-| E2 | 8 席填满后「测试模型连通性」按钮蓝色可点 |
-| E3 | 点击后所有已分配席位头像变灰（grayscale + brightness 0.55）+ 三点 pulse 动画 |
-| E4 | 测试中按钮文字变「正在测试中」且 disabled；所有已分配头像至少展示一次可感知的三点 pulse loading；「夜深了…」也保持 disabled |
-| E5 | 测试完成后每个已分配席位显示 ✓（绿）或 ✗（红）徽标，底部显示通过数量摘要 |
-| E6 | `testModelConnection` 用 `POST {baseUrl}/chat/completions`，Bearer 鉴权，`max_tokens: 1`，超时 15s |
-| E7 | 任一席位 ✗ → 「夜深了…」仍 disabled |
-| E8 | 全部 ✓ → 「夜深了…」变红可点 |
-| E9 | 在 ModelPicker 中重新分配某席位时，对应 slot 的 testResult 被清空，再次需要测试 |
-| E10 | testResults 仅内存（grep `localStorage` 在 GamePage / modelTest.ts 仅出现读，不出现写 testResults 相关 key） |
+| E1 | 左下角显示小浣熊装饰入口与「一键分配」按钮；测试中 disabled |
+| E2 | 点击「一键分配」后 8 个席位全部填满，8 个 model slot 均只出现一次 |
+| E3 | 一键分配只修改 GamePage 内存 `assignments`，不写 `localStorage` / 事件日志 / replay；触发后清空旧 testResults 和测试提示 |
+| E4 | 8 席未填满时「测试模型连通性」按钮灰态 disabled |
+| E5 | 8 席填满后「测试模型连通性」按钮蓝色可点 |
+| E6 | 点击后所有已分配席位头像变灰（grayscale + brightness 0.55）+ 三点 pulse 动画 |
+| E7 | 测试中按钮文字变「正在测试中」且 disabled；所有已分配头像至少展示一次可感知的三点 pulse loading；「夜深了…」也保持 disabled |
+| E8 | 测试完成后每个已分配席位显示 ✓（绿）或 ✗（红）徽标，底部显示通过数量摘要 |
+| E9 | `testModelConnection` 用 `POST {baseUrl}/chat/completions`，Bearer 鉴权，`max_tokens: 1`，超时 15s |
+| E10 | 任一席位 ✗ → 「夜深了…」仍 disabled |
+| E11 | 全部 ✓ → 「夜深了…」变红可点 |
+| E12 | 在 ModelPicker 中重新分配某席位时，对应 slot 的 testResult 被清空，再次需要测试 |
+| E13 | testResults 仅内存（grep `localStorage` 在 GamePage / modelTest.ts 仅出现读，不出现写 testResults 相关 key） |
+| E14 | 8 席填满后打开任一席位，已占用模型卡片主体置灰 disabled，但右下角图标型「交换」按钮可点击且不显示文字标签 |
+| E15 | 点击交换图标后当前席位与目标模型所在席位互换；8 个 model slot 仍唯一，不写 `localStorage` / 事件日志 / replay，不清空按 model slot 记录的 testResults |
 
 ### F. 进入夜晚
 

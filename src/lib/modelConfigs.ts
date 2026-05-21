@@ -81,8 +81,8 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
     thinkingEnabled: true,
   },
   {
-    baseUrl: 'https://api.xiaomimimo.com/v1',
-    apiKey: 'sk-sek59eyxlq0v7b4g3riaejerfdlyryyzp6go04umhts1q009',
+    baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1',
+    apiKey: 'tp-snbqlbrzy2c08jcyumrk4bs166tzbl02u5focufi7kqry1g6',
     modelName: 'mimo-v2.5-pro',
     thinkingEnabled: true,
   },

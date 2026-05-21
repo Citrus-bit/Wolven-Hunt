@@ -622,6 +622,63 @@ button {
   gap: 2.5vh;
 }
 
+.game-quick-assign-helper {
+  position: absolute;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  left: clamp(16px, 3vw, 38px);
+  z-index: 6;
+  width: clamp(118px, 12vw, 156px);
+  pointer-events: none;
+}
+
+.game-quick-assign-mascot {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.34));
+  pointer-events: none;
+  user-select: none;
+}
+
+.game-quick-assign {
+  position: absolute;
+  top: 53%;
+  left: 50%;
+  z-index: 2;
+  min-height: 36px;
+  padding: 8px 15px;
+  color: #fff7df;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 226, 154, 0.62);
+  border-radius: 8px;
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+  touch-action: manipulation;
+  white-space: nowrap;
+}
+
+.game-quick-assign:hover:not(:disabled) {
+  background: rgba(35, 20, 12, 0.72);
+  border-color: rgba(255, 226, 154, 0.88);
+  transform: translate(-50%, calc(-50% - 1px));
+}
+
+.game-quick-assign:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
 .game-seat {
   display: flex;
   align-items: center;
@@ -657,7 +714,9 @@ button {
 }
 
 .game-seat-circle:focus-visible,
-.model-picker-card:focus-visible {
+.model-picker-close:focus-visible,
+.model-picker-card-main:focus-visible,
+.model-picker-swap:focus-visible {
   outline: 2px solid #ffd166;
   outline-offset: 3px;
 }
@@ -712,31 +771,99 @@ button {
   display: none;
 }
 
+.model-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(14px, 4vw, 32px);
+  background: rgba(0, 0, 0, 0.64);
+  backdrop-filter: blur(6px);
+  animation: model-picker-backdrop-in 160ms ease-out;
+}
+
+.model-picker-panel {
+  position: relative;
+  width: min(720px, 94vw);
+  max-height: min(82vh, 640px);
+  padding: clamp(22px, 3vw, 34px);
+  overflow-y: auto;
+  color: #fff7df;
+  background:
+    linear-gradient(180deg, rgba(103, 26, 40, 0.96), rgba(31, 27, 42, 0.97));
+  border: 1px solid rgba(255, 224, 160, 0.34);
+  border-radius: 10px;
+  box-shadow:
+    0 26px 70px rgba(0, 0, 0, 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  outline: none;
+  animation: model-picker-panel-in 220ms cubic-bezier(0.2, 0.9, 0.18, 1) 20ms both;
+  scrollbar-width: thin;
+}
+
+.model-picker-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  color: #fff7df;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 244, 220, 0.3);
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+  touch-action: manipulation;
+}
+
+.model-picker-close:hover {
+  background: rgba(0, 0, 0, 0.44);
+  border-color: rgba(255, 244, 220, 0.5);
+  transform: scale(1.04);
+}
+
+.model-picker-title {
+  margin: 0;
+  padding-right: 42px;
+  color: #fff7df;
+  font-size: clamp(28px, 3vw, 38px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.46);
+}
+
 .model-picker-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 12px;
+  gap: 14px;
+  margin-top: 24px;
 }
 
 .model-picker-card {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 12px;
   min-width: 0;
-  padding: 10px 12px;
+  min-height: 78px;
+  overflow: hidden;
   color: #fff;
-  text-align: left;
   background: rgba(255, 255, 255, 0.06);
-  border: 2px solid transparent;
-  border-radius: 12px;
-  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
   transition:
     background 120ms ease,
     border-color 120ms ease;
 }
 
-.model-picker-card:hover:not(.model-picker-card--disabled) {
+.model-picker-card:not(.model-picker-card--disabled):hover {
   background: rgba(255, 255, 255, 0.12);
 }
 
@@ -746,8 +873,65 @@ button {
 
 .model-picker-card--disabled {
   cursor: not-allowed;
+}
+
+.model-picker-card-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  min-height: 74px;
+  padding: 12px 40px 12px 14px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.model-picker-card-main:disabled {
+  cursor: not-allowed;
+}
+
+.model-picker-card--disabled .model-picker-card-main {
   filter: grayscale(0.8);
   opacity: 0.4;
+}
+
+.model-picker-swap {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: #fff7df;
+  font-family: inherit;
+  line-height: 1;
+  background: rgba(22, 72, 148, 0.78);
+  border: 1px solid rgba(204, 225, 255, 0.6);
+  border-radius: 50%;
+  box-shadow:
+    0 4px 10px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+  touch-action: manipulation;
+}
+
+.model-picker-swap:hover {
+  background: rgba(34, 93, 178, 0.98);
+  border-color: rgba(232, 242, 255, 0.94);
+  transform: translateY(-1px) scale(1.08);
 }
 
 .model-picker-avatar {
@@ -760,9 +944,32 @@ button {
 
 .model-picker-nickname {
   min-width: 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
   font-size: 16px;
   line-height: 1.25;
+}
+
+@keyframes model-picker-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes model-picker-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 @media (max-width: 640px) {
@@ -824,6 +1031,16 @@ button {
     padding: 16px;
   }
 
+  .model-picker-panel {
+    width: min(96vw, 560px);
+    max-height: 86vh;
+    padding: 20px 16px;
+  }
+
+  .model-picker-title {
+    font-size: 28px;
+  }
+
   .lobby-model-row {
     grid-template-columns: clamp(22px, 2.8vh, 30px) minmax(0, 1fr);
     gap: 5px 7px;
@@ -836,6 +1053,16 @@ button {
 
   .game-seat {
     gap: 8px;
+  }
+
+  .game-quick-assign {
+    min-height: 34px;
+    padding: 7px 11px;
+    font-size: 12px;
+  }
+
+  .game-quick-assign-helper {
+    width: 112px;
   }
 
   .game-seat-nickname {
@@ -854,6 +1081,8 @@ button {
   .lobby-modal-content,
   .rules-modal-backdrop,
   .rules-modal-panel,
+  .model-picker-backdrop,
+  .model-picker-panel,
   .exit-confirm-backdrop,
   .exit-confirm-panel {
     animation: none;
@@ -902,6 +1131,7 @@ button {
 .game-top-btn:focus-visible,
 .game-bottom-btn:focus-visible,
 .game-stage-debug:focus-visible,
+.game-quick-assign:focus-visible,
 .exit-confirm-btn:focus-visible {
   outline: 2px solid #ffd166;
   outline-offset: 2px;
@@ -982,7 +1212,7 @@ button {
   position: absolute;
   top: 80px;
   right: clamp(118px, 25vw, 220px);
-  bottom: clamp(240px, 24vh, 310px);
+  bottom: clamp(200px, 20vh, 260px);
   left: clamp(118px, 25vw, 220px);
   z-index: 2;
   display: grid;
@@ -1084,7 +1314,7 @@ button {
   color: #fff;
   font-size: 16px;
   font-weight: 600;
-  background: rgba(120, 120, 120, 0.5);
+  background: rgba(38, 38, 44, 0.68);
   border: 0;
   border-radius: 999px;
   cursor: pointer;
@@ -1096,24 +1326,25 @@ button {
 
 .game-bottom-btn:disabled {
   color: rgba(255, 255, 255, 0.6);
+  background: rgba(28, 28, 34, 0.62);
   cursor: not-allowed;
 }
 
 .game-bottom-btn--test:not(:disabled) {
-  background: rgba(60, 130, 230, 0.85);
+  background: rgba(22, 72, 148, 0.94);
 }
 
 .game-bottom-btn--test:not(:disabled):hover {
-  background: rgba(60, 130, 230, 1);
+  background: rgba(28, 86, 176, 0.98);
   transform: translateY(-1px);
 }
 
 .game-bottom-btn--night:not(:disabled) {
-  background: rgba(180, 60, 60, 0.85);
+  background: rgba(118, 34, 38, 0.94);
 }
 
 .game-bottom-btn--night:not(:disabled):hover {
-  background: rgba(180, 60, 60, 1);
+  background: rgba(150, 42, 46, 0.98);
   transform: translateY(-1px);
 }
 
@@ -1635,6 +1866,7 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .game-top-btn,
   .game-bottom-btn,
+  .game-quick-assign,
   .exit-confirm-btn,
   .exit-confirm-close,
   .game-stage-overlay--fade-out,

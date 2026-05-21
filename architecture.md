@@ -400,7 +400,7 @@ FastAPI 属于 P2，不在第一阶段实现。边界先冻结：
 
 ### 18.3 静态资源命名与构建
 
-- 运行时资源放在 `public/assets/lobby/`，文件名 ASCII 小写蛇形：`lobby_pingpong.mp4`、`lobby_bgm.mp3`、`lobby_poster.jpg`、`btn_start.png`、`btn_history.png`、`btn_settings.png`、`settings_panel_bg.png`、`model_icon_minimax_laoshi.png`、`model_icon_wanwen.png`、`model_icon_guangzhimingmian.png`、`model_icon_dami.png`、`model_icon_xueba.png`、`model_icon_xiaodoubao.png`、`model_icon_haiseyin.png`、`model_icon_ayuan_tishenban.png`。
+- 运行时资源放在 `public/assets/lobby/` 与 `public/assets/game/`，文件名 ASCII 小写蛇形：`lobby_pingpong.mp4`、`lobby_bgm.mp3`、`lobby_poster.jpg`、`btn_start.png`、`btn_history.png`、`btn_settings.png`、`settings_panel_bg.png`、`model_icon_minimax_laoshi.png`、`model_icon_wanwen.png`、`model_icon_guangzhimingmian.png`、`model_icon_dami.png`、`model_icon_xueba.png`、`model_icon_xiaodoubao.png`、`model_icon_haiseyin.png`、`model_icon_ayuan_tishenban.png`、`quick_assign_raccoon.png`（源自 `素材/小浣熊.png`）。
 - 中文素材保留在 `素材/`，仅作为构建输入，不被运行时直接引用。
 - **中文昵称作为数据**由 TS 配置驱动（见 §18.10），不进文件名；运行时 UI 标签从 `MODEL_SLOTS` 读取。
 - ping-pong 视频以脚本可复现方式生成：`scripts/build-lobby-pingpong.mjs` 是跨平台 Node 脚本，通过 npm devDependency `ffmpeg-static` 提供的 ffmpeg 二进制把 `素材/大厅界面_动图.mp4` 正放 + 倒放拼接为 `public/assets/lobby/lobby_pingpong.mp4`。脚本不依赖系统 ffmpeg 与 bash；`ffmpeg-static` 已覆盖 Linux / macOS / Windows × x64 / arm64。
@@ -478,8 +478,10 @@ FastAPI 属于 P2，不在第一阶段实现。边界先冻结：
   - 空态：圆形虚线边框 + lucide `Plus` 图标；点击触发 `ModelPicker` 弹窗。
   - 已分配态：圆形模型头像 + 外侧加粗昵称文字；点击头像同样触发 picker，可重新选择。昵称需带增强文字阴影，避免白天背景下可读性不足。
 - 席位编号是 `<GameSeat />` 的纯 UI 徽标：基于 `seatIndex + 1` 显示 1–8，左列编号位于圆圈左下角，右列编号位于圆圈右下角；编号不写入 `assignments`，也不进入 Referee / FSM / RuleEngine 边界。
-- 模型选择 `<ModelPicker />`：复用 `<LobbyModal>`（variant="default"），渲染 `MODEL_SLOTS` 8 张卡片网格；已被其他席位占用的卡片 `disabled` + 灰度滤镜，当前席位已选卡片黄色边框高亮。
+- 模型选择 `<ModelPicker />`：使用游戏页自有弹窗外壳（不复用大厅 `LobbyModal` 或 `settings_panel_bg.png`），渲染 `MODEL_SLOTS` 8 张卡片网格；已被其他席位占用的卡片主体 `disabled` + 灰度滤镜，但卡片右下角保留图标型「交换」按钮，用于把当前席位模型与该模型所在席位互换。当前席位已选卡片黄色边框高亮。
 - 分配状态 `assignments: (number | null)[]`（长度 8）保存在 `<GamePage />` 内部 state；不写 `localStorage`，刷新页面恢复初态。每个 model slot 在 8 席位中至多出现一次。
+- 模型交换只调换 `assignments` 中两个 seat index 的 slot 值，不写 `localStorage` / 事件日志 / replay，不触发 Referee / FSM / RuleEngine，也不清空按 model slot 记录的 `testResults`；测试徽标随模型头像移动。
+- 「一键分配」是游戏准备页的纯 UI 快捷操作：入口位于左下角，由 `quick_assign_raccoon.png` 装饰图与按钮组成；点击后用 Fisher-Yates 洗牌 `MODEL_SLOTS` 的 0–7 索引并一次性写入 `assignments`。该随机不写事件日志、不参与 replay、不进入 Referee / FSM / RuleEngine；触发后必须清空旧 `testResults` 与测试提示，避免旧连通性标记误用于新席位。
 - 席位身份占位 `.game-seat-role` 本步骤 `display: none`，作为 `身份分配 / 标识展示` 的扩展点，**不进入** Referee 边界；后续与游戏阶段同步显示分配结果时仍由 Referee 提供脱敏视角，不绕过 §18.1 单一权限边界。
 - 游戏准备页**不发起任何网络请求**、**不引入游戏逻辑**、**不读取 `wolven_hunt/*` 模块**，与 §18.1 / §18.7 / §18.9 同等边界一致。
 - 游戏准备页复用 `MODEL_SLOTS` 头像与昵称；模型 API 默认值只用于系统设置弹窗预填，不在本步骤用于席位分配或网络调用。
@@ -490,7 +492,7 @@ FastAPI 属于 P2，不在第一阶段实现。边界先冻结：
 
 - **`App.tsx` 双向页面切换**：新增 `targetPageRef: useRef<Page | null>` 记录 fade-out 后的目标页；`handleEnterGame` 设 `targetPageRef.current = 'game'` + `phase = 'fade-out'`，`handleExitGame` 设 `targetPageRef.current = 'lobby'` + `phase = 'fade-out'`。`onTransitionEnd` 在 fade-out 结束时读 `targetPageRef.current` 切页面 + 下一帧切 fade-in。退出时不自动还原 BGM 静音。
 - **GamePage 内部 stage 状态机**：`stage: { dayNumber, phase }` 与 `bgPhase: 'idle' | 'fade-out' | 'fade-in'` 由 GamePage 持有；`pendingStageRef` 临时记录待切换的 stage。`<img class="game-bg" src={...}>` src 由 `stage.phase` 派生。`.game-stage-overlay` 的 z-index = 4，覆盖背景图但低于顶栏（z=5）和模态弹窗（createPortal 到 body）。**不复用** App 层 `.page-transition-overlay`，避免白天↔黑夜与 lobby↔game 切换互相耦合。
-- **阶段与布局修正**：`StageIndicator` 显示太阳/月亮 + `第{dayNumber}天`，图标与文案垂直居中。席位昵称显示在头像下方并限制宽度；聊天区位于两列席位之间（当前 `left/right: clamp(118px, 25vw, 220px)`），底部预留操作区空间（当前 `bottom: clamp(240px, 24vh, 310px)`），在约 500px 宽 in-app browser 下也不得与昵称或底部按钮重叠。
+- **阶段与布局修正**：`StageIndicator` 显示太阳/月亮 + `第{dayNumber}天`，图标与文案垂直居中。席位昵称显示在头像下方并限制宽度；聊天区位于两列席位之间（当前 `left/right: clamp(118px, 25vw, 220px)`），底部预留操作区空间（当前 `bottom: clamp(200px, 20vh, 260px)`），在约 500px 宽 in-app browser 下也不得与昵称或底部按钮重叠。
 - **GameTopBar / StageIndicator / GameChat / GameBottomActions / RulesModal / ExitConfirmModal** 全部位于 `src/components/Game/` 命名空间。`RulesModal` 使用游戏页自有弹窗外壳与滚动正文背景，不复用大厅 `settings_panel_bg.png`，并对 `rules.md` 做轻量 markdown 解析（标题 / 列表 / 加粗）后渲染为结构化正文；`ExitConfirmModal` 使用游戏页自有紧凑确认面板，不复用大厅竖版背景图；游戏页跨命名空间复用仅限通用 UI 外壳与 `MODEL_SLOTS` 静态配置。
 - **席位测试态边界**：`<GameSeat testStatus>` 仅是 UI hint，不进入 Referee / FSM / RuleEngine；testStatus 由 GamePage 派生自 `testResults[assignment]`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`，并兼容旧缓存的 `thinkingEnabled` 默认回退。`testResults` 与测试状态提示不写 `localStorage`，刷新或退出大厅再进入即重置。改 assignments 时清除被覆盖 slot 的 testResult。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要。
 - **网络请求边界（§18.1 / §18.7 豁免登记）**：STEP-04 首次允许前端代码出现 `fetch()`，仅在以下两类受限场景：
