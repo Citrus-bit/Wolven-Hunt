@@ -624,54 +624,61 @@ button {
 
 .game-quick-assign-helper {
   position: absolute;
-  bottom: max(18px, env(safe-area-inset-bottom));
-  left: clamp(16px, 3vw, 38px);
+  top: clamp(82px, 9.5vh, 104px);
+  left: 50%;
   z-index: 6;
-  width: clamp(118px, 12vw, 156px);
+  display: flex;
+  justify-content: center;
+  transform: translateX(-50%);
   pointer-events: none;
-}
-
-.game-quick-assign-mascot {
-  display: block;
-  width: 100%;
-  height: auto;
-  filter: drop-shadow(0 12px 20px rgba(0, 0, 0, 0.34));
-  pointer-events: none;
-  user-select: none;
 }
 
 .game-quick-assign {
-  position: absolute;
-  top: 53%;
-  left: 50%;
   z-index: 2;
-  min-height: 36px;
-  padding: 8px 15px;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 116px;
+  min-height: 44px;
+  padding: 0 18px;
   color: #fff7df;
   font-size: 14px;
   font-weight: 700;
   line-height: 1;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    transform 140ms ease;
+  touch-action: manipulation;
+  white-space: nowrap;
+}
+
+.game-quick-assign::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
   background: rgba(0, 0, 0, 0.42);
   border: 1px solid rgba(255, 226, 154, 0.62);
   border-radius: 8px;
   box-shadow:
     0 8px 18px rgba(0, 0, 0, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  cursor: pointer;
-  pointer-events: auto;
-  transform: translate(-50%, -50%);
   transition:
     background 140ms ease,
-    border-color 140ms ease,
-    transform 140ms ease;
-  touch-action: manipulation;
-  white-space: nowrap;
+    border-color 140ms ease;
 }
 
 .game-quick-assign:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.game-quick-assign:hover:not(:disabled)::before {
   background: rgba(35, 20, 12, 0.72);
   border-color: rgba(255, 226, 154, 0.88);
-  transform: translate(-50%, calc(-50% - 1px));
 }
 
 .game-quick-assign:disabled {
@@ -1056,13 +1063,9 @@ button {
   }
 
   .game-quick-assign {
-    min-height: 34px;
-    padding: 7px 11px;
-    font-size: 12px;
-  }
-
-  .game-quick-assign-helper {
-    width: 112px;
+    min-height: 44px;
+    padding: 0 14px;
+    font-size: 13px;
   }
 
   .game-seat-nickname {
@@ -1210,9 +1213,9 @@ button {
 
 .game-chat {
   position: absolute;
-  top: 80px;
+  top: clamp(218px, 24vh, 258px);
   right: clamp(118px, 25vw, 220px);
-  bottom: clamp(200px, 20vh, 260px);
+  bottom: max(26px, calc(env(safe-area-inset-bottom) + 18px));
   left: clamp(118px, 25vw, 220px);
   z-index: 2;
   display: grid;
@@ -1223,7 +1226,7 @@ button {
 
 .game-chat-panel {
   display: flex;
-  min-height: 200px;
+  min-height: 0;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.4);
@@ -1284,12 +1287,12 @@ button {
 
 .game-bottom-actions {
   position: absolute;
-  bottom: max(16px, env(safe-area-inset-bottom));
+  top: clamp(152px, 17vh, 182px);
   left: 50%;
   z-index: 5;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   transform: translateX(-50%);
 }
@@ -1297,7 +1300,7 @@ button {
 .game-test-status {
   max-width: min(420px, 76vw);
   margin: 0;
-  padding: 6px 12px;
+  padding: 5px 12px;
   color: rgba(255, 255, 255, 0.9);
   font-size: 13px;
   line-height: 1.35;
@@ -1308,8 +1311,13 @@ button {
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
 }
 
+.game-page:has(.game-test-status) .game-chat {
+  top: clamp(260px, 30vh, 308px);
+}
+
 .game-bottom-btn {
   min-width: 220px;
+  min-height: 44px;
   padding: 10px 28px;
   color: #fff;
   font-size: 16px;
@@ -1339,13 +1347,45 @@ button {
   transform: translateY(-1px);
 }
 
-.game-bottom-btn--night:not(:disabled) {
-  background: rgba(118, 34, 38, 0.94);
+.game-bottom-btn--night-ready:not(:disabled) {
+  color: #fff8f3;
+  background:
+    linear-gradient(180deg, rgba(153, 38, 45, 0.98), rgba(90, 18, 24, 0.96));
+  border: 1px solid rgba(255, 145, 145, 0.44);
+  box-shadow:
+    0 0 18px rgba(202, 42, 48, 0.45),
+    0 0 34px rgba(132, 22, 28, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.74);
 }
 
-.game-bottom-btn--night:not(:disabled):hover {
-  background: rgba(150, 42, 46, 0.98);
+.game-bottom-btn--night-ready:not(:disabled):hover {
+  background:
+    linear-gradient(180deg, rgba(176, 48, 56, 0.98), rgba(108, 22, 30, 0.98));
+  box-shadow:
+    0 0 22px rgba(232, 64, 68, 0.56),
+    0 0 42px rgba(150, 28, 36, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
   transform: translateY(-1px);
+}
+
+@media (max-width: 640px) {
+  .game-chat {
+    top: clamp(228px, 28vh, 258px);
+    right: clamp(92px, 24vw, 104px);
+    left: clamp(92px, 24vw, 104px);
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .game-chat-panel {
+    min-height: 0;
+  }
+
+  .game-page:has(.game-test-status) .game-chat {
+    top: clamp(290px, 36vh, 324px);
+  }
 }
 
 .game-stage-debug {

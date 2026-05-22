@@ -15,26 +15,28 @@ export function GameBottomActions({
   onClickTest,
   onClickEnterNight,
 }: GameBottomActionsProps) {
-  const testDisabled = !allSeatsAssigned || isTesting;
-  const enterDisabled = !allSeatsAssigned || !allTestsPassed || isTesting;
+  const isNightReady = allSeatsAssigned && allTestsPassed && !isTesting;
+  const actionDisabled = !allSeatsAssigned || isTesting;
+  const actionLabel = isNightReady
+    ? '夜深了...'
+    : isTesting
+      ? '正在测试中'
+      : '测试模型连通性';
+  const actionClassName = [
+    'game-bottom-btn',
+    isNightReady ? 'game-bottom-btn--night-ready' : 'game-bottom-btn--test',
+  ].join(' ');
+  const handleClickAction = isNightReady ? onClickEnterNight : onClickTest;
 
   return (
     <div className="game-bottom-actions">
       <button
         type="button"
-        className="game-bottom-btn game-bottom-btn--test"
-        disabled={testDisabled}
-        onClick={onClickTest}
+        className={actionClassName}
+        disabled={actionDisabled}
+        onClick={handleClickAction}
       >
-        {isTesting ? '正在测试中' : '测试模型连通性'}
-      </button>
-      <button
-        type="button"
-        className="game-bottom-btn game-bottom-btn--night"
-        disabled={enterDisabled}
-        onClick={onClickEnterNight}
-      >
-        夜深了…
+        {actionLabel}
       </button>
       {testMessage && (
         <p className="game-test-status" role="status" aria-live="polite">

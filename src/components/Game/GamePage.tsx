@@ -293,11 +293,6 @@ export function GamePage({ onExitGame }: GamePageProps) {
       <StageIndicator stage={stage} />
       <GameChat />
       <div className="game-quick-assign-helper">
-        <img
-          src="/assets/game/quick_assign_raccoon.png"
-          alt=""
-          className="game-quick-assign-mascot"
-        />
         <button
           type="button"
           className="game-quick-assign"

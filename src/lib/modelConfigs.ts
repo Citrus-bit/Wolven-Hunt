@@ -99,8 +99,8 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
     thinkingEnabled: true,
   },
   {
-    baseUrl: 'https://yunwu.ai/v1',
-    apiKey: 'sk-fsxGOvfC9bNdRPopgB1ldIwWIBLn6oTQPUlYPHNvb1VQfxHC',
+    baseUrl: 'https://api.deepseek.com',
+    apiKey: 'sk-303313d10b7149bf831b7909bf70ad4f',
     modelName: 'deepseek-v4-pro',
     thinkingEnabled: true,
   },
