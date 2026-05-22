@@ -1,16 +1,33 @@
 import { LobbyModal } from '../LobbyModal';
+import { createGame } from '../../../lib/gameApi';
+import { useState } from 'react';
 
 type StartModalProps = {
   open: boolean;
   onClose: () => void;
-  onEnterGame: () => void;
+  onEnterGame: (gameId: string) => void;
 };
 
 export function StartModal({ open, onClose, onEnterGame }: StartModalProps) {
-  const enterGame = () => {
+  const [isStarting, setIsStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const enterGame = async () => {
+    if (isStarting) {
+      return;
+    }
     console.log('[lobby] enter game');
-    onClose();
-    onEnterGame();
+    setIsStarting(true);
+    setError(null);
+    try {
+      const { game_id } = await createGame();
+      onClose();
+      onEnterGame(game_id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '创建游戏失败');
+    } finally {
+      setIsStarting(false);
+    }
   };
 
   return (
@@ -29,8 +46,18 @@ export function StartModal({ open, onClose, onEnterGame }: StartModalProps) {
           <li>局内可以查看完整规则，进入大厅只是开始入口。</li>
         </ul>
       </div>
-      <button type="button" className="lobby-modal-cta" onClick={enterGame}>
-        进入游戏
+      {error && (
+        <p className="lobby-modal-tip" role="alert">
+          {error}
+        </p>
+      )}
+      <button
+        type="button"
+        className="lobby-modal-cta"
+        onClick={enterGame}
+        disabled={isStarting}
+      >
+        {isStarting ? '正在创建...' : '进入游戏'}
       </button>
     </LobbyModal>
   );

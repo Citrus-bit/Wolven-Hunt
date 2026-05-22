@@ -1241,6 +1241,9 @@ button {
 }
 
 .game-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 8px 12px;
   color: #fff;
   font-size: 14px;
@@ -1264,12 +1267,36 @@ button {
 }
 
 .game-chat-footer {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 58px;
+  gap: 8px;
+  align-items: center;
   padding: 8px 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.15);
 }
 
+.game-chat-seat {
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.game-chat-seat select {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 6px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+}
+
 .game-chat-input {
   width: 100%;
+  min-width: 0;
   padding: 6px 10px;
   color: #fff;
   font-size: 13px;
@@ -1281,6 +1308,59 @@ button {
 .game-chat-input:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.game-chat-submit {
+  min-height: 32px;
+  padding: 6px 10px;
+  color: #241805;
+  background: linear-gradient(180deg, #fff1b8 0%, #ffd86d 100%);
+  border: 1px solid rgba(255, 245, 199, 0.72);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.game-chat-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.game-chat-status {
+  grid-column: 1 / -1;
+  color: rgba(255, 247, 223, 0.85);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.game-stream-status {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.84;
+}
+
+.game-stream-status--open {
+  color: #c9ffbf;
+}
+
+.game-stream-status--connecting {
+  color: #ffe8a6;
+}
+
+.game-stream-status--error {
+  color: #ffb5b5;
+}
+
+.game-event-line {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 6px;
+  word-break: break-word;
+}
+
+.game-event-seq {
+  flex: 0 0 auto;
+  color: rgba(255, 232, 166, 0.88);
+  font-variant-numeric: tabular-nums;
 }
 
 /* === STEP-04: 底部按钮区 === */

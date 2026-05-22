@@ -14,7 +14,7 @@
 - 骑士 1 人
 - 守卫 1 人
 
-当前阶段为 STEP-05 / P1 后端引擎实现：允许实现 Python 事件模型、RuleEngine、Referee、纯 Python FSM、deterministic mock agent、内存 EventLog、`replay_deterministic` 与对应测试。真实 LLM、FastAPI/SSE、默认磁盘持久化和 `replay_resimulate` 仍留给后续阶段。
+当前阶段为 STEP-06 / P2 外部接入实现：允许在 STEP-05 引擎基础上实现 LLM 网关、结构化输出校验、mock provider、LLMAgent、落盘 EventLog sink、`replay_resimulate`、FastAPI/SSE、CLI serve/resimulate 与前端 spectator 事件流接入。
 
 ## 2. Rule Contract
 
@@ -210,10 +210,10 @@ GAME_END
 - 流程：`game_start`, `phase_enter`, `phase_exit`, `game_end`
 - 夜晚：`guard_protect`, `wolf_chat_message`, `wolf_kill_vote`, `wolf_kill_decided`, `wolf_tie_random`, `seer_check`, `seer_check_result`, `no_death_tonight`, `death_at_night`
 - 白天：`day_announce`, `last_words`, `speech`, `knight_challenge`, `knight_result`, `vote_cast`, `vote_result`, `vote_pk_enter`, `peaceful_day`, `exile`
-- 系统：`win_check`, `agent_timeout`, `agent_invalid_action`, `agent_fallback_triggered`
+- 系统：`win_check`, `agent_timeout`, `agent_invalid_action`, `agent_fallback_triggered`, `agent_budget_warning`
 - 元数据：`llm_call`
 
-`llm_call` 包含 prompt hash、raw response hash、storage ref、model、token、cost，但仅写入存储层，不进入 PlayerView。完整 raw response 仅写入私有存储。
+`llm_call` 包含 `prompt_hash`、`raw_response_hash`、`storage_ref`、`model`、`prompt_tokens`、`completion_tokens`、`cost_usd`、`prompt_version`，但仅写入存储层，不进入 PlayerView。完整 raw response 仅写入私有存储；`llm_call` payload 不得包含 raw response 原文。
 
 所有随机事件 payload 必须记录：
 
@@ -247,7 +247,9 @@ Referee 是唯一权限边界。核心规则和 Agent 不得自行拼接越权�
 - 非法 JSON 或 schema 校验失败。
 - 合法性校验失败：结构合法但违反规则。
 
-每阶段每 Agent 最多重试 `llm.max_retries` 次，默认 2 次。重试仍失败则触发 fallback，并记录 `agent_fallback_triggered`。
+错误子类映射到外显事件：`timeout` / `rate_limit` / `network` 归为 `agent_timeout`；`invalid_json` / `schema_violation` / `illegal_action` 归为 `agent_invalid_action`。
+
+每阶段每 Agent 最多重试 `llm.max_retries` 次，默认 2 次。重试 prompt 末尾追加：`上一次输出未被接受：{error_type}: {message}。请只返回符合 schema 的 JSON。` 重试仍失败则触发 fallback，并记录 `agent_fallback_triggered`。
 
 默认 fallback：
 
@@ -280,6 +282,7 @@ Referee 是唯一权限边界。核心规则和 Agent 不得自行拼接越权�
 - 使用存储的 `llm_call` 原始响应重跑 FSM。
 - 断言事件序列与原日志一致。
 - 用于回归测试和引擎重构后的等价性验证。
+- 一致性比对维度固定为 `type, actor, day, phase, canonical_payload`；不要求 `event_id` 与 `timestamp` 字节相等。首个分歧报告 `(seq, field, expected, actual)`。
 
 所有随机决策必须可由 `random_seed + rng_stream + candidates` 重建。事件记录的 `selected` 用于一致性断言。
 
@@ -305,6 +308,7 @@ configs/prompts/zh/seer/night_action.v3.md
 
 - 所有 LLM 输出走结构化 schema 校验。
 - 校验失败进入重试与 fallback。
+- 输出 JSON schema 按 phase 固定为：`NIGHT_GUARD {target}`、`NIGHT_WOLF_CHAT {text}`、`NIGHT_WOLF_VOTE {target}`、`NIGHT_SEER {target}`、`DAY_SPEECH {text}`、`DAY_KNIGHT_INTERRUPT {activate, target?}`、`DAY_VOTE {target}`、`DAY_VOTE_PK {target}`、`DAY_LAST_WORDS {text}`。
 
 PlayerView 大小控制：
 
@@ -322,7 +326,9 @@ PlayerView 大小控制：
 - `src/wolven_hunt/agents`：PlayerInterface、LLMPlayer、HumanPlayer stub。
 - `src/wolven_hunt/llm`：LiteLLM 网关、structured output、重试、fallback、成本记录。
 - `src/wolven_hunt/storage`：事件日志、快照、两种 replay 模式。
-- `src/wolven_hunt/api`：FastAPI 控制接口，P2 实现。
+- `src/wolven_hunt/api`：FastAPI 控制接口，STEP-06 实现。
+
+落盘目录固定为 `runs/{game_id}/events.jsonl`、`raw_responses.jsonl`、`manifest.json`、`cost.jsonl`。写入使用 tmp + fsync + atomic rename 或行级 fsync，文件权限为 `0600`。
 
 调用链固定：
 
@@ -340,7 +346,7 @@ FSM
 
 ## 15. API Boundary
 
-FastAPI 属于 P2，不在 STEP-05 实现。边界先冻结：
+FastAPI 在 STEP-06 实现，所有读取接口默认返回 spectator 脱敏视角：
 
 - `POST /games`
 - `GET /games/{id}`
@@ -351,8 +357,28 @@ FastAPI 属于 P2，不在 STEP-05 实现。边界先冻结：
 - `POST /games/{id}/replay`
 - `POST /games/{id}/dev/inject`
 - `GET /games/{id}/stream`
+- `POST /games/{id}/speech`
+- `POST /games/{id}/wolf_chat`
 
-所有读取接口默认返回 spectator 脱敏视角。
+错误体统一为 `{code, message, details?}`。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。
+
+SSE 线协议固定为 `event: game_event`、`id: <seq>`、`data: <spectator Event JSON>`；每 30s 发送 `event: heartbeat`。`Last-Event-ID` 表示从 `seq + 1` 续推，不存在则返回 410。CORS 默认白名单是 `http://localhost:5173`，可通过 `WH_API_CORS_ORIGINS` 配置。
+
+STEP-06 环境变量统一由 `src/wolven_hunt/config/settings.py` 的 `pydantic-settings.BaseSettings` 读取：
+
+- `WH_LLM_PROVIDER`：`mock` | `litellm`，缺省为 `mock`；非法值启动失败
+- `WH_LLM_API_KEY`：真实 provider 的 API key；`WH_LLM_PROVIDER=litellm` 时必填
+- `WH_LLM_BASE_URL`：LiteLLM base URL，可选
+- `WH_LLM_MODEL`：默认模型名，可选
+- `WH_LLM_TIMEOUT_SECONDS`：单次调用超时，默认 30
+- `WH_LLM_MAX_RETRIES`：重试预算，默认 2
+- `WH_LLM_BUDGET_PER_GAME`：单局 token 上限，默认 100000；超限时发一次 `agent_budget_warning`，游戏继续运行
+- `WH_RUNS_DIR`：落盘根目录，默认 `./runs`
+- `WH_API_HOST`：FastAPI 监听地址，默认 `127.0.0.1`
+- `WH_API_PORT`：FastAPI 监听端口，默认 8000
+- `WH_API_CORS_ORIGINS`：CORS 白名单，逗号分隔，默认 `http://localhost:5173`
+
+`.env` 已在 `.gitignore`；`.env.example` 列出全部变量（不含真值）。CI 使用 `WH_LLM_PROVIDER=mock`，不消耗 API key。
 
 ## 16. Test Contract
 
@@ -371,7 +397,8 @@ FastAPI 属于 P2，不在 STEP-05 实现。边界先冻结：
 - 首夜死亡遗言、第二夜后夜死无遗言、守卫平安夜、PK、二次平票、骑士挑战。
 - 死亡 Agent 停用但仍接收公开事件。
 - LLM 异常、重试、fallback。
-- 固定 seed 下 `replay_deterministic` 一致；`replay_resimulate` 依赖 raw LLM response，留到 STEP-06+。
+- 固定 seed 下 `replay_deterministic` 一致；`replay_resimulate` 使用 raw LLM response 校验事件序列等价。
+- CI 一律 mock provider；真实模型 smoke 不进入默认 pytest。
 - PlayerView 不包含 visibility 白名单外事件。
 
 ## 17. Change Control

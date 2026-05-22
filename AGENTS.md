@@ -16,7 +16,8 @@
 
 当前阶段约束：
 
-- 当前为 STEP-05 / P1 后端引擎实现阶段。
-- 允许实现 Python 事件模型、RuleEngine、Referee、纯 Python FSM、deterministic mock agent、内存 EventLog、`replay_deterministic`、CLI 和对应测试。
-- 不接入真实 LLM、不实现 FastAPI/SSE、不做默认磁盘持久化、不实现 `replay_resimulate`。
-- 前端文件、运行时素材和 Node 工程链不属于 STEP-05 范围，除非 `plan.md` 另行同步更新。
+- 当前为 STEP-06 / P2 外部接入实现阶段。
+- 允许在 STEP-05 已有 Python 引擎基础上实现 LLM 网关、结构化输出校验、mock provider、LLMAgent、落盘 EventLog sink、`replay_resimulate`、FastAPI/SSE、CLI serve/resimulate 和对应测试。
+- 允许把 STEP-04 前端壳接入后端 spectator 事件流，但前端仍不得绕过 Referee 获取私有信息或自行判定行动合法性。
+- CI 和默认测试必须使用 mock provider；真实 LLM smoke 必须由环境变量显式开启，不得默认联网或消耗 API key。
+- 运行时落盘默认使用 `runs/{game_id}/`，完整 raw response 只写入私有 `raw_responses.jsonl`，不得进入 PlayerView、spectator API 或 SSE。

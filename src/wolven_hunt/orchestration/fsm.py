@@ -16,7 +16,13 @@ from wolven_hunt.core.actions import (
     WolfChatMessage,
     WolfKillVote,
 )
-from wolven_hunt.core.events import EventType, draft_event, hidden_visibility
+from wolven_hunt.core.events import (
+    Event,
+    EventType,
+    draft_event,
+    hidden_visibility,
+    public_visibility,
+)
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.rule_engine import (
     advance_to_next_night,
@@ -32,12 +38,15 @@ from wolven_hunt.core.rule_engine import (
 )
 from wolven_hunt.core.seat import Role, Seat
 from wolven_hunt.core.state import GameState
+from wolven_hunt.llm.gateway import LLMErrorType, LLMFallbackRequired
 from wolven_hunt.orchestration.phases import Phase
 from wolven_hunt.referee.validate import validate_action
 from wolven_hunt.referee.view import PlayerView, build_view
 from wolven_hunt.storage.event_log import EventLog
 
 AgentMap = Mapping[int, PlayerInterface]
+StateSink = Callable[[GameState], None]
+ControlHook = Callable[[GameState], None]
 
 
 def run_game(
@@ -46,23 +55,46 @@ def run_game(
     seed: str,
     agents: AgentMap,
     max_days: int = 20,
+    event_sink: Callable[[Event], None] | None = None,
+    event_log: EventLog | None = None,
+    state_sink: StateSink | None = None,
+    control_hook: ControlHook | None = None,
 ) -> tuple[GameState, EventLog]:
     rng = DeterministicRNG(seed)
-    event_log = EventLog(seed=seed)
+    event_log = event_log if event_log is not None else EventLog(seed=seed, on_append=event_sink)
     state, start_events = build_initial_state(config, seed)
     event_log.append_all(start_events)
+    _sync_runtime(state, state_sink, control_hook)
 
     while state.winner is None and state.day <= max_days:
-        state = _run_night(state, config, agents, rng, event_log)
+        state = _run_night(
+            state,
+            config,
+            agents,
+            rng,
+            event_log,
+            state_sink=state_sink,
+            control_hook=control_hook,
+        )
         if state.winner is not None:
             break
-        state = _run_day(state, config, agents, rng, event_log)
+        state = _run_day(
+            state,
+            config,
+            agents,
+            rng,
+            event_log,
+            state_sink=state_sink,
+            control_hook=control_hook,
+        )
         if state.winner is None:
             state = advance_to_next_night(state)
+            _sync_runtime(state, state_sink, control_hook)
     if state.winner is None:
         # Deterministic guardrail for pathological mock strategies.
         state, win_events = emit_win_check(state, phase=Phase.GAME_END.value)
         event_log.append_all(win_events)
+        _sync_runtime(state, state_sink, control_hook)
     return state, event_log
 
 
@@ -72,14 +104,18 @@ def _run_night(
     agents: AgentMap,
     rng: DeterministicRNG,
     event_log: EventLog,
+    *,
+    state_sink: StateSink | None,
+    control_hook: ControlHook | None,
 ) -> GameState:
     state, events = phase_enter(state, Phase.NIGHT_START.value)
     event_log.append_all(events)
+    _sync_runtime(state, state_sink, control_hook)
     event_log.append_all(phase_exit(state))
 
     guard_seats = state.seats_by_role(Role.GUARD, alive_only=True)
     if guard_seats:
-        state = _enter_phase(state, Phase.NIGHT_GUARD, event_log)
+        state = _enter_phase(state, Phase.NIGHT_GUARD, event_log, state_sink, control_hook)
         guard = guard_seats[0]
         action = _decide_with_fallback(
             state,
@@ -90,12 +126,18 @@ def _run_night(
             lambda agent, view: agent.decide_guard(view),
             rng,
         )
-        state = _apply_and_log(state, action, config, rng, event_log)
+        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
         event_log.append_all(phase_exit(state))
 
     wolf_seats = state.wolf_seats(alive_only=True)
     if wolf_seats:
-        state = _enter_phase(state, Phase.NIGHT_WOLF_CHAT, event_log)
+        state = _enter_phase(
+            state,
+            Phase.NIGHT_WOLF_CHAT,
+            event_log,
+            state_sink,
+            control_hook,
+        )
         for wolf in wolf_seats:
             action = _decide_with_fallback(
                 state,
@@ -106,10 +148,16 @@ def _run_night(
                 lambda agent, view: agent.decide_wolf_chat(view),
                 rng,
             )
-            state = _apply_and_log(state, action, config, rng, event_log)
+            state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
         event_log.append_all(phase_exit(state))
 
-        state = _enter_phase(state, Phase.NIGHT_WOLF_VOTE, event_log)
+        state = _enter_phase(
+            state,
+            Phase.NIGHT_WOLF_VOTE,
+            event_log,
+            state_sink,
+            control_hook,
+        )
         for wolf in wolf_seats:
             if not state.player(wolf).alive:
                 continue
@@ -122,12 +170,12 @@ def _run_night(
                 lambda agent, view: agent.decide_wolf_vote(view),
                 rng,
             )
-            state = _apply_and_log(state, action, config, rng, event_log)
+            state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
         event_log.append_all(phase_exit(state))
 
     seer_seats = state.seats_by_role(Role.SEER, alive_only=True)
     if seer_seats:
-        state = _enter_phase(state, Phase.NIGHT_SEER, event_log)
+        state = _enter_phase(state, Phase.NIGHT_SEER, event_log, state_sink, control_hook)
         seer = seer_seats[0]
         action = _decide_with_fallback(
             state,
@@ -138,15 +186,17 @@ def _run_night(
             lambda agent, view: agent.decide_seer(view),
             rng,
         )
-        state = _apply_and_log(state, action, config, rng, event_log)
+        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
         event_log.append_all(phase_exit(state))
 
-    state = _enter_phase(state, Phase.NIGHT_RESOLVE, event_log)
+    state = _enter_phase(state, Phase.NIGHT_RESOLVE, event_log, state_sink, control_hook)
     state, events = resolve_night(state)
     event_log.append_all(events)
+    _sync_runtime(state, state_sink, control_hook)
     event_log.append_all(phase_exit(state))
     state, events = emit_win_check(state, phase=Phase.CHECK_WIN_NIGHT.value)
     event_log.append_all(events)
+    _sync_runtime(state, state_sink, control_hook)
     return state
 
 
@@ -156,14 +206,18 @@ def _run_day(
     agents: AgentMap,
     rng: DeterministicRNG,
     event_log: EventLog,
+    *,
+    state_sink: StateSink | None,
+    control_hook: ControlHook | None,
 ) -> GameState:
-    state = _enter_phase(state, Phase.DAY_ANNOUNCE, event_log)
+    state = _enter_phase(state, Phase.DAY_ANNOUNCE, event_log, state_sink, control_hook)
     state, events = emit_day_announce(state)
     event_log.append_all(events)
+    _sync_runtime(state, state_sink, control_hook)
     event_log.append_all(phase_exit(state))
 
     if state.day == 1 and state.first_night_deaths:
-        state = _enter_phase(state, Phase.DAY_LAST_WORDS, event_log)
+        state = _enter_phase(state, Phase.DAY_LAST_WORDS, event_log, state_sink, control_hook)
         for seat in state.first_night_deaths:
             action = _decide_with_fallback(
                 state,
@@ -174,16 +228,32 @@ def _run_day(
                 lambda agent, view: agent.decide_last_words(view),
                 rng,
             )
-            state = _apply_and_log(state, action, config, rng, event_log)
+            state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
         event_log.append_all(phase_exit(state))
 
-    state, interrupted = _maybe_knight_interrupt(state, config, agents, rng, event_log)
+    state, interrupted = _maybe_knight_interrupt(
+        state,
+        config,
+        agents,
+        rng,
+        event_log,
+        state_sink=state_sink,
+        control_hook=control_hook,
+    )
     if state.winner is not None or interrupted:
         return state
 
-    state = _enter_phase(state, Phase.DAY_SPEECH, event_log)
+    state = _enter_phase(state, Phase.DAY_SPEECH, event_log, state_sink, control_hook)
     for seat in state.alive_seats():
-        state, interrupted = _maybe_knight_interrupt(state, config, agents, rng, event_log)
+        state, interrupted = _maybe_knight_interrupt(
+            state,
+            config,
+            agents,
+            rng,
+            event_log,
+            state_sink=state_sink,
+            control_hook=control_hook,
+        )
         if state.winner is not None or interrupted:
             return state
         if not state.player(seat).alive:
@@ -197,14 +267,22 @@ def _run_day(
             lambda agent, view: agent.decide_speech(view),
             rng,
         )
-        state = _apply_and_log(state, action, config, rng, event_log)
+        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
     event_log.append_all(phase_exit(state))
 
-    state, interrupted = _maybe_knight_interrupt(state, config, agents, rng, event_log)
+    state, interrupted = _maybe_knight_interrupt(
+        state,
+        config,
+        agents,
+        rng,
+        event_log,
+        state_sink=state_sink,
+        control_hook=control_hook,
+    )
     if state.winner is not None or interrupted:
         return state
 
-    state = _enter_phase(state, Phase.DAY_VOTE, event_log)
+    state = _enter_phase(state, Phase.DAY_VOTE, event_log, state_sink, control_hook)
     for seat in state.alive_seats():
         action = _decide_with_fallback(
             state,
@@ -215,17 +293,19 @@ def _run_day(
             lambda agent, view: agent.decide_vote(view),
             rng,
         )
-        state = _apply_and_log(state, action, config, rng, event_log)
+        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
     state, vote_events = finish_vote(state)
     event_log.append_all(vote_events)
+    _sync_runtime(state, state_sink, control_hook)
     event_log.append_all(phase_exit(state))
 
     if state.pk_seats:
-        state = _enter_phase(state, Phase.DAY_VOTE_PK, event_log)
+        state = _enter_phase(state, Phase.DAY_VOTE_PK, event_log, state_sink, control_hook)
         voters = tuple(seat for seat in state.alive_seats() if seat not in state.pk_seats)
         if not voters:
             state, events = finish_pk_vote(state)
             event_log.append_all(events)
+            _sync_runtime(state, state_sink, control_hook)
         else:
             for seat in voters:
                 action = _decide_with_fallback(
@@ -237,19 +317,36 @@ def _run_day(
                     lambda agent, view: agent.decide_pk_vote(view),
                     rng,
                 )
-                state = _apply_and_log(state, action, config, rng, event_log)
+                state = _apply_and_log(
+                    state,
+                    action,
+                    config,
+                    rng,
+                    event_log,
+                    state_sink,
+                    control_hook,
+                )
             state, events = finish_pk_vote(state)
             event_log.append_all(events)
+            _sync_runtime(state, state_sink, control_hook)
         event_log.append_all(phase_exit(state))
 
     state, events = emit_win_check(state, phase=Phase.CHECK_WIN_DAY.value)
     event_log.append_all(events)
+    _sync_runtime(state, state_sink, control_hook)
     return state
 
 
-def _enter_phase(state: GameState, phase: Phase, event_log: EventLog) -> GameState:
+def _enter_phase(
+    state: GameState,
+    phase: Phase,
+    event_log: EventLog,
+    state_sink: StateSink | None,
+    control_hook: ControlHook | None,
+) -> GameState:
     state, events = phase_enter(state, phase.value)
     event_log.append_all(events)
+    _sync_runtime(state, state_sink, control_hook)
     return state
 
 
@@ -259,10 +356,24 @@ def _apply_and_log(
     config: GameConfig,
     rng: DeterministicRNG,
     event_log: EventLog,
+    state_sink: StateSink | None,
+    control_hook: ControlHook | None,
 ) -> GameState:
     state, events = apply_action(state, action, config, rng)
     event_log.append_all(events)
+    _sync_runtime(state, state_sink, control_hook)
     return state
+
+
+def _sync_runtime(
+    state: GameState,
+    state_sink: StateSink | None,
+    control_hook: ControlHook | None,
+) -> None:
+    if state_sink is not None:
+        state_sink(state)
+    if control_hook is not None:
+        control_hook(state)
 
 
 def _decide_with_fallback(
@@ -277,7 +388,15 @@ def _decide_with_fallback(
     view = build_view(state, event_log.events, rule_set=config.rule_set, seat=seat)
     try:
         action = decide(agent, view)
+        _record_llm_call_if_present(state, agent, event_log, seat)
+    except LLMFallbackRequired as exc:
+        _record_llm_call_if_present(state, agent, event_log, seat)
+        _record_llm_error(state, seat, event_log, exc)
+        action = _fallback_for_phase(state, seat, rng)
+        _record_fallback(state, seat, event_log, f"llm:{exc.error.type}", action)
+        return action
     except Exception:
+        _record_llm_call_if_present(state, agent, event_log, seat)
         action = _fallback_for_phase(state, seat, rng)
         _record_fallback(state, seat, event_log, "exception", action)
         return action
@@ -299,6 +418,72 @@ def _decide_with_fallback(
     action = _fallback_for_phase(state, seat, rng)
     _record_fallback(state, seat, event_log, reason, action)
     return action
+
+
+def _record_llm_call_if_present(
+    state: GameState,
+    agent: PlayerInterface,
+    event_log: EventLog,
+    seat: Seat,
+) -> None:
+    consume = getattr(agent, "consume_last_call_result", None)
+    if not callable(consume):
+        return
+    result = consume()
+    if result is None:
+        return
+    event_log.append(
+        draft_event(
+            game_id=state.game_id,
+            phase=state.phase,
+            day=state.day,
+            event_type=EventType.LLM_CALL,
+            actor=seat.number,
+            visibility=hidden_visibility(),
+            payload=result.event_payload(),
+        )
+    )
+    if result.budget_warning is not None:
+        event_log.append(
+            draft_event(
+                game_id=state.game_id,
+                phase=state.phase,
+                day=state.day,
+                event_type=EventType.AGENT_BUDGET_WARNING,
+                actor=seat.number,
+                visibility=public_visibility(),
+                payload=result.budget_warning,
+            )
+        )
+
+
+def _record_llm_error(
+    state: GameState,
+    seat: Seat,
+    event_log: EventLog,
+    exc: LLMFallbackRequired,
+) -> None:
+    timeout_like = {
+        LLMErrorType.TIMEOUT,
+        LLMErrorType.RATE_LIMIT,
+        LLMErrorType.NETWORK,
+    }
+    event_type = (
+        EventType.AGENT_TIMEOUT
+        if exc.error.type in timeout_like
+        else EventType.AGENT_INVALID_ACTION
+    )
+    event_log.append(
+        draft_event(
+            game_id=state.game_id,
+            phase=state.phase,
+            day=state.day,
+            event_type=event_type,
+            actor=seat.number,
+            visibility=hidden_visibility(),
+            payload={"error_type": exc.error.type.value, "message": exc.error.message},
+        )
+    )
 
 
 def _record_fallback(
@@ -375,6 +560,9 @@ def _maybe_knight_interrupt(
     agents: AgentMap,
     rng: DeterministicRNG,
     event_log: EventLog,
+    *,
+    state_sink: StateSink | None,
+    control_hook: ControlHook | None,
 ) -> tuple[GameState, bool]:
     if state.knight_used:
         return state, False
@@ -396,9 +584,11 @@ def _maybe_knight_interrupt(
     if not isinstance(action, KnightChallenge) or action.target is None:
         return state.with_phase(previous_phase), False
     state = challenge_state
-    state = _apply_and_log(state, action, config, rng, event_log)
+    state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
     state, win_events = emit_win_check(state, phase=Phase.DAY_KNIGHT_INTERRUPT.value)
     event_log.append_all(win_events)
+    _sync_runtime(state, state_sink, control_hook)
     if state.winner is None:
         state = advance_to_next_night(state)
+        _sync_runtime(state, state_sink, control_hook)
     return state, True

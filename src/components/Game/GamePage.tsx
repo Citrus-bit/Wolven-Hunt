@@ -1,5 +1,10 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { INITIAL_STAGE, type GameStage } from '../../lib/gameStage';
+import {
+  getGame,
+  subscribeGameEvents,
+  type GameEvent,
+} from '../../lib/gameApi';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import {
   readModelConfig,
@@ -22,6 +27,7 @@ const rightSeats = [4, 5, 6, 7];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
 
 type GamePageProps = {
+  gameId: string | null;
   onExitGame: () => void;
 };
 
@@ -36,7 +42,7 @@ function shuffledModelSlots() {
   return slots;
 }
 
-export function GamePage({ onExitGame }: GamePageProps) {
+export function GamePage({ gameId, onExitGame }: GamePageProps) {
   const [assignments, setAssignments] = useState<(number | null)[]>(() =>
     Array.from({ length: SEAT_COUNT }, () => null),
   );
@@ -51,6 +57,11 @@ export function GamePage({ onExitGame }: GamePageProps) {
   >({});
   const [isTesting, setIsTesting] = useState(false);
   const [testMessage, setTestMessage] = useState<string | null>(null);
+  const [events, setEvents] = useState<GameEvent[]>([]);
+  const [currentPhase, setCurrentPhase] = useState<string | null>(null);
+  const [streamStatus, setStreamStatus] = useState<'connecting' | 'open' | 'error'>(
+    gameId ? 'connecting' : 'error',
+  );
 
   const allSeatsAssigned = assignments.every(
     (assignment) => assignment !== null,
@@ -63,6 +74,71 @@ export function GamePage({ onExitGame }: GamePageProps) {
     );
   const bgSrc =
     stage.phase === 'day' ? '/assets/game/day_bg.png' : '/assets/game/night_bg.png';
+
+  useEffect(() => {
+    if (!gameId) {
+      setStreamStatus('error');
+      setCurrentPhase(null);
+      return undefined;
+    }
+
+    setEvents([]);
+    setCurrentPhase(null);
+    setStreamStatus('connecting');
+    const source = subscribeGameEvents(
+      gameId,
+      (event) => {
+        setStreamStatus('open');
+        setCurrentPhase(event.phase);
+        setEvents((prev) =>
+          prev.some((existing) => existing.seq === event.seq)
+            ? prev
+            : [...prev, event],
+        );
+      },
+      () => setStreamStatus('error'),
+    );
+
+    return () => source.close();
+  }, [gameId]);
+
+  useEffect(() => {
+    if (!gameId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const summary = await getGame(gameId);
+        if (!cancelled) {
+          setCurrentPhase(summary.phase);
+        }
+      } catch {
+        if (!cancelled) {
+          setStreamStatus('error');
+        }
+      }
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [gameId]);
+
+  useEffect(() => {
+    const last = events.length > 0 ? events[events.length - 1] : undefined;
+    if (!last || bgPhase !== 'idle') {
+      return;
+    }
+    const nextPhase = last.phase.startsWith('NIGHT') ? 'night' : 'day';
+    if (stage.dayNumber !== last.day || stage.phase !== nextPhase) {
+      transitionToStage({ dayNumber: last.day, phase: nextPhase });
+    }
+  }, [bgPhase, events, stage.dayNumber, stage.phase]);
 
   const handleClickSeat = (seatIndex: number) => {
     if (isTesting) {
@@ -291,7 +367,12 @@ export function GamePage({ onExitGame }: GamePageProps) {
         onClickExit={() => setExitConfirmOpen(true)}
       />
       <StageIndicator stage={stage} />
-      <GameChat />
+      <GameChat
+        gameId={gameId}
+        events={events}
+        phase={currentPhase}
+        streamStatus={streamStatus}
+      />
       <div className="game-quick-assign-helper">
         <button
           type="button"

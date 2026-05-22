@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from pydantic import ValidationError
@@ -11,10 +12,17 @@ from wolven_hunt.core.ids import EventId
 class EventLog:
     """Append-only in-memory event log with deterministic seq/id/timestamp stamping."""
 
-    def __init__(self, *, seed: str, start: datetime | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        seed: str,
+        start: datetime | None = None,
+        on_append: Callable[[Event], None] | None = None,
+    ) -> None:
         self._seed = seed
         self._start = start if start is not None else datetime(2026, 1, 1, tzinfo=UTC)
         self._events: list[Event] = []
+        self._on_append = on_append
 
     @property
     def events(self) -> tuple[Event, ...]:
@@ -34,6 +42,8 @@ class EventLog:
         except ValidationError as exc:
             raise ValueError(f"invalid event: {exc}") from exc
         self._events.append(stamped)
+        if self._on_append is not None:
+            self._on_append(stamped)
         return stamped
 
     def append_all(self, events: tuple[Event, ...] | list[Event]) -> tuple[Event, ...]:

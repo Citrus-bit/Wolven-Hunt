@@ -12,7 +12,7 @@
 - 投票只能投存活玩家，允许投自己；PK 重投只能投 PK 台上玩家，且 PK 台上玩家不参与重投。
 - 编排核心采用**纯 Python FSM 优先**；裁判层（Referee）负责视角隔离与合法性校验；**事件日志是单一事实源**。
 - 规则、角色、模型、提示词全部**配置驱动**，核心代码不随板子变化。
-- 当前阶段：**STEP-05 / P1 后端引擎实现**。允许实现 Python 事件模型、RuleEngine、Referee、纯 Python FSM、deterministic mock agent、内存 EventLog、`replay_deterministic` 与对应测试；仍不接真实 LLM、不实现 FastAPI/SSE、不做默认磁盘持久化。
+- 当前阶段：**STEP-06 / P2 外部接入实现**。在 STEP-05 引擎基础上允许实现 LLM 网关、结构化输出校验、mock provider、LLMAgent、落盘 EventLog sink、`replay_resimulate`、FastAPI/SSE、CLI serve/resimulate 与前端 spectator 事件流接入。
 
 ---
 
@@ -192,8 +192,9 @@ GAME_END
 - 流程：`game_start`, `phase_enter`, `phase_exit`, `game_end`
 - 夜晚：`guard_protect`, `wolf_chat_message`, `wolf_kill_vote`, `wolf_kill_decided`, `wolf_tie_random`, `seer_check`, `seer_check_result`, `no_death_tonight`, `death_at_night`
 - 白天：`day_announce`, `last_words`, `speech`, `knight_challenge`, `knight_result`, `vote_cast`, `vote_result`, `vote_pk_enter`, `peaceful_day`, `exile`
-- 系统：`win_check`, `agent_timeout`, `agent_invalid_action`, `agent_fallback_triggered`
+- 系统：`win_check`, `agent_timeout`, `agent_invalid_action`, `agent_fallback_triggered`, `agent_budget_warning`
 - 元数据：`llm_call`（包含 `prompt_hash`、`raw_response_hash`、`storage_ref`、model、token、cost，**仅写入存储层，不进 PlayerView**）
+- `llm_call` payload 字段固定为：`prompt_hash: str`、`raw_response_hash: str`、`storage_ref: str`、`model: str`、`prompt_tokens: int`、`completion_tokens: int`、`cost_usd: float`、`prompt_version: str`。payload 不得包含 `raw_response` 原文。
 - 随机：涉及平票随机、fallback 随机、角色洗牌的事件 payload 均记录 `rng_stream`、`candidates`、`selected`、`reason`。
 
 ### 3.4 可见性规则
@@ -214,10 +215,17 @@ GAME_END
 2. **非法 JSON / schema 校验失败**：Pydantic 解析失败。
 3. **合法性校验失败**：通过 schema 但违反规则（如刀狼队友、连守同一人）。
 
+错误子类映射：
+
+| 子类 | 外显事件 |
+|---|---|
+| `timeout` / `rate_limit` / `network` | `agent_timeout` |
+| `invalid_json` / `schema_violation` / `illegal_action` | `agent_invalid_action` |
+
 ### 4.2 重试策略
 
 - 每阶段每 Agent 最多重试 `llm.max_retries` 次（默认 2 次，可配置）。
-- 重试时在 prompt 末尾附加错误说明（仅本人可见）。
+- 重试时在 prompt 末尾附加错误说明（仅本人可见），格式固定为：`上一次输出未被接受：{error_type}: {message}。请只返回符合 schema 的 JSON。`
 - 重试仍失败 → 触发 fallback 并记录 `agent_fallback_triggered` 事件。
 
 ### 4.3 各阶段 Fallback 行为（默认）
@@ -252,6 +260,20 @@ GAME_END
 - 每个 LLM 调用的公开索引字段：model、prompt hash（不存原文，存哈希 + prompt_version 引用）、raw response hash、storage ref、token usage、cost。
 - 完整 raw response 仅写入私有存储，用于 `replay_resimulate`；`llm_call` 事件不直接包含原文，不进 PlayerView。
 - 所有随机决策必须可由 `random_seed + rng_stream + candidates` 重建；事件记录 selected 结果用于一致性断言。
+- `replay_resimulate` 一致性比对维度固定为 `type, actor, day, phase, canonical_payload`；不要求 `event_id` 与 `timestamp` 字节相等。首个分歧必须报告 `(seq, field, expected, actual)`。
+
+### 5.4 STEP-06 落盘目录
+
+每局默认落盘到 `runs/{game_id}/`：
+
+```
+events.jsonl
+raw_responses.jsonl
+manifest.json
+cost.jsonl
+```
+
+`events.jsonl` 与 EventLog 一一对应；`raw_responses.jsonl` 每行记录 `{storage_ref, seat, phase, day, seq, model, prompt_hash, raw_response_hash, raw_response, prompt_tokens, completion_tokens, cost_usd}`。所有文件权限为 `0600`。JSON/JSONL 写入必须采用 tmp + fsync + atomic rename 或行级 fsync；恢复时若末行损坏，截断到最后一条可解析完整 JSONL。
 
 ### 5.3 Prompt 模板版本号
 
@@ -272,6 +294,20 @@ GAME_END
 
 - 所有 LLM 输出必须走 Pydantic / JSON Schema 校验。
 - Schema 校验失败 → 走 §4 fallback。
+
+输出 JSON schema 按 phase 固定为：
+
+| phase | 字段 |
+|---|---|
+| `NIGHT_GUARD` | `{target: int}` |
+| `NIGHT_WOLF_CHAT` | `{text: str}` |
+| `NIGHT_WOLF_VOTE` | `{target: int}` |
+| `NIGHT_SEER` | `{target: int}` |
+| `DAY_SPEECH` | `{text: str}` |
+| `DAY_KNIGHT_INTERRUPT` | `{activate: bool, target: int | null}` |
+| `DAY_VOTE` | `{target: int}` |
+| `DAY_VOTE_PK` | `{target: int}` |
+| `DAY_LAST_WORDS` | `{text: str}` |
 
 ### 6.3 PlayerView 大小控制
 
@@ -399,10 +435,27 @@ GAME_END
 - `.env` 进 `.gitignore`，CI 使用 mock provider。
 - `roster.yaml` 将 8 个座位绑定到模型 profile，支持 personality tag。
 - 成本记录**落盘**（per-game token usage + cost），方便后期对账。
+- 超过单局预算时发出一次 `agent_budget_warning` 系统事件；游戏继续运行，不因预算告警中止。
 
-### 9.2 FastAPI 接口（P2，不属于第一阶段）
+#### 环境变量
 
-- 第一阶段不实现 FastAPI、SSE、真实 LLM 网关、Replay 运行时代码；这些接口只在 `architecture.md` 中定义边界，避免目录骨架阶段范围膨胀。
+STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读入，封装在 `src/wolven_hunt/config/settings.py`）：
+
+- `WH_LLM_PROVIDER`：`mock` | `litellm`，缺省为 `mock`；非法值启动失败
+- `WH_LLM_API_KEY`：真实 provider 的 API key；`WH_LLM_PROVIDER=litellm` 时必填
+- `WH_LLM_BASE_URL`：LiteLLM base URL，可选
+- `WH_LLM_MODEL`：默认模型名，可选（roster.yaml 可覆盖）
+- `WH_LLM_TIMEOUT_SECONDS`：单次调用超时，默认 30
+- `WH_LLM_MAX_RETRIES`：重试预算，默认 2
+- `WH_LLM_BUDGET_PER_GAME`：单局 token 上限，默认 100000
+- `WH_RUNS_DIR`：落盘根目录，默认 `./runs`
+- `WH_API_HOST`：FastAPI 监听地址，默认 `127.0.0.1`
+- `WH_API_PORT`：FastAPI 监听端口，默认 8000
+- `WH_API_CORS_ORIGINS`：CORS 白名单，逗号分隔，默认 `http://localhost:5173`
+
+`.env` 已在 `.gitignore`；`.env.example` 列出全部变量（不含真值）。CI 使用 `WH_LLM_PROVIDER=mock`，不消耗 API key。
+
+### 9.2 FastAPI 接口（STEP-06 实现）
 
 - `POST /games`：创建一局
 - `GET /games/{id}`：当前状态（脱敏到 spectator 视角）
@@ -411,6 +464,19 @@ GAME_END
 - `POST /games/{id}/replay`：触发 replay（参数：`mode=deterministic|resimulate`）
 - `POST /games/{id}/dev/inject`：dev-only，注入动作
 - `GET /games/{id}/stream`：SSE 流式推送事件
+- `POST /games/{id}/speech`：提交公开发言文本，仍走 Referee `validate_action`
+- `POST /games/{id}/wolf_chat`：提交狼聊文本，仍走 Referee `validate_action`
+- 错误体统一为 `{code: str, message: str, details?: object}`；4xx 表示业务/规则拒绝，5xx 表示系统错误。
+
+SSE 线协议固定为：
+
+```
+event: game_event
+id: <seq>
+data: <spectator Event JSON>
+```
+
+每 30s 发送 `event: heartbeat\ndata: {}`。客户端携带 `Last-Event-ID: <seq>` 时，服务端从 `seq + 1` 续推；请求的 seq 不存在时返回 410。CORS 默认白名单为 `http://localhost:5173`，可通过 `WH_API_CORS_ORIGINS` 配置。
 
 ---
 
@@ -468,6 +534,7 @@ GAME_END
 ### 10.8 LLM 网关测试
 
 - mock LiteLLM，验证多 provider、structured output、重试、fallback、成本记录。
+- CI 一律使用 mock provider；真实模型 smoke 只在显式环境变量开启时运行，不进入默认 `pytest`。
 
 ---
 
@@ -501,7 +568,7 @@ GAME_END
 8. **PK 重投只投 PK 台上玩家**，PK 台上玩家不参与重投；二次平票平安日入夜。
 9. **死亡 Agent 仍接收公开事件**，便于回放完整性。
 10. **Referee 不审查发言内容**：发言里的虚假信息属合法策略。
-11. **STEP-05 / P1 阶段开始实现 Python 后端引擎核心**：RuleEngine、Referee、FSM、mock agent、内存 EventLog、CLI 与测试可以落地；真实 LLM、FastAPI/SSE、默认磁盘持久化与 `replay_resimulate` 仍留给后续阶段。
+11. **STEP-06 / P2 阶段开始实现外部接入**：LLM 网关、FastAPI/SSE、默认 `runs/{game_id}` 落盘、`replay_resimulate` 与前端 spectator 事件流接入可以落地；CI 默认仍使用 mock provider。
 
 ## 13. 项目系统提示词与变更纪律
 

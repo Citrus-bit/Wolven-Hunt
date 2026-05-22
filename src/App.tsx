@@ -9,14 +9,16 @@ type TransitionPhase = 'idle' | 'fade-out' | 'fade-in';
 export default function App() {
   const [page, setPage] = useState<Page>('lobby');
   const [phase, setPhase] = useState<TransitionPhase>('idle');
+  const [gameId, setGameId] = useState<string | null>(null);
   const targetPageRef = useRef<Page | null>(null);
   const { muted, toggleMute } = useLobbyAudio();
 
-  const handleEnterGame = useCallback(() => {
+  const handleEnterGame = useCallback((nextGameId: string) => {
     if (phase !== 'idle') {
       return;
     }
 
+    setGameId(nextGameId);
     if (!muted) {
       toggleMute();
     }
@@ -52,7 +54,9 @@ export default function App() {
   return (
     <>
       {page === 'lobby' && <LobbyHome onEnterGame={handleEnterGame} />}
-      {page === 'game' && <GamePage onExitGame={handleExitGame} />}
+      {page === 'game' && (
+        <GamePage gameId={gameId} onExitGame={handleExitGame} />
+      )}
       <div
         className={`page-transition-overlay ${
           phase !== 'idle' ? `page-transition-overlay--${phase}` : ''

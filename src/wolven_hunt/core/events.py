@@ -40,6 +40,7 @@ class EventType(StrEnum):
     AGENT_TIMEOUT = "agent_timeout"
     AGENT_INVALID_ACTION = "agent_invalid_action"
     AGENT_FALLBACK_TRIGGERED = "agent_fallback_triggered"
+    AGENT_BUDGET_WARNING = "agent_budget_warning"
     LLM_CALL = "llm_call"
 
 
