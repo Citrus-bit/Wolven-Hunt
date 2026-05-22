@@ -1,10 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
 import { INITIAL_STAGE, type GameStage } from '../../lib/gameStage';
 import {
+  createGame,
   getGame,
+  getNarrative,
+  sendAck,
   subscribeGameEvents,
+  type AgentSpec,
   type GameEvent,
+  type GameTimings,
+  type NarrativeRow,
 } from '../../lib/gameApi';
+import { gameAudio } from '../../lib/gameAudio';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import {
   readModelConfig,
@@ -12,13 +19,17 @@ import {
   type ModelTestResult,
 } from '../../lib/modelTest';
 import { ExitConfirmModal } from './ExitConfirmModal';
+import { FinalRevealOverlay } from './FinalRevealOverlay';
 import { GameBottomActions } from './GameBottomActions';
 import { GameChat } from './GameChat';
+import { GamePhaseHeader } from './GamePhaseHeader';
 import { GameSeat } from './GameSeat';
 import { GameTopBar } from './GameTopBar';
+import { KnightDuelBanner } from './KnightDuelBanner';
 import { ModelPicker } from './ModelPicker';
 import { RulesModal } from './RulesModal';
 import { StageIndicator } from './StageIndicator';
+import { toNarrative } from '../../lib/narrative';
 
 const SEAT_COUNT = 8;
 const MIN_TESTING_MS = 800;
@@ -27,7 +38,6 @@ const rightSeats = [4, 5, 6, 7];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
 
 type GamePageProps = {
-  gameId: string | null;
   onExitGame: () => void;
 };
 
@@ -42,7 +52,8 @@ function shuffledModelSlots() {
   return slots;
 }
 
-export function GamePage({ gameId, onExitGame }: GamePageProps) {
+export function GamePage({ onExitGame }: GamePageProps) {
+  const [gameId, setGameId] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<(number | null)[]>(() =>
     Array.from({ length: SEAT_COUNT }, () => null),
   );
@@ -58,10 +69,16 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
   const [isTesting, setIsTesting] = useState(false);
   const [testMessage, setTestMessage] = useState<string | null>(null);
   const [events, setEvents] = useState<GameEvent[]>([]);
+  const eventsRef = useRef<GameEvent[]>([]);
+  const [narrativeRows, setNarrativeRows] = useState<NarrativeRow[]>([]);
+  const narrativeSeqRef = useRef(0);
+  const [timings, setTimings] = useState<GameTimings | null>(null);
   const [currentPhase, setCurrentPhase] = useState<string | null>(null);
-  const [streamStatus, setStreamStatus] = useState<'connecting' | 'open' | 'error'>(
-    gameId ? 'connecting' : 'error',
-  );
+  const [streamStatus, setStreamStatus] = useState<
+    'idle' | 'connecting' | 'open' | 'error'
+  >('idle');
+  const [isStartingGame, setIsStartingGame] = useState(false);
+  const [knightDuelActive, setKnightDuelActive] = useState(false);
 
   const allSeatsAssigned = assignments.every(
     (assignment) => assignment !== null,
@@ -74,29 +91,79 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
     );
   const bgSrc =
     stage.phase === 'day' ? '/assets/game/day_bg.png' : '/assets/game/night_bg.png';
+  const gameStarted = gameId !== null;
+  const currentSpeakerSeat = currentPhase === 'DAY_SPEECH'
+    ? [...events].reverse().find((event) => event.type === 'speech')?.actor ?? null
+    : null;
+  const deadSeats = deriveDeadSeats(events);
+
+  useEffect(() => {
+    try {
+      const volume = Number(window.localStorage.getItem('wolven_hunt.lobby.volume') ?? '80');
+      const muted = window.localStorage.getItem('wolven_hunt.lobby.muted') === 'true';
+      gameAudio.setVolume(Number.isFinite(volume) ? volume / 100 : 0.8);
+      gameAudio.setMuted(muted);
+    } catch {
+      gameAudio.setVolume(0.8);
+    }
+    return () => gameAudio.stopAll();
+  }, []);
 
   useEffect(() => {
     if (!gameId) {
-      setStreamStatus('error');
+      setStreamStatus('idle');
       setCurrentPhase(null);
       return undefined;
     }
 
     setEvents([]);
+    eventsRef.current = [];
+    setNarrativeRows([]);
+    narrativeSeqRef.current = 0;
     setCurrentPhase(null);
     setStreamStatus('connecting');
     const source = subscribeGameEvents(
       gameId,
       (event) => {
         setStreamStatus('open');
-        setCurrentPhase(event.phase);
-        setEvents((prev) =>
-          prev.some((existing) => existing.seq === event.seq)
-            ? prev
-            : [...prev, event],
-        );
+        if (event.type === 'phase_enter') {
+          setCurrentPhase(String(event.payload.phase ?? event.phase));
+        }
+        if (event.type === 'knight_challenge') {
+          setKnightDuelActive(true);
+        }
+        setEvents((prev) => {
+          if (prev.some((existing) => existing.seq === event.seq)) {
+            return prev;
+          }
+          const next = [...prev, event];
+          eventsRef.current = next;
+          return next;
+        });
+        const row = toNarrative(event);
+        if (row) {
+          narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
+          appendNarrativeRow(setNarrativeRows, row);
+        }
+        void handleAudioTrigger(gameId, event, eventsRef);
       },
-      () => setStreamStatus('error'),
+      () => {
+        setStreamStatus('error');
+        void getGame(gameId).then((summary) => {
+          setCurrentPhase(summary.phase);
+          setTimings(summary.timings);
+        }).catch(() => undefined);
+        void getNarrative(gameId, narrativeSeqRef.current)
+          .then((rows) => rows.forEach((row) => {
+            narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
+            appendNarrativeRow(setNarrativeRows, row);
+          }))
+          .catch(() => undefined);
+      },
+      (row) => {
+        narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
+        appendNarrativeRow(setNarrativeRows, row);
+      },
     );
 
     return () => source.close();
@@ -113,6 +180,7 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
         const summary = await getGame(gameId);
         if (!cancelled) {
           setCurrentPhase(summary.phase);
+          setTimings(summary.timings);
         }
       } catch {
         if (!cancelled) {
@@ -121,27 +189,28 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
       }
     };
     refresh();
-    const timer = window.setInterval(refresh, 1000);
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
     };
   }, [gameId]);
 
   useEffect(() => {
-    const last = events.length > 0 ? events[events.length - 1] : undefined;
-    if (!last || bgPhase !== 'idle') {
+    const lastPhaseEnter = [...events]
+      .reverse()
+      .find((event) => event.type === 'phase_enter');
+    if (!lastPhaseEnter || bgPhase !== 'idle') {
       return;
     }
-    const nextPhase = last.phase.startsWith('NIGHT') ? 'night' : 'day';
-    if (stage.dayNumber !== last.day || stage.phase !== nextPhase) {
-      transitionToStage({ dayNumber: last.day, phase: nextPhase });
+    const phase = String(lastPhaseEnter.payload.phase ?? lastPhaseEnter.phase);
+    const nextPhase = phase.startsWith('NIGHT') ? 'night' : 'day';
+    if (stage.dayNumber !== lastPhaseEnter.day || stage.phase !== nextPhase) {
+      transitionToStage({ dayNumber: lastPhaseEnter.day, phase: nextPhase });
     }
   }, [bgPhase, events, stage.dayNumber, stage.phase]);
 
   const handleClickSeat = (seatIndex: number) => {
-    if (isTesting) {
+    if (isTesting || gameStarted) {
       return;
     }
 
@@ -149,7 +218,7 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
   };
 
   const handlePickModel = (slotIndex: number) => {
-    if (pickerSeat === null) {
+    if (pickerSeat === null || gameStarted) {
       return;
     }
 
@@ -187,7 +256,7 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
   };
 
   const handleSwapModel = (slotIndex: number) => {
-    if (pickerSeat === null || isTesting) {
+    if (pickerSeat === null || isTesting || gameStarted) {
       return;
     }
 
@@ -214,7 +283,7 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
   };
 
   const handleQuickAssign = () => {
-    if (isTesting) {
+    if (isTesting || gameStarted) {
       return;
     }
 
@@ -247,7 +316,7 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
   };
 
   const handleClickTest = async () => {
-    if (!allSeatsAssigned || isTesting) {
+    if (!allSeatsAssigned || isTesting || gameStarted) {
       return;
     }
 
@@ -338,13 +407,36 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
     setIsTesting(false);
   };
 
-  const handleClickEnterNight = () => {
-    transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
+  const handleClickEnterNight = async () => {
+    if (!allTestsPassed || isStartingGame || gameStarted) {
+      return;
+    }
+    setPickerSeat(null);
+    setIsStartingGame(true);
+    setTestMessage('正在创建对局并接入模型');
+    try {
+      const agents = buildAgentSpecs(assignments);
+      const created = await createGame({ agents, pacing: 'live' });
+      setGameId(created.game_id);
+      transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
+    } catch (caught) {
+      setTestMessage(caught instanceof Error ? caught.message : '创建游戏失败');
+    } finally {
+      setIsStartingGame(false);
+    }
   };
 
   const handleConfirmExit = () => {
+    gameAudio.stopAll();
     setExitConfirmOpen(false);
     onExitGame();
+  };
+
+  const handleKnightDuelDone = () => {
+    setKnightDuelActive(false);
+    if (gameId) {
+      void sendAck(gameId, 'DAY_KNIGHT_INTERRUPT', 'knight_duel_done');
+    }
   };
 
   return (
@@ -367,22 +459,31 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
         onClickExit={() => setExitConfirmOpen(true)}
       />
       <StageIndicator stage={stage} />
+      {gameStarted && (
+        <GamePhaseHeader
+          phase={currentPhase}
+          timings={timings}
+          speakerSeat={currentSpeakerSeat}
+        />
+      )}
       <GameChat
-        gameId={gameId}
         events={events}
-        phase={currentPhase}
+        narrativeRows={narrativeRows}
+        assignments={assignments}
         streamStatus={streamStatus}
       />
-      <div className="game-quick-assign-helper">
-        <button
-          type="button"
-          className="game-quick-assign"
-          onClick={handleQuickAssign}
-          disabled={isTesting}
-        >
-          一键分配
-        </button>
-      </div>
+      {!gameStarted && (
+        <div className="game-quick-assign-helper">
+          <button
+            type="button"
+            className="game-quick-assign"
+            onClick={handleQuickAssign}
+            disabled={isTesting}
+          >
+            一键分配
+          </button>
+        </div>
+      )}
       <div className="game-seats" aria-label="席位区">
         <div className="game-seats-col game-seats-col--left">
           {leftSeats.map((seatIndex) => {
@@ -399,6 +500,10 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
                     ? testResults[assignment]?.status
                     : undefined
                 }
+                showTestBadge={!gameStarted}
+                speaking={currentSpeakerSeat === seatIndex + 1}
+                dead={deadSeats.has(seatIndex + 1)}
+                disabled={gameStarted}
                 onClickSeat={handleClickSeat}
               />
             );
@@ -419,21 +524,28 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
                     ? testResults[assignment]?.status
                     : undefined
                 }
+                showTestBadge={!gameStarted}
+                speaking={currentSpeakerSeat === seatIndex + 1}
+                dead={deadSeats.has(seatIndex + 1)}
+                disabled={gameStarted}
                 onClickSeat={handleClickSeat}
               />
             );
           })}
         </div>
       </div>
-      <GameBottomActions
-        allSeatsAssigned={allSeatsAssigned}
-        allTestsPassed={allTestsPassed}
-        isTesting={isTesting}
-        testMessage={testMessage}
-        onClickTest={handleClickTest}
-        onClickEnterNight={handleClickEnterNight}
-      />
-      {import.meta.env.DEV && (
+      {!gameStarted && (
+        <GameBottomActions
+          allSeatsAssigned={allSeatsAssigned}
+          allTestsPassed={allTestsPassed}
+          isTesting={isTesting}
+          isStartingGame={isStartingGame}
+          testMessage={testMessage}
+          onClickTest={handleClickTest}
+          onClickEnterNight={handleClickEnterNight}
+        />
+      )}
+      {import.meta.env.DEV && !gameStarted && (
         <button
           type="button"
           className="game-stage-debug"
@@ -457,6 +569,13 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
         onSwap={handleSwapModel}
       />
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
+      <KnightDuelBanner active={knightDuelActive} onDone={handleKnightDuelDone} />
+      <FinalRevealOverlay
+        gameId={gameId}
+        events={events}
+        assignments={assignments}
+        onExitGame={handleConfirmExit}
+      />
       <ExitConfirmModal
         open={exitConfirmOpen}
         onClose={() => setExitConfirmOpen(false)}
@@ -464,4 +583,118 @@ export function GamePage({ gameId, onExitGame }: GamePageProps) {
       />
     </main>
   );
+}
+
+function appendNarrativeRow(
+  setRows: Dispatch<SetStateAction<NarrativeRow[]>>,
+  row: NarrativeRow,
+) {
+  setRows((prev) => {
+    if (
+      prev.some(
+        (existing) =>
+          existing.seq === row.seq &&
+          existing.kind === row.kind &&
+          existing.text === row.text,
+      )
+    ) {
+      return prev;
+    }
+    return [...prev, row];
+  });
+}
+
+function buildAgentSpecs(assignments: (number | null)[]): Record<number, AgentSpec> {
+  const agents: Record<number, AgentSpec> = {};
+  assignments.forEach((slotIndex, seatIndex) => {
+    if (slotIndex === null) {
+      throw new Error(`第 ${seatIndex + 1} 号席位尚未分配模型`);
+    }
+    const config = readModelConfig(slotIndex);
+    if (!config) {
+      throw new Error(`${MODEL_SLOTS[slotIndex]?.nickname ?? '模型'} 配置缺失`);
+    }
+    agents[seatIndex + 1] = {
+      kind: 'llm',
+      provider: 'litellm',
+      model: config.modelName,
+      base_url: config.baseUrl,
+      api_key: config.apiKey,
+    };
+  });
+  return agents;
+}
+
+function deriveDeadSeats(events: GameEvent[]) {
+  const dead = new Set<number>();
+  for (const event of events) {
+    if (event.type === 'death_at_night' || event.type === 'exile') {
+      const seat = Number(event.payload.seat);
+      if (Number.isFinite(seat)) {
+        dead.add(seat);
+      }
+    }
+    if (event.type === 'knight_result') {
+      const killed = Number(event.payload.killed);
+      if (Number.isFinite(killed)) {
+        dead.add(killed);
+      }
+    }
+    if (event.type === 'role_reveal' && Array.isArray(event.payload.seats)) {
+      for (const seat of event.payload.seats) {
+        if (
+          typeof seat === 'object' &&
+          seat !== null &&
+          'seat' in seat &&
+          'alive' in seat &&
+          !seat.alive
+        ) {
+          dead.add(Number(seat.seat));
+        }
+      }
+    }
+  }
+  return dead;
+}
+
+async function handleAudioTrigger(
+  gameId: string,
+  event: GameEvent,
+  eventsRef: { current: GameEvent[] },
+) {
+  if (event.type !== 'phase_enter') {
+    return;
+  }
+  const phase = String(event.payload.phase ?? event.phase);
+  try {
+    if (phase === 'NIGHT_START') {
+      await gameAudio.playSequence(['wolf_howl', 'night_guard'], 1000);
+      await sendAck(gameId, phase, 'night_intro_done');
+    } else if (phase === 'NIGHT_WOLF_CHAT') {
+      await gameAudio.playSequence(['night_wolves'], 1000);
+      await sendAck(gameId, phase, 'night_wolves_done');
+    } else if (phase === 'NIGHT_SEER') {
+      await gameAudio.playSequence(['night_seer'], 1000);
+      await sendAck(gameId, phase, 'night_seer_done');
+    } else if (phase === 'DAY_ANNOUNCE') {
+      const hasDeath = eventsRef.current.some(
+        (item) => item.day === event.day && item.type === 'death_at_night',
+      );
+      await gameAudio.playSequence(
+        ['day_rooster', 'day_dawn', hasDeath ? 'day_death' : 'day_peaceful'],
+        250,
+      );
+      await sendAck(gameId, phase, 'day_intro_done');
+    }
+  } catch {
+    if (phase === 'NIGHT_START') {
+      await sendAck(gameId, phase, 'night_intro_done').catch(() => undefined);
+    } else if (phase === 'NIGHT_WOLF_CHAT') {
+      await sendAck(gameId, phase, 'night_wolves_done').catch(() => undefined);
+    } else if (phase === 'NIGHT_SEER') {
+      await sendAck(gameId, phase, 'night_seer_done').catch(() => undefined);
+    } else if (phase === 'DAY_ANNOUNCE') {
+      await sendAck(gameId, phase, 'day_intro_done').catch(() => undefined);
+    }
+  }
 }

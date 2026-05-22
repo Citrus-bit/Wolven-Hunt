@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,17 +35,26 @@ from wolven_hunt.core.state import GameState
 from wolven_hunt.llm.cost import CostTracker
 from wolven_hunt.llm.gateway import LLMGateway
 from wolven_hunt.llm.prompts import PromptRenderer
-from wolven_hunt.llm.provider import LiteLLMProvider, MockLLMProvider
+from wolven_hunt.llm.provider import build_provider_from_config
+from wolven_hunt.llm.provider_map import (
+    ProviderConfig,
+    load_provider_map,
+    merge_provider_config,
+)
 from wolven_hunt.orchestration.fsm import run_game
+from wolven_hunt.orchestration.pacing import PacingController, PacingName, profile_from_settings
+from wolven_hunt.referee.reveal import build_role_reveal
 from wolven_hunt.referee.validate import Reject, validate_action
 from wolven_hunt.referee.view import PlayerView, build_view
 from wolven_hunt.storage.disk import GameRunStore
 from wolven_hunt.storage.event_log import EventLog
+from wolven_hunt.storage.narrative import event_to_narrative
 
 MANUAL_ACTION_WAIT_SECONDS = 0.05
 
 
 TextAction = Speech | WolfChatMessage
+AgentSpecValue = object
 
 
 class RuntimeControl:
@@ -169,10 +179,13 @@ class GameSession:
     condition: asyncio.Condition
     control: RuntimeControl
     pending: PendingTextActions
+    pacing: PacingController
     started_at: str
     task: asyncio.Task[None] | None = None
     error: str | None = None
+    final_reveal: dict[str, object] | None = None
     _lock: threading.RLock = field(default_factory=threading.RLock)
+    _narrative_rows: list[dict[str, object]] = field(default_factory=list)
     _wake_tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
     def set_state(self, state: GameState) -> None:
@@ -187,7 +200,17 @@ class GameSession:
 
     def publish_event(self, event: Event) -> None:
         self.store.append_event(event)
+        row = event_to_narrative(event)
+        if row is not None:
+            row_dict = row.to_dict()
+            with self._lock:
+                self._narrative_rows.append(row_dict)
+            self.store.append_narrative(row_dict)
         self.notify_event_loop()
+        self.pacing.on_event(event)
+
+    def ack(self, *, phase: str, event: str, client_event_id: str = "") -> None:
+        self.pacing.ack(phase=phase, event=event, client_event_id=client_event_id)
 
     def notify_event_loop(self) -> None:
         if self.loop.is_closed():
@@ -222,6 +245,13 @@ class GameSession:
     def spectator_events_after(self, seq: int) -> tuple[dict[str, object], ...]:
         return tuple(event for event in self.spectator_events() if _event_seq(event) > seq)
 
+    def narrative_rows(self) -> tuple[dict[str, object], ...]:
+        with self._lock:
+            return tuple(self._narrative_rows)
+
+    def narrative_rows_after(self, seq: int) -> tuple[dict[str, object], ...]:
+        return tuple(row for row in self.narrative_rows() if _row_seq(row) > seq)
+
     def latest_event_seq(self) -> int:
         events = self.event_log.events
         return 0 if not events else events[-1].seq
@@ -241,7 +271,8 @@ class GameRegistry:
         *,
         config_path: Path,
         seed: str,
-        agent_specs: dict[int, str],
+        agent_specs: Mapping[int, AgentSpecValue],
+        pacing: PacingName | None = None,
     ) -> GameSession:
         config = load_game_config(config_path)
         initial_state, _ = build_initial_state(config, seed)
@@ -275,6 +306,7 @@ class GameRegistry:
             condition=asyncio.Condition(),
             control=RuntimeControl(),
             pending=PendingTextActions(),
+            pacing=PacingController(profile_from_settings(self.settings, override=pacing)),
             started_at=started_at,
         )
         session_ref["session"] = session
@@ -362,6 +394,12 @@ class GameRegistry:
                 control_hook=session.control.wait_if_paused,
             )
             session.set_state(state)
+            if state.winner is not None and not _has_role_reveal(session.event_log.events):
+                reveal = build_role_reveal(state, session.event_log.events)
+                if reveal is not None:
+                    stamped_reveal = session.event_log.append(reveal)
+                    session.final_reveal = dict(stamped_reveal.payload)
+                    session.store.write_final_reveal(dict(stamped_reveal.payload))
             session.store.write_manifest(
                 {
                     "config_hash": session.config.config_hash,
@@ -384,33 +422,31 @@ class GameRegistry:
         *,
         config: GameConfig,
         seed: str,
-        specs: dict[int, str],
+        specs: Mapping[int, AgentSpecValue],
         store: GameRunStore,
         pending: PendingTextActions,
     ) -> dict[int, PlayerInterface]:
         agents: dict[int, PlayerInterface] = {}
-        provider = (
-            LiteLLMProvider(
-                model=self.settings.llm_model,
-                api_key=self.settings.llm_api_key,
-                base_url=self.settings.llm_base_url,
-                timeout_seconds=self.settings.llm_timeout_seconds,
-            )
-            if self.settings.llm_provider == "litellm"
-            else MockLLMProvider(model=self.settings.llm_model)
-        )
-        gateway = LLMGateway(
-            provider=provider,
-            max_retries=self.settings.llm_max_retries,
-            cost_tracker=CostTracker(budget_tokens=self.settings.llm_budget_per_game),
-            raw_response_sink=lambda row: _write_llm_rows(store, row),
-        )
+        provider_map = load_provider_map(self.settings)
+        cost_tracker = CostTracker(budget_tokens=self.settings.llm_budget_per_game)
         renderer = PromptRenderer(config.prompt_pack_root, version="v1")
         llm_rng = DeterministicRNG(seed)
+        use_default_provider = bool(specs) or bool(self.settings.llm_provider_map)
         for seat_number in range(config.seat_range.start, config.seat_range.end + 1):
             seat = Seat(seat_number)
-            spec = specs.get(seat_number, "mock")
-            if spec.startswith("llm:"):
+            spec = specs.get(seat_number)
+            provider_config = _provider_config_for_spec(
+                spec,
+                fallback=provider_map.for_seat(seat),
+                default_to_provider=use_default_provider,
+            )
+            if provider_config is not None:
+                gateway = LLMGateway(
+                    provider=build_provider_from_config(provider_config),
+                    max_retries=self.settings.llm_max_retries,
+                    cost_tracker=cost_tracker,
+                    raw_response_sink=lambda row: _write_llm_rows(store, row),
+                )
                 base: PlayerInterface = LLMAgent(
                     seat=seat,
                     gateway=gateway,
@@ -425,6 +461,38 @@ class GameRegistry:
                 pending=pending,
             )
         return agents
+
+
+def _provider_config_for_spec(
+    spec: AgentSpecValue | None,
+    *,
+    fallback: ProviderConfig,
+    default_to_provider: bool,
+) -> ProviderConfig | None:
+    if spec is None:
+        return fallback if default_to_provider else None
+    if isinstance(spec, str):
+        if spec.startswith("llm"):
+            if spec == "llm:mock":
+                return ProviderConfig(provider="mock", model=fallback.model)
+            return fallback
+        return None
+    data = _mapping_from_spec(spec)
+    kind = str(data.get("kind", "mock"))
+    if kind == "mock":
+        return None
+    if kind != "llm":
+        raise ValueError(f"unsupported agent kind: {kind}")
+    return merge_provider_config(fallback, data)
+
+
+def _mapping_from_spec(spec: object) -> Mapping[str, object]:
+    if isinstance(spec, Mapping):
+        return cast(Mapping[str, object], spec)
+    model_dump = getattr(spec, "model_dump", None)
+    if callable(model_dump):
+        return cast(Mapping[str, object], model_dump())
+    raise ValueError(f"unsupported agent spec: {spec!r}")
 
 
 def _write_llm_rows(store: GameRunStore, row: dict[str, object]) -> None:
@@ -447,6 +515,19 @@ def _event_seq(event: dict[str, object]) -> int:
     if isinstance(seq, str):
         return int(seq)
     return 0
+
+
+def _row_seq(row: dict[str, object]) -> int:
+    seq = row.get("seq")
+    if isinstance(seq, int):
+        return seq
+    if isinstance(seq, str):
+        return int(seq)
+    return 0
+
+
+def _has_role_reveal(events: tuple[Event, ...]) -> bool:
+    return any(event.type.value == "role_reveal" for event in events)
 
 
 def _now() -> str:

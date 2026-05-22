@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -39,10 +40,12 @@ def main(argv: list[str] | None = None) -> int:
     resimulate = subparsers.add_parser("resimulate", help="resimulate a run from events/raw JSONL")
     resimulate.add_argument("--events", required=True)
     resimulate.add_argument("--raw", default=None)
+    resimulate.add_argument("--pacing", choices=["off"], default="off")
 
     serve = subparsers.add_parser("serve", help="start the FastAPI server")
     serve.add_argument("--host", default=None)
     serve.add_argument("--port", type=int, default=None)
+    serve.add_argument("--pacing", choices=["live", "fast", "off"], default=None)
 
     args = parser.parse_args(argv)
     if args.cmd == "simulate":
@@ -114,6 +117,8 @@ def _run_resimulate(args: argparse.Namespace) -> int:
 
 
 def _run_serve(args: argparse.Namespace) -> int:
+    if args.pacing is not None:
+        os.environ["WH_PACING_PROFILE"] = args.pacing
     settings = load_settings()
     import uvicorn
 

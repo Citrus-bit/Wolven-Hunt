@@ -13,7 +13,9 @@ from wolven_hunt.storage.replay import ResimulateDivergence, replay_resimulate
 
 @pytest.mark.llm
 def test_resimulate_accepts_persisted_mock_llm_run(tmp_path: Path) -> None:
-    registry = GameRegistry(settings=Settings(runs_dir=tmp_path, llm_provider="mock"))
+    registry = GameRegistry(
+        settings=Settings(runs_dir=tmp_path, llm_provider="mock", pacing_profile="off")
+    )
     session = asyncio.run(_create_finished_session(registry, seed="resimulate-seed-001"))
 
     events = replay_resimulate(session.store.events_path, session.store.raw_responses_path)
@@ -25,7 +27,9 @@ def test_resimulate_accepts_persisted_mock_llm_run(tmp_path: Path) -> None:
 
 @pytest.mark.llm
 def test_resimulate_reports_tampered_raw_response(tmp_path: Path) -> None:
-    registry = GameRegistry(settings=Settings(runs_dir=tmp_path, llm_provider="mock"))
+    registry = GameRegistry(
+        settings=Settings(runs_dir=tmp_path, llm_provider="mock", pacing_profile="off")
+    )
     session = asyncio.run(_create_finished_session(registry, seed="resimulate-seed-002"))
     lines = session.store.raw_responses_path.read_text(encoding="utf-8").splitlines()
     first = json.loads(lines[0])

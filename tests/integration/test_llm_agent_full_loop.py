@@ -11,7 +11,9 @@ from wolven_hunt.orchestration.runtime import GameRegistry
 
 @pytest.mark.llm
 def test_mock_llm_agent_runs_seeded_games(tmp_path: Path) -> None:
-    registry = GameRegistry(settings=Settings(runs_dir=tmp_path, llm_provider="mock"))
+    registry = GameRegistry(
+        settings=Settings(runs_dir=tmp_path, llm_provider="mock", pacing_profile="off")
+    )
 
     for index in range(20):
         session = asyncio.run(

@@ -22,6 +22,11 @@ def game_config() -> GameConfig:
     return load_game_config(CONFIG_PATH)
 
 
+@pytest.fixture(autouse=True)
+def default_pacing_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WH_PACING_PROFILE", "off")
+
+
 @pytest.fixture
 def seed() -> str:
     return "wolven-hunt-test-seed-001"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -35,6 +36,20 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=exc.status_code,
             content={"code": "http_error", "message": str(detail)},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        del request
+        first = exc.errors()[0] if exc.errors() else {}
+        loc = first.get("loc", ())
+        code = "invalid_agent_spec" if "agents" in loc else "validation_error"
+        return JSONResponse(
+            status_code=422,
+            content={"code": code, "message": str(first.get("msg", code))},
         )
 
     return app

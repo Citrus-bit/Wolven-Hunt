@@ -113,6 +113,22 @@ class ReplayRules(BaseModel):
     random_events_record_candidates_and_selected: bool
 
 
+class TimingRules(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    night_start_ms: int = Field(ge=0)
+    night_guard_ms: int = Field(ge=0)
+    night_wolf_chat_ms: int = Field(ge=0)
+    night_wolf_vote_ms: int = Field(ge=0)
+    night_seer_ms: int = Field(ge=0)
+    day_announce_ms: int = Field(ge=0)
+    day_last_words_ms: int = Field(ge=0)
+    day_speech_ms: int = Field(ge=0)
+    day_vote_ms: int = Field(ge=0)
+    day_vote_pk_ms: int = Field(ge=0)
+    knight_duel_ms: int = Field(ge=0)
+
+
 class RuleSet(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -130,6 +146,7 @@ class RuleSet(BaseModel):
     last_words: LastWordsRules
     fallback: FallbackRules
     replay: ReplayRules
+    timings: TimingRules
 
 
 class SeatRange(BaseModel):

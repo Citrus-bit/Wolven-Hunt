@@ -19,6 +19,7 @@ class GameRunStore:
             self.events_path,
             self.raw_responses_path,
             self.cost_path,
+            self.narrative_path,
         ):
             _touch_private(path)
 
@@ -38,6 +39,14 @@ class GameRunStore:
     def cost_path(self) -> Path:
         return self.root / "cost.jsonl"
 
+    @property
+    def narrative_path(self) -> Path:
+        return self.root / "narrative.jsonl"
+
+    @property
+    def final_reveal_path(self) -> Path:
+        return self.root / "final_reveal.json"
+
     def append_event(self, event: Event) -> None:
         append_jsonl(self.events_path, event.model_dump(mode="json"))
 
@@ -46,6 +55,12 @@ class GameRunStore:
 
     def append_cost(self, row: dict[str, object]) -> None:
         append_jsonl(self.cost_path, row)
+
+    def append_narrative(self, row: dict[str, object]) -> None:
+        append_jsonl(self.narrative_path, row)
+
+    def write_final_reveal(self, payload: dict[str, Any]) -> None:
+        atomic_write_json(self.final_reveal_path, payload)
 
     def write_manifest(self, manifest: dict[str, Any]) -> None:
         atomic_write_json(self.manifest_path, manifest)

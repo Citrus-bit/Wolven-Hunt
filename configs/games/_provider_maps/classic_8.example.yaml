@@ -1,0 +1,12 @@
+default:
+  provider: mock
+  model: mock/deterministic
+  base_url: ""
+  api_key_env: ""
+  timeout_seconds: 30
+seats:
+  1:
+    provider: litellm
+    model: openai/gpt-4o-mini
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY

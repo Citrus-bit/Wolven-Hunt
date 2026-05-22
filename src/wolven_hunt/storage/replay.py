@@ -83,7 +83,13 @@ def replay_resimulate(
             if seat_number in llm_seats
             else DeterministicMockAgent(seat)
         )
-    _, new_log = run_game(config=config, seed=seed, agents=agents)
+    state, new_log = run_game(config=config, seed=seed, agents=agents)
+    if any(event.type.value == "role_reveal" for event in events):
+        from wolven_hunt.referee.reveal import build_role_reveal
+
+        reveal = build_role_reveal(state, new_log.events)
+        if reveal is not None:
+            new_log.append(reveal)
     actual = _strip_llm_calls(new_log.events)
     expected = _strip_llm_calls(events)
     _compare_event_sequence(expected, actual)

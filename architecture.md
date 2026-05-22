@@ -14,7 +14,7 @@
 - 骑士 1 人
 - 守卫 1 人
 
-当前阶段为 STEP-06 / P2 外部接入实现：允许在 STEP-05 引擎基础上实现 LLM 网关、结构化输出校验、mock provider、LLMAgent、落盘 EventLog sink、`replay_resimulate`、FastAPI/SSE、CLI serve/resimulate 与前端 spectator 事件流接入。
+当前阶段为 STEP-07 / P3 观赛 MVP：允许在 STEP-06 外部接入基础上实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、骑士决斗视频与结局浮层。
 
 ## 2. Rule Contract
 
@@ -207,13 +207,15 @@ GAME_END
 
 事件类型 v1.0：
 
-- 流程：`game_start`, `phase_enter`, `phase_exit`, `game_end`
+- 流程：`game_start`, `phase_enter`, `phase_exit`, `game_end`, `role_reveal`
 - 夜晚：`guard_protect`, `wolf_chat_message`, `wolf_kill_vote`, `wolf_kill_decided`, `wolf_tie_random`, `seer_check`, `seer_check_result`, `no_death_tonight`, `death_at_night`
 - 白天：`day_announce`, `last_words`, `speech`, `knight_challenge`, `knight_result`, `vote_cast`, `vote_result`, `vote_pk_enter`, `peaceful_day`, `exile`
 - 系统：`win_check`, `agent_timeout`, `agent_invalid_action`, `agent_fallback_triggered`, `agent_budget_warning`
 - 元数据：`llm_call`
 
 `llm_call` 包含 `prompt_hash`、`raw_response_hash`、`storage_ref`、`model`、`prompt_tokens`、`completion_tokens`、`cost_usd`、`prompt_version`，但仅写入存储层，不进入 PlayerView。完整 raw response 仅写入私有存储；`llm_call` payload 不得包含 raw response 原文。
+
+`role_reveal` 仅在 `GAME_END` 后由 Referee 生成，公开可见，payload 固定为 `{winner, seats: [{seat, role, alive}], highlights}`。`pacing_tick` 是未来保留事件；STEP-07 不写入事件日志，避免污染 replay hash。
 
 所有随机事件 payload 必须记录：
 
@@ -297,6 +299,14 @@ configs/prompts/zh/seer/night_action.v3.md
 
 事件日志记录 `prompt_version`，保证修改 prompt 后旧日志仍可解释。
 
+提示词渲染顺序固定为：
+
+```text
+[system.v1.md] + [role/phase.v1.md] + [JSON payload] + [retry_error?]
+```
+
+`system.v1.md` 是全员统一系统提示词，包含规则摘要、信息边界和 JSON-only 输出契约。角色/phase 模板来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events 和 output_schema。LLM 重试时只在末尾追加结构化错误说明。
+
 输入侧：
 
 - Referee 不审查 Agent 发言内容。
@@ -310,11 +320,19 @@ configs/prompts/zh/seer/night_action.v3.md
 - 校验失败进入重试与 fallback。
 - 输出 JSON schema 按 phase 固定为：`NIGHT_GUARD {target}`、`NIGHT_WOLF_CHAT {text}`、`NIGHT_WOLF_VOTE {target}`、`NIGHT_SEER {target}`、`DAY_SPEECH {text}`、`DAY_KNIGHT_INTERRUPT {activate, target?}`、`DAY_VOTE {target}`、`DAY_VOTE_PK {target}`、`DAY_LAST_WORDS {text}`。
 
-PlayerView 大小控制：
+PlayerView 大小控制 / 上下文管理策略：
 
-- 使用最近事件窗口加确定性历史摘要。
-- 摘要算法必须是基于事件日志的纯函数。
+- Prompt 上下文只从 Referee 过滤后的 `PlayerView.visible_events` 构造。
+- 默认使用最近 40 条事件，并强制保留 `game_start`、`death_at_night`、`exile`、`knight_result`、`seer_check_result`。
+- 当可见事件超过 60 条时，payload 使用首 10 条事件 + 中间摘要 + 最近 30 条事件。
+- 摘要格式固定为 `{type, day, phase, actor, summary_text}`，其中 `type` 为 `summary`。
+- 摘要算法必须是基于可见事件的纯函数，不调用 LLM，不改变 EventLog、replay hash 或权限边界。
 - 单局 token 上限通过 `llm.budget_per_game` 配置。
+
+Prompt 存储：
+
+- `raw_responses.jsonl` 只保存 `prompt_hash` 与 `prompt_version`，不保存 prompt 原文。
+- prompt 内容正确性通过测试捕获 provider 入参验证；公开事件、PlayerView、spectator API 和 SSE 均不返回 prompt 原文。
 
 ## 14. Module Boundaries
 
@@ -328,7 +346,7 @@ PlayerView 大小控制：
 - `src/wolven_hunt/storage`：事件日志、快照、两种 replay 模式。
 - `src/wolven_hunt/api`：FastAPI 控制接口，STEP-06 实现。
 
-落盘目录固定为 `runs/{game_id}/events.jsonl`、`raw_responses.jsonl`、`manifest.json`、`cost.jsonl`。写入使用 tmp + fsync + atomic rename 或行级 fsync，文件权限为 `0600`。
+落盘目录固定为 `runs/{game_id}/events.jsonl`、`raw_responses.jsonl`、`manifest.json`、`cost.jsonl`、`narrative.jsonl`、`final_reveal.json`。写入使用 tmp + fsync + atomic rename 或行级 fsync，文件权限为 `0600`。
 
 调用链固定：
 
@@ -357,12 +375,15 @@ FastAPI 在 STEP-06 实现，所有读取接口默认返回 spectator 脱敏视�
 - `POST /games/{id}/replay`
 - `POST /games/{id}/dev/inject`
 - `GET /games/{id}/stream`
+- `GET /games/{id}/narrative`
+- `GET /games/{id}/reveal`
+- `POST /games/{id}/ack`
 - `POST /games/{id}/speech`
 - `POST /games/{id}/wolf_chat`
 
 错误体统一为 `{code, message, details?}`。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。
 
-SSE 线协议固定为 `event: game_event`、`id: <seq>`、`data: <spectator Event JSON>`；每 30s 发送 `event: heartbeat`。`Last-Event-ID` 表示从 `seq + 1` 续推，不存在则返回 410。CORS 默认白名单是 `http://localhost:5173`，可通过 `WH_API_CORS_ORIGINS` 配置。
+SSE 线协议固定为 `event: game_event`、`id: <seq>`、`data: <spectator Event JSON>`；STEP-07 额外推送同源 `event: narrative_row`，与 `game_event` 共享原始事件 `seq`。每 30s 发送 `event: heartbeat`。`Last-Event-ID` 表示从 `seq + 1` 续推，不存在则返回 410。CORS 默认白名单是 `http://localhost:5173`，可通过 `WH_API_CORS_ORIGINS` 配置。
 
 STEP-06 环境变量统一由 `src/wolven_hunt/config/settings.py` 的 `pydantic-settings.BaseSettings` 读取：
 
@@ -373,6 +394,12 @@ STEP-06 环境变量统一由 `src/wolven_hunt/config/settings.py` 的 `pydantic
 - `WH_LLM_TIMEOUT_SECONDS`：单次调用超时，默认 30
 - `WH_LLM_MAX_RETRIES`：重试预算，默认 2
 - `WH_LLM_BUDGET_PER_GAME`：单局 token 上限，默认 100000；超限时发一次 `agent_budget_warning`，游戏继续运行
+- `WH_LLM_PROVIDER_MAP`：空字符串或 YAML 路径；非空时按座位路由 provider，缺失座位回退到全局 `WH_LLM_*`
+- `WH_PACING_PROFILE`：`live | fast | off`，默认 `live`；CI / replay / resimulate 强制 `off`
+- `WH_PACING_PHASE_MS`：phase 切换基础停顿，默认 600
+- `WH_PACING_SPEECH_MS`：speech / wolf_chat / last_words 后停顿，默认 400
+- `WH_PACING_NIGHT_MS`：进入夜晚的额外停顿，默认 1000
+- `WH_PACING_ACK_TIMEOUT_MS`：现场观赛 ack 最大等待时间，默认 15000；ack 超时只解除等待，不写 EventLog
 - `WH_RUNS_DIR`：落盘根目录，默认 `./runs`
 - `WH_API_HOST`：FastAPI 监听地址，默认 `127.0.0.1`
 - `WH_API_PORT`：FastAPI 监听端口，默认 8000
@@ -406,6 +433,12 @@ STEP-06 环境变量统一由 `src/wolven_hunt/config/settings.py` 的 `pydantic
 `plan.md` 是项目基准。任何后续实现若需要改变规则、状态机、事件 schema、目录边界、配置字段、prompt 版本策略、fallback 或 replay 语义，必须同步更新 `plan.md`。
 
 普通代码变更也必须检查 `plan.md` 是否需要同步记录。若无需更新，应在提交说明或变更说明中明确该变更只是落实现有计划，不改变项目契约。
+
+## 17.1 Provider 路由与节奏
+
+STEP-07 新增 per-seat provider map 契约：`ProviderMap = dict[seat_number, ProviderConfig]`。未指定座位回退到 YAML default，再回退到全局 `WH_LLM_*`。ProviderConfig 只决定调用哪个模型，不进入事件日志、narrative、PlayerView、spectator API 或 SSE。
+
+STEP-07 新增 `PacingController`，由运行时在事件发布后调用；`profile=off` 时为 no-op。现场观赛 audio/video 通过 `POST /games/{id}/ack` 解除等待；ack 不进入 EventLog、不影响 replay hash，超时只解除等待。
 
 ## 18. Web Shell Boundary
 

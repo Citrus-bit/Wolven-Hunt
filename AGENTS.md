@@ -16,8 +16,9 @@
 
 当前阶段约束：
 
-- 当前为 STEP-06 / P2 外部接入实现阶段。
-- 允许在 STEP-05 已有 Python 引擎基础上实现 LLM 网关、结构化输出校验、mock provider、LLMAgent、落盘 EventLog sink、`replay_resimulate`、FastAPI/SSE、CLI serve/resimulate 和对应测试。
-- 允许把 STEP-04 前端壳接入后端 spectator 事件流，但前端仍不得绕过 Referee 获取私有信息或自行判定行动合法性。
+- 当前为 STEP-07 / P3 观赛 MVP 实现阶段。
+- 允许在 STEP-06 后端外部接入基础上实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、role_reveal、final_reveal、前端音视频、倒计时、投票直方图、骑士决斗视频和结局揭晓。
+- 允许把 STEP-04/STEP-06 前端壳接入后端 spectator 事件流和 narrative/reveal API，但前端仍不得绕过 Referee 获取私有信息或自行判定行动合法性。
 - CI 和默认测试必须使用 mock provider；真实 LLM smoke 必须由环境变量显式开启，不得默认联网或消耗 API key。
-- 运行时落盘默认使用 `runs/{game_id}/`，完整 raw response 只写入私有 `raw_responses.jsonl`，不得进入 PlayerView、spectator API 或 SSE。
+- 运行时落盘默认使用 `runs/{game_id}/`，完整 raw response 只写入私有 `raw_responses.jsonl`，不得进入 PlayerView、spectator API、narrative 或 SSE。
+- ack 只控制现场观赛节奏，不写入 EventLog，不影响 replay hash。

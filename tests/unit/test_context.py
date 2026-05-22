@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+from wolven_hunt.core.events import DRAFT_TIMESTAMP, Event, EventType, public_visibility
+from wolven_hunt.core.ids import EventId, GameId
+from wolven_hunt.llm.context import build_prompt_visible_events, select_events_for_prompt
+
+
+def test_select_events_returns_all_when_under_limit() -> None:
+    events = tuple(_event(seq, EventType.PHASE_ENTER) for seq in range(1, 5))
+
+    assert select_events_for_prompt(events, max_count=40) == events
+
+
+def test_select_events_keeps_important_and_recent() -> None:
+    events = tuple(
+        _event(
+            seq,
+            {
+                1: EventType.GAME_START,
+                8: EventType.DEATH_AT_NIGHT,
+                15: EventType.EXILE,
+                24: EventType.KNIGHT_RESULT,
+                31: EventType.SEER_CHECK_RESULT,
+            }.get(seq, EventType.SPEECH),
+        )
+        for seq in range(1, 61)
+    )
+
+    selected = select_events_for_prompt(events, max_count=40)
+    selected_types = {event.type for event in selected}
+
+    assert len(selected) == 40
+    assert EventType.GAME_START in selected_types
+    assert EventType.DEATH_AT_NIGHT in selected_types
+    assert EventType.EXILE in selected_types
+    assert EventType.KNIGHT_RESULT in selected_types
+    assert EventType.SEER_CHECK_RESULT in selected_types
+    assert selected[-1].seq == 60
+    assert tuple(event.seq for event in selected) == tuple(sorted(event.seq for event in selected))
+
+
+def test_build_prompt_visible_events_summarizes_long_context_deterministically() -> None:
+    events = tuple(
+        _event(
+            seq,
+            {
+                1: EventType.GAME_START,
+                18: EventType.DEATH_AT_NIGHT,
+                36: EventType.EXILE,
+                50: EventType.KNIGHT_RESULT,
+            }.get(seq, EventType.SPEECH),
+        )
+        for seq in range(1, 76)
+    )
+
+    first = build_prompt_visible_events(events)
+    second = build_prompt_visible_events(events)
+    summary_rows = [row for row in first if row["type"] == "summary"]
+
+    assert first == second
+    assert len(summary_rows) == 1
+    assert "seq 11-45" in str(summary_rows[0]["summary_text"])
+    assert first[0]["seq"] == 1
+    assert first[-1]["seq"] == 75
+    assert [row["seq"] for row in first[:10]] == list(range(1, 11))
+    assert [row["seq"] for row in first[-30:]] == list(range(46, 76))
+
+
+def _event(seq: int, event_type: EventType) -> Event:
+    return Event(
+        event_id=EventId.deterministic("context", seq, event_type.value),
+        game_id=GameId.deterministic("context"),
+        seq=seq,
+        phase="DAY_SPEECH",
+        day=1 if seq < 40 else 2,
+        timestamp=DRAFT_TIMESTAMP,
+        type=event_type,
+        actor=None if event_type is EventType.GAME_START else ((seq % 8) + 1),
+        visibility=public_visibility(),
+        payload={"target": ((seq + 1) % 8) + 1} if event_type is not EventType.SPEECH else {},
+    )

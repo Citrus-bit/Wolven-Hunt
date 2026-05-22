@@ -12,7 +12,7 @@
 - 投票只能投存活玩家，允许投自己；PK 重投只能投 PK 台上玩家，且 PK 台上玩家不参与重投。
 - 编排核心采用**纯 Python FSM 优先**；裁判层（Referee）负责视角隔离与合法性校验；**事件日志是单一事实源**。
 - 规则、角色、模型、提示词全部**配置驱动**，核心代码不随板子变化。
-- 当前阶段：**STEP-06 / P2 外部接入实现**。在 STEP-05 引擎基础上允许实现 LLM 网关、结构化输出校验、mock provider、LLMAgent、落盘 EventLog sink、`replay_resimulate`、FastAPI/SSE、CLI serve/resimulate 与前端 spectator 事件流接入。
+- 当前阶段：**STEP-07 / P3 观赛 MVP**。在 STEP-06 外部接入基础上允许实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、骑士决斗视频与结局浮层。
 
 ---
 
@@ -189,13 +189,14 @@ GAME_END
 
 ### 3.3 事件类型枚举（v1.0）
 
-- 流程：`game_start`, `phase_enter`, `phase_exit`, `game_end`
+- 流程：`game_start`, `phase_enter`, `phase_exit`, `game_end`, `role_reveal`
 - 夜晚：`guard_protect`, `wolf_chat_message`, `wolf_kill_vote`, `wolf_kill_decided`, `wolf_tie_random`, `seer_check`, `seer_check_result`, `no_death_tonight`, `death_at_night`
 - 白天：`day_announce`, `last_words`, `speech`, `knight_challenge`, `knight_result`, `vote_cast`, `vote_result`, `vote_pk_enter`, `peaceful_day`, `exile`
 - 系统：`win_check`, `agent_timeout`, `agent_invalid_action`, `agent_fallback_triggered`, `agent_budget_warning`
 - 元数据：`llm_call`（包含 `prompt_hash`、`raw_response_hash`、`storage_ref`、model、token、cost，**仅写入存储层，不进 PlayerView**）
 - `llm_call` payload 字段固定为：`prompt_hash: str`、`raw_response_hash: str`、`storage_ref: str`、`model: str`、`prompt_tokens: int`、`completion_tokens: int`、`cost_usd: float`、`prompt_version: str`。payload 不得包含 `raw_response` 原文。
 - 随机：涉及平票随机、fallback 随机、角色洗牌的事件 payload 均记录 `rng_stream`、`candidates`、`selected`、`reason`。
+- `role_reveal` 仅在 `GAME_END` 后由 Referee 生成，公开可见，payload 固定为 `{winner, seats: [{seat, role, alive}], highlights}`。`pacing_tick` 作为未来保留事件，STEP-07 不写入事件日志，避免污染 replay hash。
 
 ### 3.4 可见性规则
 
@@ -245,6 +246,14 @@ GAME_END
 - 所有 fallback 行为均**写入 RuleSet**，黄金测试必须覆盖。
 - 所有 fallback 随机均使用 deterministic RNG，并在对应事件 payload 中记录候选集、选中值与 fallback 原因。
 
+### 4.4 上下文管理策略
+
+- Prompt 上下文只从 Referee 过滤后的 `PlayerView.visible_events` 构造，不读取未授权事件。
+- 默认事件窗口为最近 40 条，并强制保留 `game_start`、`death_at_night`、`exile`、`knight_result`、`seer_check_result` 等关键事件。
+- 当可见事件超过 60 条时，payload 使用确定性长局摘要：首 10 条事件 + 中间摘要 + 最近 30 条事件。
+- 摘要格式固定为 `{type, day, phase, actor, summary_text}`，其中 `type` 为 `summary`，摘要由事件日志纯函数生成，不调用 LLM。
+- 上下文选择和摘要不得改变 EventLog、replay hash、PlayerView 权限边界或行动合法性。
+
 ---
 
 ## 5. 回放与可复现性
@@ -271,9 +280,11 @@ events.jsonl
 raw_responses.jsonl
 manifest.json
 cost.jsonl
+narrative.jsonl
+final_reveal.json
 ```
 
-`events.jsonl` 与 EventLog 一一对应；`raw_responses.jsonl` 每行记录 `{storage_ref, seat, phase, day, seq, model, prompt_hash, raw_response_hash, raw_response, prompt_tokens, completion_tokens, cost_usd}`。所有文件权限为 `0600`。JSON/JSONL 写入必须采用 tmp + fsync + atomic rename 或行级 fsync；恢复时若末行损坏，截断到最后一条可解析完整 JSONL。
+`events.jsonl` 与 EventLog 一一对应；`narrative.jsonl` 每行记录 spectator-safe 中文叙事；`final_reveal.json` 记录终局身份揭晓。`raw_responses.jsonl` 每行记录 `{storage_ref, seat, phase, day, seq, model, prompt_hash, raw_response_hash, raw_response, prompt_tokens, completion_tokens, cost_usd, prompt_version}`。`raw_responses.jsonl` 不保存 prompt 原文，只保存 `prompt_hash` 与 `prompt_version`；prompt 内容正确性通过测试捕获 provider 入参验证。所有文件权限为 `0600`。JSON/JSONL 写入必须采用 tmp + fsync + atomic rename 或行级 fsync；恢复时若末行损坏，截断到最后一条可解析完整 JSONL。
 
 ### 5.3 Prompt 模板版本号
 
@@ -309,10 +320,18 @@ cost.jsonl
 | `DAY_VOTE_PK` | `{target: int}` |
 | `DAY_LAST_WORDS` | `{text: str}` |
 
+提示词结构固定为：
+
+```text
+[system.v1.md] + [role/phase.v1.md] + [JSON payload] + [retry_error?]
+```
+
+`system.v1.md` 是全员统一系统提示词，角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events 和 output_schema。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须使用一致版本解释日志。
+
 ### 6.3 PlayerView 大小控制
 
-- 使用**最近事件窗口 + 确定性历史摘要**，避免 prompt 无限增长。
-- 摘要算法纯函数（基于事件日志），保证可复现。
+- 使用 §4.4 的**重要事件优先 + 最近事件窗口 + 确定性历史摘要**，避免 prompt 无限增长。
+- 摘要算法是基于可见事件的纯函数，保证可复现。
 - 每局 token 上限通过 `llm.budget_per_game` 配置，超限触发告警（不强制中止）。
 
 ---
@@ -448,6 +467,12 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 - `WH_LLM_TIMEOUT_SECONDS`：单次调用超时，默认 30
 - `WH_LLM_MAX_RETRIES`：重试预算，默认 2
 - `WH_LLM_BUDGET_PER_GAME`：单局 token 上限，默认 100000
+- `WH_LLM_PROVIDER_MAP`：空字符串或 YAML 路径；非空时按座位路由 provider，缺失座位回退到全局 `WH_LLM_*`
+- `WH_PACING_PROFILE`：`live | fast | off`，默认 `live`；CI / replay / resimulate 强制 `off`
+- `WH_PACING_PHASE_MS`：phase 切换基础停顿，默认 600
+- `WH_PACING_SPEECH_MS`：speech / wolf_chat / last_words 后停顿，默认 400
+- `WH_PACING_NIGHT_MS`：进入夜晚的额外停顿，默认 1000
+- `WH_PACING_ACK_TIMEOUT_MS`：现场观赛 ack 最大等待时间，默认 15000；ack 超时只解除等待，不写 EventLog
 - `WH_RUNS_DIR`：落盘根目录，默认 `./runs`
 - `WH_API_HOST`：FastAPI 监听地址，默认 `127.0.0.1`
 - `WH_API_PORT`：FastAPI 监听端口，默认 8000
@@ -464,6 +489,9 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 - `POST /games/{id}/replay`：触发 replay（参数：`mode=deterministic|resimulate`）
 - `POST /games/{id}/dev/inject`：dev-only，注入动作
 - `GET /games/{id}/stream`：SSE 流式推送事件
+- `GET /games/{id}/narrative`：返回 spectator-safe 中文叙事行，支持 `?after=<seq>`
+- `GET /games/{id}/reveal`：仅游戏结束后返回 `final_reveal.json`；未结束返回 `404 {code: "game_not_finished"}`
+- `POST /games/{id}/ack`：前端音视频完成后解除 pacing 等待；ack 不进事件日志、不影响 replay hash
 - `POST /games/{id}/speech`：提交公开发言文本，仍走 Referee `validate_action`
 - `POST /games/{id}/wolf_chat`：提交狼聊文本，仍走 Referee `validate_action`
 - 错误体统一为 `{code: str, message: str, details?: object}`；4xx 表示业务/规则拒绝，5xx 表示系统错误。
@@ -476,7 +504,7 @@ id: <seq>
 data: <spectator Event JSON>
 ```
 
-每 30s 发送 `event: heartbeat\ndata: {}`。客户端携带 `Last-Event-ID: <seq>` 时，服务端从 `seq + 1` 续推；请求的 seq 不存在时返回 410。CORS 默认白名单为 `http://localhost:5173`，可通过 `WH_API_CORS_ORIGINS` 配置。
+STEP-07 额外推送同源 `event: narrative_row`，与 `game_event` 共享原始事件 `seq`。每 30s 发送 `event: heartbeat\ndata: {}`。客户端携带 `Last-Event-ID: <seq>` 时，服务端从 `seq + 1` 续推；请求的 seq 不存在时返回 410。CORS 默认白名单为 `http://localhost:5173`，可通过 `WH_API_CORS_ORIGINS` 配置。
 
 ---
 
@@ -552,7 +580,8 @@ data: <spectator Event JSON>
 | P2 | LLM 网关（LiteLLM + 重试 + fallback + 成本记录） | 接入真模型 |
 | P2 | Replay 两种模式 + Prompt 版本号 | 长期可维护 |
 | P2 | FastAPI + SSE | 外部接入；第一阶段只在 architecture.md 定义接口边界 |
-| P3 | Property test、公平性回归、Token 预算测试 | 工程化体验 |
+| P3 | STEP-07 观赛 MVP：per-seat provider、pacing/ack、narrative、role reveal、前端音视频与结局浮层 | 可从前端完整观看一局 AI 狼人杀 |
+| P3+ | Property test、公平性回归、Token 预算测试 | 工程化体验 |
 
 ---
 
@@ -568,7 +597,7 @@ data: <spectator Event JSON>
 8. **PK 重投只投 PK 台上玩家**，PK 台上玩家不参与重投；二次平票平安日入夜。
 9. **死亡 Agent 仍接收公开事件**，便于回放完整性。
 10. **Referee 不审查发言内容**：发言里的虚假信息属合法策略。
-11. **STEP-06 / P2 阶段开始实现外部接入**：LLM 网关、FastAPI/SSE、默认 `runs/{game_id}` 落盘、`replay_resimulate` 与前端 spectator 事件流接入可以落地；CI 默认仍使用 mock provider。
+11. **STEP-07 / P3 阶段开始实现观赛 MVP**：per-seat provider map、pacing/ack、narrative/reveal API、前端音视频、倒计时和结局浮层可以落地；CI 默认仍使用 mock provider。
 
 ## 13. 项目系统提示词与变更纪律
 

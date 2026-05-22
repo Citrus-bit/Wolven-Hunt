@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0)
     llm_budget_per_game: int = Field(default=100_000, ge=0)
+    llm_provider_map: str = ""
+    pacing_profile: Literal["live", "fast", "off"] = "live"
+    pacing_phase_ms: int = Field(default=600, ge=0)
+    pacing_speech_ms: int = Field(default=400, ge=0)
+    pacing_night_ms: int = Field(default=1000, ge=0)
+    pacing_ack_timeout_ms: int = Field(default=15_000, ge=0)
     runs_dir: Path = Path("runs")
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=8000, ge=1, le=65535)

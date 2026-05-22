@@ -1346,6 +1346,10 @@ button {
   color: #ffe8a6;
 }
 
+.game-stream-status--idle {
+  color: rgba(255, 255, 255, 0.72);
+}
+
 .game-stream-status--error {
   color: #ffb5b5;
 }
@@ -1361,6 +1365,107 @@ button {
   flex: 0 0 auto;
   color: rgba(255, 232, 166, 0.88);
   font-variant-numeric: tabular-nums;
+}
+
+.game-event-line--system {
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.66);
+  font-style: italic;
+  text-align: center;
+}
+
+.game-event-line--announce,
+.game-event-line--verdict {
+  color: #fff6cc;
+  font-weight: 700;
+}
+
+.game-narrative-line {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+
+.game-narrative-line--speech {
+  align-items: flex-start;
+}
+
+.game-narrative-avatar {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.game-narrative-line strong {
+  display: block;
+  margin-bottom: 2px;
+  color: #fff2bd;
+  font-size: 12px;
+}
+
+.game-narrative-line p {
+  margin: 0;
+}
+
+.game-phase-header {
+  position: absolute;
+  top: clamp(152px, 17vh, 182px);
+  left: 50%;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  min-width: 220px;
+  padding: 8px 18px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  border-radius: 10px;
+  transform: translateX(-50%);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.78);
+}
+
+.game-phase-countdown {
+  font-size: 24px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.game-phase-status {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vote-histogram {
+  padding: 8px 12px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.vote-histogram-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 36px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12px;
+}
+
+.vote-histogram-track {
+  height: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+
+.vote-histogram-bar {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #f5d36b, #e15b5b);
+  border-radius: inherit;
 }
 
 /* === STEP-04: 底部按钮区 === */
@@ -1593,6 +1698,158 @@ button {
 .game-seat-badge--fail {
   color: #fff;
   background: #ff3b30;
+}
+
+.game-seat--speaking .game-seat-circle {
+  outline: 3px solid rgba(255, 232, 132, 0.95);
+  box-shadow:
+    0 0 0 6px rgba(255, 218, 88, 0.18),
+    0 0 28px rgba(255, 201, 52, 0.62),
+    0 0 54px rgba(255, 148, 42, 0.28);
+  animation: game-seat-speaking-pulse 1s ease-in-out infinite;
+}
+
+.game-seat--dead .game-seat-avatar {
+  filter: grayscale(1) brightness(0.48);
+}
+
+.game-seat--dead .game-seat-nickname {
+  opacity: 0.64;
+}
+
+@keyframes game-seat-speaking-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+.knight-duel-overlay,
+.final-reveal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.knight-duel-title {
+  color: #fff0bb;
+  font-size: clamp(34px, 7vw, 92px);
+  font-weight: 900;
+  text-align: center;
+  text-shadow:
+    0 0 18px rgba(255, 214, 88, 0.86),
+    0 8px 28px rgba(0, 0, 0, 0.92);
+  animation: knight-duel-title-in 800ms ease-out;
+}
+
+.knight-duel-video {
+  width: min(100vw, 1280px);
+  max-height: 100vh;
+  object-fit: contain;
+}
+
+@keyframes knight-duel-title-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.final-reveal-overlay {
+  z-index: 60;
+  padding: clamp(14px, 3vw, 32px);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.76), rgba(0, 0, 0, 0.84)),
+    url('/assets/game/night_bg.png') center / cover;
+}
+
+.final-reveal-panel {
+  width: min(980px, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+  color: #fff;
+  background: rgba(10, 12, 18, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 12px;
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.5);
+}
+
+.final-reveal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  font-size: clamp(22px, 4vw, 42px);
+  font-weight: 900;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.final-reveal-header button,
+.final-reveal-raw-toggle {
+  padding: 8px 14px;
+  color: #261804;
+  background: #f3d36b;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.final-reveal-seats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 18px 22px;
+}
+
+.final-reveal-seat {
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  padding: 12px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+}
+
+.final-reveal-seat img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.final-reveal-highlights {
+  margin: 0;
+  padding: 0 36px 18px;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.final-reveal-raw-toggle {
+  margin: 0 22px 18px;
+}
+
+.final-reveal-raw {
+  max-height: 260px;
+  margin: 0 22px 22px;
+  overflow: auto;
+  color: #e8e8e8;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 8px;
 }
 
 /* === STEP-04: 规则弹窗 === */

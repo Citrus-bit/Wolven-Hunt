@@ -1,0 +1,54 @@
+[
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000001","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":1,"phase":"NIGHT_START","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"phase_enter","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"phase":"NIGHT_START"}},
+    "expected": {"seq":1,"day":1,"phase":"NIGHT_START","kind":"system","text":"夜幕降临","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000002","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":2,"phase":"NIGHT_GUARD","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"phase_enter","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"phase":"NIGHT_GUARD"}},
+    "expected": {"seq":2,"day":1,"phase":"NIGHT_GUARD","kind":"system","text":"夜幕降临，守卫开始行动","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000003","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":3,"phase":"NIGHT_WOLF_CHAT","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"phase_enter","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"phase":"NIGHT_WOLF_CHAT"}},
+    "expected": {"seq":3,"day":1,"phase":"NIGHT_WOLF_CHAT","kind":"system","text":"狼人正在讨论","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000004","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":4,"phase":"NIGHT_WOLF_VOTE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"phase_enter","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"phase":"NIGHT_WOLF_VOTE"}},
+    "expected": {"seq":4,"day":1,"phase":"NIGHT_WOLF_VOTE","kind":"system","text":"狼人正在行动","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000005","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":5,"phase":"NIGHT_SEER","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"phase_enter","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"phase":"NIGHT_SEER"}},
+    "expected": {"seq":5,"day":1,"phase":"NIGHT_SEER","kind":"system","text":"预言家正在行动","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000006","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":6,"phase":"DAY_ANNOUNCE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"day_announce","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"deaths":[3],"message":"昨晚死亡玩家: 3"}},
+    "expected": {"seq":6,"day":1,"phase":"DAY_ANNOUNCE","kind":"announce","text":"昨晚死亡玩家: 3","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000007","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":7,"phase":"NIGHT_RESOLVE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"no_death_tonight","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"message":"昨晚是平安夜"}},
+    "expected": {"seq":7,"day":1,"phase":"NIGHT_RESOLVE","kind":"announce","text":"昨晚是平安夜","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000008","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":8,"phase":"NIGHT_RESOLVE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"death_at_night","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"seat":3}},
+    "expected": {"seq":8,"day":1,"phase":"NIGHT_RESOLVE","kind":"announce","text":"3号倒在了夜里","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000009","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":9,"phase":"DAY_SPEECH","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"speech","actor":3,"visibility":{"public":true,"seats":[]},"payload":{"text":"我是村民"}},
+    "expected": {"seq":9,"day":1,"phase":"DAY_SPEECH","kind":"speech","text":"3号：我是村民","actor":3,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000010","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":10,"phase":"DAY_VOTE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"vote_cast","actor":5,"visibility":{"public":true,"seats":[]},"payload":{"target":2}},
+    "expected": {"seq":10,"day":1,"phase":"DAY_VOTE","kind":"action","text":"5号投票给2号","actor":5,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000011","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":11,"phase":"DAY_VOTE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"vote_result","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"counts":{"2":4,"5":2},"tied":[2]}},
+    "expected": {"seq":11,"day":1,"phase":"DAY_VOTE","kind":"verdict","text":"投票结果：2号 4票 / 5号 2票","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000012","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":12,"phase":"DAY_EXILE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"exile","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"seat":2}},
+    "expected": {"seq":12,"day":1,"phase":"DAY_EXILE","kind":"verdict","text":"2号被放逐","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000013","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":13,"phase":"GAME_END","day":2,"timestamp":"2026-01-01T00:00:00+00:00","type":"game_end","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"winner":"good"}},
+    "expected": {"seq":13,"day":2,"phase":"GAME_END","kind":"verdict","text":"游戏结束，好人胜利","actor":null,"icon":null}
+  }
+]

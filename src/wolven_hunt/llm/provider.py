@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.seat import Seat
 from wolven_hunt.llm.cost import TokenUsage
+from wolven_hunt.llm.provider_map import ProviderConfig, ProviderMap
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +143,21 @@ class ReplayLLMProvider:
             ),
             cost_usd=_float_value(row.get("cost_usd")),
         )
+
+
+def build_provider_from_config(config: ProviderConfig) -> LLMProvider:
+    if config.provider == "litellm":
+        return LiteLLMProvider(
+            model=config.model,
+            api_key=config.api_key,
+            base_url=config.base_url,
+            timeout_seconds=config.timeout_seconds,
+        )
+    return MockLLMProvider(model=config.model)
+
+
+def build_provider_for_seat(seat: Seat, provider_map: ProviderMap) -> LLMProvider:
+    return build_provider_from_config(provider_map.for_seat(seat))
 
 
 def _cycle_target(seat: Seat) -> int:

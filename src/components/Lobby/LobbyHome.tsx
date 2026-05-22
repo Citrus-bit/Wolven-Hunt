@@ -8,7 +8,7 @@ import { SettingsModal } from './modals/SettingsModal';
 import { StartModal } from './modals/StartModal';
 
 type LobbyHomeProps = {
-  onEnterGame: (gameId: string) => void;
+  onEnterGame: () => void;
 };
 
 export function LobbyHome({ onEnterGame }: LobbyHomeProps) {

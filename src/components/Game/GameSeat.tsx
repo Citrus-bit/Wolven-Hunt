@@ -7,6 +7,10 @@ type GameSeatProps = {
   side: 'left' | 'right';
   assignment: number | null;
   testStatus?: ModelTestStatus;
+  showTestBadge?: boolean;
+  speaking?: boolean;
+  dead?: boolean;
+  disabled?: boolean;
   onClickSeat: (seatIndex: number) => void;
 };
 
@@ -15,19 +19,32 @@ export function GameSeat({
   side,
   assignment,
   testStatus,
+  showTestBadge = true,
+  speaking = false,
+  dead = false,
+  disabled = false,
   onClickSeat,
 }: GameSeatProps) {
   const isEmpty = assignment === null;
   const slot = isEmpty ? null : MODEL_SLOTS[assignment];
   const isTesting = testStatus === 'testing';
-  const showBadge = testStatus === 'pass' || testStatus === 'fail';
+  const showBadge =
+    showTestBadge && (testStatus === 'pass' || testStatus === 'fail');
   const resultLabel = testStatus === 'pass' ? '测试通过' : '测试失败';
   const label = slot
     ? `更换 ${slot.nickname}`
     : `添加第 ${seatIndex + 1} 号席位的模型`;
 
   return (
-    <div className={`game-seat game-seat--${side}`} data-seat-index={seatIndex}>
+    <div
+      className={[
+        'game-seat',
+        `game-seat--${side}`,
+        speaking ? 'game-seat--speaking' : '',
+        dead ? 'game-seat--dead' : '',
+      ].join(' ')}
+      data-seat-index={seatIndex}
+    >
       <button
         type="button"
         className={`game-seat-circle ${
@@ -35,7 +52,7 @@ export function GameSeat({
         }`}
         aria-label={label}
         onClick={() => onClickSeat(seatIndex)}
-        disabled={isTesting}
+        disabled={isTesting || disabled}
       >
         {slot ? (
           <img src={slot.iconPath} alt="" className="game-seat-avatar" />

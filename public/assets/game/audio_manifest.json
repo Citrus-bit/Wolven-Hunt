@@ -1,0 +1,74 @@
+{
+  "wolf_howl": {
+    "key": "wolf_howl",
+    "kind": "audio",
+    "path": "/assets/game/audio/wolf_howl.mp3",
+    "duration_ms": 3060,
+    "source_sha256": "ace254b1ec58403b6f0e9a766cb7d35d6ab917808d1aac6469b5e22634f303b0",
+    "target_sha256": "ace254b1ec58403b6f0e9a766cb7d35d6ab917808d1aac6469b5e22634f303b0"
+  },
+  "night_guard": {
+    "key": "night_guard",
+    "kind": "audio",
+    "path": "/assets/game/audio/night_guard.mp3",
+    "duration_ms": 2180,
+    "source_sha256": "9b110ea6249cd8c2366a38d5acf17db9fac1ac1a5b0ea2ae7c0b7ba25caf069a",
+    "target_sha256": "9b110ea6249cd8c2366a38d5acf17db9fac1ac1a5b0ea2ae7c0b7ba25caf069a"
+  },
+  "night_wolves": {
+    "key": "night_wolves",
+    "kind": "audio",
+    "path": "/assets/game/audio/night_wolves.mp3",
+    "duration_ms": 1340,
+    "source_sha256": "d806462c05f19dc3b1da56114e093deca1317655ba87157bfd07258f7ace233d",
+    "target_sha256": "d806462c05f19dc3b1da56114e093deca1317655ba87157bfd07258f7ace233d"
+  },
+  "night_seer": {
+    "key": "night_seer",
+    "kind": "audio",
+    "path": "/assets/game/audio/night_seer.mp3",
+    "duration_ms": 1510,
+    "source_sha256": "4f768d419462c21404363395bbbb1223ef91fde75114d9812c9e46f6d222561f",
+    "target_sha256": "4f768d419462c21404363395bbbb1223ef91fde75114d9812c9e46f6d222561f"
+  },
+  "day_rooster": {
+    "key": "day_rooster",
+    "kind": "audio",
+    "path": "/assets/game/audio/day_rooster.mp3",
+    "duration_ms": 3060,
+    "source_sha256": "33b66b086fd81293f14af615d2d23f0c1649e83a2f8941e82b27457f52427aaa",
+    "target_sha256": "33b66b086fd81293f14af615d2d23f0c1649e83a2f8941e82b27457f52427aaa"
+  },
+  "day_dawn": {
+    "key": "day_dawn",
+    "kind": "audio",
+    "path": "/assets/game/audio/day_dawn.mp3",
+    "duration_ms": 1560,
+    "source_sha256": "9b7eb1dfae5843924fea3d8fbde85f45cdc07e862aa17ec63f5d9daf7a48c7d4",
+    "target_sha256": "9b7eb1dfae5843924fea3d8fbde85f45cdc07e862aa17ec63f5d9daf7a48c7d4"
+  },
+  "day_death": {
+    "key": "day_death",
+    "kind": "audio",
+    "path": "/assets/game/audio/day_death.mp3",
+    "duration_ms": 1560,
+    "source_sha256": "1698b0f28c99f2ee49b824e7959446d560144223cd00485b1d89b00222ebc4eb",
+    "target_sha256": "1698b0f28c99f2ee49b824e7959446d560144223cd00485b1d89b00222ebc4eb"
+  },
+  "day_peaceful": {
+    "key": "day_peaceful",
+    "kind": "audio",
+    "path": "/assets/game/audio/day_peaceful.mp3",
+    "duration_ms": 1700,
+    "source_sha256": "6ac14d889405be3a9fbf802d330f35c52b3132a4e799dc4b6f136c5204a08519",
+    "target_sha256": "6ac14d889405be3a9fbf802d330f35c52b3132a4e799dc4b6f136c5204a08519"
+  },
+  "knight_duel": {
+    "key": "knight_duel",
+    "kind": "video",
+    "path": "/assets/game/video/knight_duel.mp4",
+    "duration_ms": 5040,
+    "source_sha256": "d6467ae818cb91c44b4c0e1847565f3325a37b7cfe4fb69a0142182ff2db56cc",
+    "target_sha256": "d6467ae818cb91c44b4c0e1847565f3325a37b7cfe4fb69a0142182ff2db56cc"
+  }
+}

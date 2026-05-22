@@ -42,6 +42,7 @@ class EventType(StrEnum):
     AGENT_FALLBACK_TRIGGERED = "agent_fallback_triggered"
     AGENT_BUDGET_WARNING = "agent_budget_warning"
     LLM_CALL = "llm_call"
+    ROLE_REVEAL = "role_reveal"
 
 
 class Visibility(BaseModel):

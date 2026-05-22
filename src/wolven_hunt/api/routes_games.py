@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -7,15 +8,19 @@ from starlette.responses import StreamingResponse
 
 from wolven_hunt.api.deps import get_registry
 from wolven_hunt.api.schemas import (
+    AckRequest,
     CreateGameRequest,
     CreateGameResponse,
     GameSummaryResponse,
+    NarrativeRow,
     ReplayRequest,
+    RoleRevealResponse,
     TextActionRequest,
 )
 from wolven_hunt.api.sse import sse_response
 from wolven_hunt.core.seat import Seat
 from wolven_hunt.orchestration.runtime import GameRegistry, GameSession
+from wolven_hunt.referee.reveal import build_role_reveal_payload
 from wolven_hunt.storage.jsonl import read_events_jsonl
 from wolven_hunt.storage.replay import replay_deterministic, replay_resimulate
 
@@ -33,6 +38,7 @@ async def create_game(
         config_path=Path(request.config_path),
         seed=request.seed,
         agent_specs=request.agents,
+        pacing=request.pacing,
     )
     return CreateGameResponse(game_id=session.game_id)
 
@@ -52,6 +58,38 @@ def get_events(
     registry: GameRegistry = REGISTRY_DEP,
 ) -> tuple[dict[str, object], ...]:
     return _require_session(registry, game_id).spectator_events()
+
+
+@router.get("/games/{game_id}/narrative", response_model=tuple[NarrativeRow, ...])
+def get_narrative(
+    game_id: str,
+    after: int = 0,
+    registry: GameRegistry = REGISTRY_DEP,
+) -> tuple[dict[str, object], ...]:
+    return _require_session(registry, game_id).narrative_rows_after(after)
+
+
+@router.get("/games/{game_id}/reveal", response_model=RoleRevealResponse)
+def get_reveal(
+    game_id: str,
+    registry: GameRegistry = REGISTRY_DEP,
+) -> dict[str, object]:
+    session = _require_session(registry, game_id)
+    if session.state.winner is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "game_not_finished", "message": "game is not finished"},
+        )
+    if session.final_reveal is not None:
+        return session.final_reveal
+    if session.store.final_reveal_path.exists():
+        data = json.loads(session.store.final_reveal_path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    payload = build_role_reveal_payload(session.state, session.event_log.events)
+    session.final_reveal = payload
+    session.store.write_final_reveal(payload)
+    return payload
 
 
 @router.get("/games/{game_id}/stream")
@@ -135,6 +173,21 @@ def submit_wolf_chat(
     return {"ok": True}
 
 
+@router.post("/games/{game_id}/ack")
+def ack_game(
+    game_id: str,
+    request: AckRequest,
+    registry: GameRegistry = REGISTRY_DEP,
+) -> dict[str, object]:
+    session = _require_session(registry, game_id)
+    session.ack(
+        phase=request.phase,
+        event=request.event,
+        client_event_id=request.client_event_id,
+    )
+    return {"ok": True}
+
+
 def _require_session(registry: GameRegistry, game_id: str) -> GameSession:
     try:
         return registry.require(game_id)
@@ -153,6 +206,7 @@ def _summary(session: GameSession) -> GameSummaryResponse:
         day=session.state.day,
         phase=session.state.phase,
         event_count=len(session.event_log.events),
+        timings=session.config.rule_set.timings.model_dump(mode="json"),
     )
 
 
