@@ -12,7 +12,7 @@
 - 投票只能投存活玩家，允许投自己；PK 重投只能投 PK 台上玩家，且 PK 台上玩家不参与重投。
 - 编排核心采用**纯 Python FSM 优先**；裁判层（Referee）负责视角隔离与合法性校验；**事件日志是单一事实源**。
 - 规则、角色、模型、提示词全部**配置驱动**，核心代码不随板子变化。
-- 第一阶段目标：**只创建目录骨架和 architecture.md**，但 architecture.md 必须把规则契约、状态机子状态、事件 schema、异常 fallback、回放模式写死，避免后续返工。
+- 当前阶段：**STEP-05 / P1 后端引擎实现**。允许实现 Python 事件模型、RuleEngine、Referee、纯 Python FSM、deterministic mock agent、内存 EventLog、`replay_deterministic` 与对应测试；仍不接真实 LLM、不实现 FastAPI/SSE、不做默认磁盘持久化。
 
 ---
 
@@ -501,7 +501,7 @@ GAME_END
 8. **PK 重投只投 PK 台上玩家**，PK 台上玩家不参与重投；二次平票平安日入夜。
 9. **死亡 Agent 仍接收公开事件**，便于回放完整性。
 10. **Referee 不审查发言内容**：发言里的虚假信息属合法策略。
-11. **第一阶段只创建目录骨架和 architecture.md**，不实现业务逻辑；但 architecture.md 内容必须把 §1–§6 全部写死。
+11. **STEP-05 / P1 阶段开始实现 Python 后端引擎核心**：RuleEngine、Referee、FSM、mock agent、内存 EventLog、CLI 与测试可以落地；真实 LLM、FastAPI/SSE、默认磁盘持久化与 `replay_resimulate` 仍留给后续阶段。
 
 ## 13. 项目系统提示词与变更纪律
 
@@ -509,7 +509,7 @@ GAME_END
 - 此后任何代码变更、配置变更、prompt 变更、测试变更或架构契约变更，都必须先检查本 `plan.md`。
 - 如果实际实现需要改变本计划中的规则、目录、接口、FSM 子状态、事件 schema、fallback、replay 或测试约定，必须先更新 `plan.md`，再修改代码或配置。
 - 如果变更只是落实现有计划，也要确保新增文件、模块命名和行为边界与本 `plan.md` 保持一致。
-- `architecture.md` 是本计划第一阶段的架构契约落地文档。后续实现不得绕过其中定义的 Referee 权限边界、事件日志单一事实源、配置驱动规则、纯 Python FSM 优先、可复现 replay 和 LLM fallback 约束。
+- `architecture.md` 是本计划的架构契约落地文档。后续实现不得绕过其中定义的 Referee 权限边界、事件日志单一事实源、配置驱动规则、纯 Python FSM 优先、可复现 replay 和 LLM fallback 约束。
 
 以上假设若有不同意见，请在进入实施前明确。
 

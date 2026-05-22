@@ -63,9 +63,9 @@ export const EMPTY_USER_INPUT: ModelConfigUserInput = {
 
 export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
   {
-    baseUrl: 'https://yunwu.ai/v1',
-    apiKey: 'sk-6seLrmgf7fZgAyt3vF8XtdzeZtZn6msQnBiqOvyOpdvQPsTP',
-    modelName: 'MiniMax-M2.7',
+    baseUrl: 'https://api.minimaxi.com/v1',
+    apiKey: 'sk-cp-J9LpYlhs5Q8issU-lrXNRA_hxvpTptheFq7h75UQYVHXMwgkcM1Vo9XNk2CQ5EWerz5cyN4OqKZQDQ7lOag-a6kwbYDS77LP5fDD3qt1UcrdDsDwAhk5IlQ',
+    modelName: 'MiniMax-M2.7-highspeed',
     thinkingEnabled: true,
   },
   {

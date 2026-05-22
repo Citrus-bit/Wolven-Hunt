@@ -16,5 +16,7 @@
 
 当前阶段约束：
 
-- 第一阶段只允许搭建目录骨架、配置模板、架构文档和项目约束文件。
-- 不实现 Python 业务代码、不接入真实 LLM、不实现 FastAPI、不写 FSM/RuleEngine/Referee 运行时代码。
+- 当前为 STEP-05 / P1 后端引擎实现阶段。
+- 允许实现 Python 事件模型、RuleEngine、Referee、纯 Python FSM、deterministic mock agent、内存 EventLog、`replay_deterministic`、CLI 和对应测试。
+- 不接入真实 LLM、不实现 FastAPI/SSE、不做默认磁盘持久化、不实现 `replay_resimulate`。
+- 前端文件、运行时素材和 Node 工程链不属于 STEP-05 范围，除非 `plan.md` 另行同步更新。

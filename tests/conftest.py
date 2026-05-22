@@ -1,0 +1,48 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from wolven_hunt.agents.deterministic_mock import DeterministicMockAgent
+from wolven_hunt.config.loader import load_game_config
+from wolven_hunt.config.schema import GameConfig
+from wolven_hunt.core.rule_engine import build_initial_state
+from wolven_hunt.core.seat import Seat
+from wolven_hunt.core.state import GameState
+from wolven_hunt.orchestration.fsm import run_game
+from wolven_hunt.storage.event_log import EventLog
+
+ROOT = Path(__file__).resolve().parents[1]
+CONFIG_PATH = ROOT / "configs/games/classic_8.yaml"
+
+
+@pytest.fixture
+def game_config() -> GameConfig:
+    return load_game_config(CONFIG_PATH)
+
+
+@pytest.fixture
+def seed() -> str:
+    return "wolven-hunt-test-seed-001"
+
+
+@pytest.fixture
+def initial_state(game_config: GameConfig, seed: str) -> GameState:
+    state, _ = build_initial_state(game_config, seed)
+    return state
+
+
+@pytest.fixture
+def mock_agents() -> dict[int, DeterministicMockAgent]:
+    return {seat: DeterministicMockAgent(Seat(seat)) for seat in range(1, 9)}
+
+
+@pytest.fixture
+def event_log(seed: str) -> EventLog:
+    return EventLog(seed=seed)
+
+
+def simulate(game_config: GameConfig, seed_value: str) -> tuple[GameState, EventLog]:
+    agents = {seat: DeterministicMockAgent(Seat(seat)) for seat in range(1, 9)}
+    return run_game(config=game_config, seed=seed_value, agents=agents)

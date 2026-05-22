@@ -1,6 +1,6 @@
 # Wolven Hunt Architecture Contract
 
-本文档是 `plan.md` 的第一阶段落地版。后续实现必须以 `plan.md` 为基准，并以本文档作为首期架构契约。若两者发生冲突，先更新 `plan.md`，再同步本文档和代码。
+本文档是 `plan.md` 的架构契约落地版。后续实现必须以 `plan.md` 为基准，并以本文档作为首期架构契约。若两者发生冲突，先更新 `plan.md`，再同步本文档和代码。
 
 ## 1. Scope
 
@@ -14,7 +14,7 @@
 - 骑士 1 人
 - 守卫 1 人
 
-首期不实现真实业务代码。第一阶段只冻结目录、配置模板、状态机、事件 schema、权限边界、异常 fallback、replay 模式和测试边界。
+当前阶段为 STEP-05 / P1 后端引擎实现：允许实现 Python 事件模型、RuleEngine、Referee、纯 Python FSM、deterministic mock agent、内存 EventLog、`replay_deterministic` 与对应测试。真实 LLM、FastAPI/SSE、默认磁盘持久化和 `replay_resimulate` 仍留给后续阶段。
 
 ## 2. Rule Contract
 
@@ -340,7 +340,7 @@ FSM
 
 ## 15. API Boundary
 
-FastAPI 属于 P2，不在第一阶段实现。边界先冻结：
+FastAPI 属于 P2，不在 STEP-05 实现。边界先冻结：
 
 - `POST /games`
 - `GET /games/{id}`
@@ -371,7 +371,7 @@ FastAPI 属于 P2，不在第一阶段实现。边界先冻结：
 - 首夜死亡遗言、第二夜后夜死无遗言、守卫平安夜、PK、二次平票、骑士挑战。
 - 死亡 Agent 停用但仍接收公开事件。
 - LLM 异常、重试、fallback。
-- 固定 seed 下 replay deterministic 与 resimulate 一致。
+- 固定 seed 下 `replay_deterministic` 一致；`replay_resimulate` 依赖 raw LLM response，留到 STEP-06+。
 - PlayerView 不包含 visibility 白名单外事件。
 
 ## 17. Change Control
