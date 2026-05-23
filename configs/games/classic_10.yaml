@@ -1,0 +1,19 @@
+schema_version: "1.0"
+name: classic_10
+description: "默认 10 人板：3 狼人、4 村民、1 预言家、1 女巫、1 守卫。"
+seat_range:
+  start: 1
+  end: 10
+role_pack: _role_packs/classic_10_witch_guard_seer.yaml
+rule_set: _rule_sets/majority_or_massacre_all.yaml
+model_roster: ../models/roster.yaml
+prompt_pack:
+  language: zh
+  root: ../prompts/zh
+  version_policy: filename
+random_seed:
+  required: true
+  source: game_start
+metadata:
+  config_hash_required: true
+  replay_requires_same_metadata: true

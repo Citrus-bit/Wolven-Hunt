@@ -1,8 +1,15 @@
 import type { GameTimings } from './gameApi';
 
-export function phaseStatusText(phase: string | null, speakerSeat?: number | null) {
+export function phaseStatusText(
+  phase: string | null,
+  speakerSeat?: number | null,
+  speechComplete = false,
+) {
   if (!phase) {
     return '等待游戏开始';
+  }
+  if (phase === 'DAY_SPEECH' && speechComplete) {
+    return '发言结束，准备投票';
   }
   if (phase === 'DAY_SPEECH' && speakerSeat) {
     return `${speakerSeat}号玩家正在发言`;
@@ -14,13 +21,13 @@ export function phaseStatusText(phase: string | null, speakerSeat?: number | nul
       NIGHT_GUARD: '守卫正在行动',
       NIGHT_WOLF_CHAT: '狼人正在讨论',
       NIGHT_WOLF_VOTE: '狼人正在行动',
+      NIGHT_WITCH: '女巫正在行动',
       NIGHT_SEER: '预言家正在行动',
       NIGHT_RESOLVE: '夜晚行动结算中',
       CHECK_WIN_NIGHT: '正在判定胜负',
       DAY_ANNOUNCE: '正在公布昨夜情况',
       DAY_LAST_WORDS: '死亡玩家正在发表遗言',
       DAY_SPEECH: '玩家正在发言',
-      DAY_KNIGHT_INTERRUPT: '骑士决斗中',
       DAY_VOTE: '正在举行公民投票',
       DAY_VOTE_PK: '正在 PK 重投',
       DAY_EXILE: '正在执行放逐',
@@ -39,13 +46,31 @@ export function phaseDurationMs(phase: string | null, timings: GameTimings | nul
     NIGHT_GUARD: 'night_guard_ms',
     NIGHT_WOLF_CHAT: 'night_wolf_chat_ms',
     NIGHT_WOLF_VOTE: 'night_wolf_vote_ms',
+    NIGHT_WITCH: 'night_witch_ms',
     NIGHT_SEER: 'night_seer_ms',
     DAY_ANNOUNCE: 'day_announce_ms',
     DAY_LAST_WORDS: 'day_last_words_ms',
     DAY_SPEECH: 'day_speech_ms',
     DAY_VOTE: 'day_vote_ms',
     DAY_VOTE_PK: 'day_vote_pk_ms',
-    DAY_KNIGHT_INTERRUPT: 'knight_duel_ms',
   };
   return timings[keyByPhase[phase]] ?? 0;
+}
+
+export function phaseCountdownText(
+  phase: string | null,
+  durationMs: number,
+  remainingMs: number,
+  opts: { speakerSeat?: number | null; speechComplete?: boolean } = {},
+) {
+  if (opts.speechComplete) {
+    return '等待推进';
+  }
+  if (durationMs <= 0) {
+    return '--';
+  }
+  if (remainingMs <= 0) {
+    return phase === 'DAY_SPEECH' && opts.speakerSeat ? '等待响应' : '等待中...';
+  }
+  return `${Math.ceil(remainingMs / 1000)}s`;
 }

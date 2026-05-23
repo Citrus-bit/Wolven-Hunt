@@ -4,6 +4,10 @@ export type ModelConfigSlot = {
   iconPath: string;
 };
 
+// NOTE: The default apiKey values are author-funded rotating keys for the
+// clone-and-play experience. Users can override them in the settings UI; those
+// overrides stay in browser localStorage and take precedence over these values.
+
 export type ModelConfigUserInput = {
   baseUrl: string;
   apiKey: string;
@@ -51,6 +55,16 @@ export const MODEL_SLOTS: readonly ModelConfigSlot[] = [
     slot: 7,
     nickname: '阿元替身版',
     iconPath: '/assets/lobby/model_icon_ayuan_tishenban.png',
+  },
+  {
+    slot: 8,
+    nickname: '克劳德',
+    iconPath: '/assets/lobby/model_icon_claude.png',
+  },
+  {
+    slot: 9,
+    nickname: 'GPT',
+    iconPath: '/assets/lobby/model_icon_gpt.png',
   },
 ] as const;
 
@@ -108,6 +122,18 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
     baseUrl: 'https://api.lkeap.cloud.tencent.com/plan/v3',
     apiKey: 'sk-tp-BU7lFgCBrhOAAUBy2kQSY4lvMbMqPPXUNiQoyska14l8iVRC',
     modelName: 'hy3-preview',
+    thinkingEnabled: true,
+  },
+  {
+    baseUrl: 'https://yunwu.ai/v1',
+    apiKey: 'sk-iXCFTRD3WI7v1xTc6zwPOSqA9uQMDq0tevGh7J2P1QjvoJoz',
+    modelName: 'claude-sonnet-4-6',
+    thinkingEnabled: true,
+  },
+  {
+    baseUrl: 'https://yunwu.ai/v1',
+    apiKey: 'sk-E6zcCAknXsLSLTL51m74vwDyn09cBnVYTx7X0xmXyuOdojZM',
+    modelName: 'gpt-5.4',
     thinkingEnabled: true,
   },
 ] as const;

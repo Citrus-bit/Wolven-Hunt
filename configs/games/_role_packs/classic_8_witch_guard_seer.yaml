@@ -12,7 +12,7 @@ roles:
   seer:
     count: 1
     camp: good
-  knight:
+  witch:
     count: 1
     camp: good
   guard:

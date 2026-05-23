@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,15 +25,15 @@ class Settings(BaseSettings):
     pacing_ack_timeout_ms: int = Field(default=15_000, ge=0)
     runs_dir: Path = Path("runs")
     api_host: str = "127.0.0.1"
-    api_port: int = Field(default=8000, ge=1, le=65535)
-    api_cors_origins: tuple[str, ...] = ("http://localhost:5173",)
+    api_port: int = Field(default=7002, ge=1, le=65535)
+    api_cors_origins: str = "http://localhost:7001"
+    serve_static: bool = False
 
-    @field_validator("api_cors_origins", mode="before")
-    @classmethod
-    def _parse_origins(cls, value: object) -> tuple[str, ...] | object:
-        if isinstance(value, str):
-            return tuple(origin.strip() for origin in value.split(",") if origin.strip())
-        return value
+    @property
+    def parsed_api_cors_origins(self) -> tuple[str, ...]:
+        return tuple(
+            origin.strip() for origin in self.api_cors_origins.split(",") if origin.strip()
+        )
 
     def require_real_llm_credentials(self) -> None:
         if self.llm_provider == "litellm" and not self.llm_api_key:

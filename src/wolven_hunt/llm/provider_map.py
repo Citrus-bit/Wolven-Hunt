@@ -96,6 +96,8 @@ def _config_from_mapping(
     if not api_key:
         api_key = fallback.api_key
     timeout = data.get("timeout_seconds", fallback.timeout_seconds)
+    if timeout is None:
+        timeout = fallback.timeout_seconds
     return replace(
         fallback,
         provider=cast(Literal["mock", "litellm"], provider),

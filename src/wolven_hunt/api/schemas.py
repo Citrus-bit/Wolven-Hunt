@@ -30,7 +30,7 @@ AgentSpecInput = AgentSpec | str
 class CreateGameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    config_path: str = "configs/games/classic_8.yaml"
+    config_path: str = "configs/games/classic_10.yaml"
     seed: str = "api-dev-seed"
     agents: dict[int, AgentSpecInput] = Field(default_factory=dict)
     pacing: Literal["live", "fast", "off"] | None = None
@@ -38,6 +38,15 @@ class CreateGameRequest(BaseModel):
 
 class CreateGameResponse(BaseModel):
     game_id: str
+
+
+class GameListItem(BaseModel):
+    game_id: str
+    started_at: str | None = None
+    ended_at: str | None = None
+    winner: str | None = None
+    status: str
+    event_count: int = 0
 
 
 class GameSummaryResponse(BaseModel):
@@ -55,7 +64,7 @@ class ReplayRequest(BaseModel):
 
 
 class TextActionRequest(BaseModel):
-    seat: int = Field(ge=1, le=8)
+    seat: int = Field(ge=1)
     text: str = Field(max_length=300)
 
 
@@ -75,6 +84,25 @@ class NarrativeRow(BaseModel):
     text: str
     actor: int | None
     icon: str | None = None
+
+
+class SpectatorEffect(BaseModel):
+    seq: int
+    day: int
+    phase: str
+    kind: Literal[
+        "guard_shield",
+        "wolf_attack",
+        "seer_vision",
+        "witch_potion",
+        "death_reveal",
+    ]
+    actor: int | None
+    source_seat: int | None
+    target_seat: int
+    asset_key: str
+    duration_ms: int
+    meta: dict[str, object] = Field(default_factory=dict)
 
 
 class RoleRevealSeat(BaseModel):
@@ -98,3 +126,19 @@ class ErrorBody(BaseModel):
     code: str
     message: str
     details: dict[str, object] | None = None
+
+
+class ModelTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["mock", "litellm"] = "litellm"
+    model: str
+    base_url: str = ""
+    api_key: str = ""
+    timeout_seconds: float = Field(default=15.0, gt=0)
+    thinking_enabled: bool = True
+
+
+class ModelTestResponse(BaseModel):
+    ok: bool
+    message: str | None = None

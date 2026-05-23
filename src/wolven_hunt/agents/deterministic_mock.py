@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from wolven_hunt.core.actions import (
     GuardProtect,
-    KnightChallenge,
     LastWords,
     PkVote,
     SeerCheck,
     Speech,
     Vote,
+    WitchAction,
     WolfChatMessage,
     WolfKillVote,
 )
@@ -43,17 +43,19 @@ class DeterministicMockAgent:
             for event in view.visible_events
             if event.type is EventType.SEER_CHECK and event.actor == self.seat.number
         }
-        for number in range(1, 9):
+        seats = _seat_numbers(view)
+        for number in seats:
             if number != self.seat.number and number not in checked:
                 return SeerCheck(actor=self.seat, target=Seat(number))
-        return SeerCheck(actor=self.seat, target=Seat(1 if self.seat.number != 1 else 2))
+        fallback = seats[0] if self.seat.number != seats[0] else seats[min(1, len(seats) - 1)]
+        return SeerCheck(actor=self.seat, target=Seat(fallback))
 
     def decide_speech(self, view: PlayerView) -> Speech:
         role_text = "狼人" if view.self_role is Role.WOLF else "好人"
         return Speech(actor=self.seat, text=f"我是 {self.seat.number} 号{role_text}")
 
-    def decide_knight_challenge(self, view: PlayerView) -> KnightChallenge:
-        return KnightChallenge(actor=self.seat, target=None)
+    def decide_witch(self, view: PlayerView) -> WitchAction:
+        return WitchAction(actor=self.seat, action="skip", target=None)
 
     def decide_vote(self, view: PlayerView) -> Vote:
         alive = _alive_seats(view)
@@ -80,3 +82,27 @@ class DeterministicMockAgent:
 
 def _alive_seats(view: PlayerView) -> list[int]:
     return [int(number) for number in view.rule_set_summary["alive_seats"]]
+
+
+def _seat_numbers(view: PlayerView) -> list[int]:
+    seat_range = view.rule_set_summary.get("seat_range", {})
+    if isinstance(seat_range, dict):
+        start = _positive_int(seat_range.get("start"))
+        end = _positive_int(seat_range.get("end"))
+        if start > 0 and end >= start:
+            return list(range(start, end + 1))
+    seat_count = _positive_int(view.rule_set_summary.get("seat_count"))
+    if seat_count > 0:
+        return list(range(1, seat_count + 1))
+    return _alive_seats(view)
+
+
+def _positive_int(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0

@@ -7,7 +7,7 @@ type GameChatProps = {
   events: GameEvent[];
   narrativeRows: NarrativeRow[];
   assignments: (number | null)[];
-  streamStatus: 'idle' | 'connecting' | 'open' | 'error';
+  streamStatus: 'idle' | 'connecting' | 'open' | 'error' | 'failed';
 };
 
 export function GameChat({
@@ -17,16 +17,20 @@ export function GameChat({
   streamStatus,
 }: GameChatProps) {
   const rows = useMemo(() => narrativeRows.slice(-80), [narrativeRows]);
+  const wolfRows = useMemo(
+    () => events.filter((event) => event.type === 'wolf_chat_message').slice(-80),
+    [events],
+  );
   const voteCounts = useMemo(() => latestVoteCounts(events), [events]);
 
   return (
     <div className="game-chat" aria-label="游戏聊天区">
       <section
         className="game-chat-panel game-chat-panel--general"
-        aria-label="通用聊天框"
+        aria-label="好人聊天框"
       >
         <header className="game-chat-header">
-          <span>通用聊天框</span>
+          <span>好人聊天框</span>
           <span className={`game-stream-status game-stream-status--${streamStatus}`}>
             {streamStatus === 'open'
               ? '已连接'
@@ -34,7 +38,9 @@ export function GameChat({
                 ? '连接中'
                 : streamStatus === 'idle'
                   ? '待开始'
-                  : '未连接'}
+                  : streamStatus === 'failed'
+                    ? '失败'
+                    : '未连接'}
           </span>
         </header>
         <div className="game-chat-body" role="log" aria-live="polite">
@@ -60,9 +66,19 @@ export function GameChat({
       >
         <header className="game-chat-header">狼人聊天框</header>
         <div className="game-chat-body" role="log" aria-live="polite">
-          <p className="game-event-line game-event-line--system">
-            观众视角无法查看狼人夜聊，终局后统一揭晓身份。
-          </p>
+          {wolfRows.length === 0 ? (
+            <p className="game-event-line game-event-line--system">
+              等待狼人夜聊。
+            </p>
+          ) : (
+            wolfRows.map((event) => (
+              <WolfChatLine
+                key={`${event.seq}-wolf-chat`}
+                event={event}
+                assignments={assignments}
+              />
+            ))
+          )}
         </div>
       </section>
     </div>
@@ -96,6 +112,28 @@ function NarrativeLine({
       <span className="game-event-seq">#{row.seq}</span>
       <span>{row.text}</span>
     </p>
+  );
+}
+
+function WolfChatLine({
+  event,
+  assignments,
+}: {
+  event: GameEvent;
+  assignments: (number | null)[];
+}) {
+  const slotIndex = event.actor === null ? null : assignments[event.actor - 1];
+  const slot = slotIndex === null ? null : MODEL_SLOTS[slotIndex];
+  const actorLabel = event.actor === null ? '狼人' : `${event.actor}号`;
+
+  return (
+    <article className="game-narrative-line game-narrative-line--wolf">
+      {slot && <img src={slot.iconPath} alt="" className="game-narrative-avatar" />}
+      <div>
+        <strong>{slot ? `${actorLabel} ${slot.nickname}` : actorLabel}</strong>
+        <p>{String(event.payload.text ?? '')}</p>
+      </div>
+    </article>
   );
 }
 

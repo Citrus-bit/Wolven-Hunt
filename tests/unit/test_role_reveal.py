@@ -21,5 +21,5 @@ def test_role_reveal_contains_all_seats_and_highlights(game_config, seed, mock_a
     assert reveal.type.value == "role_reveal"
     assert reveal.visibility.public is True
     assert reveal.payload["winner"] == "wolf"
-    assert len(reveal.payload["seats"]) == 8
+    assert len(reveal.payload["seats"]) == game_config.role_pack.seat_count
     assert 3 <= len(reveal.payload["highlights"]) <= 5

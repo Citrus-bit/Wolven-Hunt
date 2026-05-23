@@ -23,6 +23,15 @@ export type CreateGameResponse = {
   game_id: string;
 };
 
+export type GameListItem = {
+  game_id: string;
+  started_at: string | null;
+  ended_at: string | null;
+  winner: string | null;
+  status: string;
+  event_count: number;
+};
+
 export type GameTimings = Record<string, number>;
 
 export type GameSummary = {
@@ -45,15 +54,37 @@ export type NarrativeRow = {
   icon: string | null;
 };
 
+export type SpectatorEffect = {
+  seq: number;
+  day: number;
+  phase: string;
+  kind:
+    | 'guard_shield'
+    | 'wolf_attack'
+    | 'seer_vision'
+    | 'witch_potion'
+    | 'death_reveal';
+  actor: number | null;
+  source_seat: number | null;
+  target_seat: number;
+  asset_key: string;
+  duration_ms: number;
+  meta: Record<string, unknown>;
+};
+
 export type RoleReveal = {
   winner: string;
   seats: { seat: number; role: string; alive: boolean }[];
   highlights: { seq: number; summary: string }[];
 };
 
+export type ModelTestResponse = {
+  ok: boolean;
+  message: string | null;
+};
+
 const API_BASE =
-  import.meta.env.VITE_WH_API_BASE?.replace(/\/+$/, '') ??
-  'http://localhost:8000';
+  import.meta.env.VITE_WH_API_BASE?.replace(/\/+$/, '') ?? '';
 
 export async function createGame(opts: {
   seed?: string;
@@ -64,7 +95,7 @@ export async function createGame(opts: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      config_path: 'configs/games/classic_8.yaml',
+      config_path: 'configs/games/classic_10.yaml',
       seed: opts.seed ?? `web-${Date.now()}`,
       agents: opts.agents ?? {},
       pacing: opts.pacing,
@@ -78,12 +109,30 @@ export async function getGame(gameId: string): Promise<GameSummary> {
   return parseJsonResponse<GameSummary>(res);
 }
 
+export async function listGames(): Promise<GameListItem[]> {
+  const res = await fetch(`${API_BASE}/games`);
+  return parseJsonResponse<GameListItem[]>(res);
+}
+
+export async function getEvents(gameId: string): Promise<GameEvent[]> {
+  const res = await fetch(`${API_BASE}/games/${gameId}/events`);
+  return parseJsonResponse<GameEvent[]>(res);
+}
+
 export async function getNarrative(
   gameId: string,
   after = 0,
 ): Promise<NarrativeRow[]> {
   const res = await fetch(`${API_BASE}/games/${gameId}/narrative?after=${after}`);
   return parseJsonResponse<NarrativeRow[]>(res);
+}
+
+export async function getEffects(
+  gameId: string,
+  after = 0,
+): Promise<SpectatorEffect[]> {
+  const res = await fetch(`${API_BASE}/games/${gameId}/effects?after=${after}`);
+  return parseJsonResponse<SpectatorEffect[]>(res);
 }
 
 export async function getReveal(gameId: string): Promise<RoleReveal> {
@@ -126,16 +175,41 @@ export function subscribeGameEvents(
   onEvent: (event: GameEvent) => void,
   onError: () => void,
   onNarrative?: (row: NarrativeRow) => void,
+  onEffect?: (effect: SpectatorEffect) => void,
+  lastEventId?: number,
 ) {
-  const source = new EventSource(`${API_BASE}/games/${gameId}/stream`);
+  const params = lastEventId && lastEventId > 0
+    ? `?last_event_id=${encodeURIComponent(String(lastEventId))}`
+    : '';
+  const source = new EventSource(`${API_BASE}/games/${gameId}/stream${params}`);
   source.addEventListener('game_event', (message) => {
     onEvent(JSON.parse((message as MessageEvent<string>).data) as GameEvent);
   });
   source.addEventListener('narrative_row', (message) => {
     onNarrative?.(JSON.parse((message as MessageEvent<string>).data) as NarrativeRow);
   });
+  source.addEventListener('spectator_effect', (message) => {
+    onEffect?.(JSON.parse((message as MessageEvent<string>).data) as SpectatorEffect);
+  });
   source.onerror = onError;
   return source;
+}
+
+export async function testModelConnection(req: {
+  provider?: 'mock' | 'litellm';
+  model: string;
+  base_url?: string;
+  api_key?: string;
+  timeout_seconds?: number;
+  thinking_enabled?: boolean;
+}, signal?: AbortSignal): Promise<ModelTestResponse> {
+  const res = await fetch(`${API_BASE}/models/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+    signal,
+  });
+  return parseJsonResponse<ModelTestResponse>(res);
 }
 
 async function postTextAction(
@@ -156,9 +230,53 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
   const data = (await res.json().catch(() => ({}))) as {
     code?: string;
     message?: string;
+    details?: unknown;
   };
   if (!res.ok) {
-    throw new Error(data.message || data.code || `HTTP ${res.status}`);
+    throw new Error(formatApiError(res.status, data));
   }
   return data as T;
+}
+
+function formatApiError(
+  status: number,
+  data: { code?: string; message?: string; details?: unknown },
+) {
+  const base = data.code
+    ? `${data.code}: ${data.message ?? `HTTP ${status}`}`
+    : data.message ?? `HTTP ${status}`;
+  const details = summarizeDetails(data.details);
+  return details ? `${base} (${details})` : base;
+}
+
+function summarizeDetails(details: unknown) {
+  if (!details || typeof details !== 'object') {
+    return '';
+  }
+  const errors = 'errors' in details ? details.errors : null;
+  if (Array.isArray(errors)) {
+    return errors
+      .slice(0, 2)
+      .map((error) => summarizeValidationError(error))
+      .filter(Boolean)
+      .join('; ');
+  }
+  try {
+    return JSON.stringify(details).slice(0, 160);
+  } catch {
+    return '';
+  }
+}
+
+function summarizeValidationError(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return '';
+  }
+  const loc = 'loc' in error && Array.isArray(error.loc)
+    ? error.loc.join('.')
+    : '';
+  const msg = 'msg' in error && typeof error.msg === 'string'
+    ? error.msg
+    : '';
+  return [loc, msg].filter(Boolean).join(': ');
 }

@@ -9,9 +9,10 @@ import { StartModal } from './modals/StartModal';
 
 type LobbyHomeProps = {
   onEnterGame: () => void;
+  onEnterReplay: (gameId: string) => void;
 };
 
-export function LobbyHome({ onEnterGame }: LobbyHomeProps) {
+export function LobbyHome({ onEnterGame, onEnterReplay }: LobbyHomeProps) {
   const { ensureUnlock } = useLobbyAudio();
   const [activeModal, setActiveModal] = useState<LobbyAction | null>(null);
 
@@ -56,6 +57,10 @@ export function LobbyHome({ onEnterGame }: LobbyHomeProps) {
       <HistoryModal
         open={activeModal === 'history'}
         onClose={() => setActiveModal(null)}
+        onEnterReplay={(gameId) => {
+          setActiveModal(null);
+          onEnterReplay(gameId);
+        }}
       />
       <SettingsModal
         open={activeModal === 'settings'}

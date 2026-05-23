@@ -13,7 +13,7 @@ const ROLE_LABELS: Record<string, string> = {
   wolf: '狼人',
   villager: '村民',
   seer: '预言家',
-  knight: '骑士',
+  witch: '女巫',
   guard: '守卫',
 };
 
@@ -24,6 +24,7 @@ export function FinalRevealOverlay({
   onExitGame,
 }: FinalRevealOverlayProps) {
   const [reveal, setReveal] = useState<RoleReveal | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
   const hasRevealEvent = events.some((event) => event.type === 'role_reveal');
 
@@ -31,11 +32,39 @@ export function FinalRevealOverlay({
     if (!gameId || !hasRevealEvent || reveal) {
       return;
     }
-    getReveal(gameId).then(setReveal).catch(() => undefined);
+    getReveal(gameId)
+      .then((payload) => {
+        setReveal(payload);
+        setErrorMessage(null);
+      })
+      .catch((error) => {
+        const fallback = events.find((event) => event.type === 'role_reveal');
+        if (fallback) {
+          setReveal(fallback.payload as RoleReveal);
+          return;
+        }
+        setErrorMessage(error instanceof Error ? error.message : '结局揭晓加载失败');
+      });
   }, [gameId, hasRevealEvent, reveal]);
 
-  if (!reveal) {
+  if (!reveal && !errorMessage) {
     return null;
+  }
+
+  if (!reveal) {
+    return (
+      <div className="final-reveal-overlay" role="dialog" aria-modal="true">
+        <section className="final-reveal-panel">
+          <header className="final-reveal-header">
+            <span>结局加载失败</span>
+            <button type="button" onClick={onExitGame}>
+              返回大厅
+            </button>
+          </header>
+          <p className="final-reveal-error">{errorMessage}</p>
+        </section>
+      </div>
+    );
   }
 
   return (

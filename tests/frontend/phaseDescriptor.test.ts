@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { phaseDurationMs, phaseStatusText } from '../../src/lib/phaseDescriptor';
+import {
+  phaseCountdownText,
+  phaseDurationMs,
+  phaseStatusText,
+} from '../../src/lib/phaseDescriptor';
 
 const phases = [
   'GAME_START',
@@ -7,13 +11,13 @@ const phases = [
   'NIGHT_GUARD',
   'NIGHT_WOLF_CHAT',
   'NIGHT_WOLF_VOTE',
+  'NIGHT_WITCH',
   'NIGHT_SEER',
   'NIGHT_RESOLVE',
   'CHECK_WIN_NIGHT',
   'DAY_ANNOUNCE',
   'DAY_LAST_WORDS',
   'DAY_SPEECH',
-  'DAY_KNIGHT_INTERRUPT',
   'DAY_VOTE',
   'DAY_VOTE_PK',
   'DAY_EXILE',
@@ -27,6 +31,7 @@ describe('phaseDescriptor', () => {
       expect(phaseStatusText(phase)).not.toBe(phase);
     }
     expect(phaseStatusText('DAY_SPEECH', 4)).toBe('4号玩家正在发言');
+    expect(phaseStatusText('DAY_SPEECH', null, true)).toBe('发言结束，准备投票');
   });
 
   it('maps configured phase durations', () => {
@@ -35,17 +40,28 @@ describe('phaseDescriptor', () => {
       night_guard_ms: 60000,
       night_wolf_chat_ms: 120000,
       night_wolf_vote_ms: 30000,
+      night_witch_ms: 60000,
       night_seer_ms: 60000,
       day_announce_ms: 1000,
       day_last_words_ms: 60000,
       day_speech_ms: 60000,
       day_vote_ms: 30000,
       day_vote_pk_ms: 30000,
-      knight_duel_ms: 800,
     };
 
     expect(phaseDurationMs('NIGHT_GUARD', timings)).toBe(60000);
-    expect(phaseDurationMs('DAY_KNIGHT_INTERRUPT', timings)).toBe(800);
+    expect(phaseDurationMs('NIGHT_WITCH', timings)).toBe(60000);
     expect(phaseDurationMs('GAME_END', timings)).toBe(0);
+  });
+
+  it('uses explicit waiting labels for speech countdown states', () => {
+    expect(phaseCountdownText('DAY_SPEECH', 60000, 1250, { speakerSeat: 4 })).toBe('2s');
+    expect(phaseCountdownText('DAY_SPEECH', 60000, 0, { speakerSeat: 4 })).toBe(
+      '等待响应',
+    );
+    expect(phaseCountdownText('DAY_SPEECH', 60000, 0, { speechComplete: true })).toBe(
+      '等待推进',
+    );
+    expect(phaseCountdownText('DAY_VOTE', 30000, 0)).toBe('等待中...');
   });
 });

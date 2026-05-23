@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 from wolven_hunt.api.app import create_app
 from wolven_hunt.api.deps import get_registry, get_settings
 
+CONFIG_PATH = "configs/games/classic_10.yaml"
+
 
 def test_sse_stream_replays_events_and_resume(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
@@ -13,7 +15,7 @@ def test_sse_stream_replays_events_and_resume(monkeypatch, tmp_path) -> None:
     with TestClient(create_app()) as client:
         game_id = client.post(
             "/games",
-            json={"config_path": "configs/games/classic_8.yaml", "seed": "sse-seed"},
+            json={"config_path": CONFIG_PATH, "seed": "sse-seed"},
         ).json()["game_id"]
 
         with client.stream("GET", f"/games/{game_id}/stream") as response:

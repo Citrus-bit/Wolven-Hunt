@@ -3,16 +3,16 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from wolven_hunt.agents.interface import PlayerInterface
-from wolven_hunt.config.schema import GameConfig
+from wolven_hunt.config.schema import GameConfig, RuleSet
 from wolven_hunt.core.actions import (
     Action,
     GuardProtect,
-    KnightChallenge,
     LastWords,
     PkVote,
     SeerCheck,
     Speech,
     Vote,
+    WitchAction,
     WolfChatMessage,
     WolfKillVote,
 )
@@ -173,6 +173,22 @@ def _run_night(
             state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
         event_log.append_all(phase_exit(state))
 
+    witch_seats = state.seats_by_role(Role.WITCH, alive_only=True)
+    if witch_seats and (not state.witch_antidote_used or not state.witch_poison_used):
+        state = _enter_phase(state, Phase.NIGHT_WITCH, event_log, state_sink, control_hook)
+        witch = witch_seats[0]
+        action = _decide_with_fallback(
+            state,
+            config,
+            agents[witch.number],
+            event_log,
+            witch,
+            lambda agent, view: agent.decide_witch(view),
+            rng,
+        )
+        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
+        event_log.append_all(phase_exit(state))
+
     seer_seats = state.seats_by_role(Role.SEER, alive_only=True)
     if seer_seats:
         state = _enter_phase(state, Phase.NIGHT_SEER, event_log, state_sink, control_hook)
@@ -231,33 +247,8 @@ def _run_day(
             state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
         event_log.append_all(phase_exit(state))
 
-    state, interrupted = _maybe_knight_interrupt(
-        state,
-        config,
-        agents,
-        rng,
-        event_log,
-        state_sink=state_sink,
-        control_hook=control_hook,
-    )
-    if state.winner is not None or interrupted:
-        return state
-
     state = _enter_phase(state, Phase.DAY_SPEECH, event_log, state_sink, control_hook)
-    for seat in state.alive_seats():
-        state, interrupted = _maybe_knight_interrupt(
-            state,
-            config,
-            agents,
-            rng,
-            event_log,
-            state_sink=state_sink,
-            control_hook=control_hook,
-        )
-        if state.winner is not None or interrupted:
-            return state
-        if not state.player(seat).alive:
-            continue
+    for seat in day_speech_order(state, config.rule_set):
         action = _decide_with_fallback(
             state,
             config,
@@ -269,18 +260,6 @@ def _run_day(
         )
         state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
     event_log.append_all(phase_exit(state))
-
-    state, interrupted = _maybe_knight_interrupt(
-        state,
-        config,
-        agents,
-        rng,
-        event_log,
-        state_sink=state_sink,
-        control_hook=control_hook,
-    )
-    if state.winner is not None or interrupted:
-        return state
 
     state = _enter_phase(state, Phase.DAY_VOTE, event_log, state_sink, control_hook)
     for seat in state.alive_seats():
@@ -335,6 +314,19 @@ def _run_day(
     event_log.append_all(events)
     _sync_runtime(state, state_sink, control_hook)
     return state
+
+
+def day_speech_order(state: GameState, rule_set: RuleSet) -> tuple[Seat, ...]:
+    alive = tuple(sorted(state.alive_seats(), key=lambda seat: seat.number))
+    if not alive:
+        return ()
+    if state.last_night_deaths:
+        start_number = max(seat.number for seat in state.last_night_deaths) + 1
+    else:
+        start_number = rule_set.first_speaker_seat
+    return tuple(seat for seat in alive if seat.number >= start_number) + tuple(
+        seat for seat in alive if seat.number < start_number
+    )
 
 
 def _enter_phase(
@@ -518,8 +510,9 @@ def _record_fallback(
 def _selected_from_action(action: Action) -> int | str | None:
     if isinstance(action, (GuardProtect, WolfKillVote, SeerCheck, Vote, PkVote)):
         return action.target.number
-    if isinstance(action, KnightChallenge):
-        return None if action.target is None else action.target.number
+    if isinstance(action, WitchAction):
+        target = None if action.target is None else action.target.number
+        return f"{action.action}:{target}"
     if isinstance(action, (Speech, LastWords, WolfChatMessage)):
         return action.text
 
@@ -538,13 +531,13 @@ def _fallback_for_phase(state: GameState, seat: Seat, rng: DeterministicRNG) -> 
             player.seat for player in state.alive_players() if player.role is not Role.WOLF
         )
         return WolfKillVote(actor=seat, target=rng.choice(stream, candidates))
+    if state.phase == Phase.NIGHT_WITCH.value:
+        return WitchAction(actor=seat, action="skip", target=None)
     if state.phase == Phase.NIGHT_SEER.value:
-        candidates = tuple(Seat(number) for number in range(1, 9) if number != seat.number)
+        candidates = tuple(player.seat for player in state.players if player.seat != seat)
         return SeerCheck(actor=seat, target=rng.choice(stream, candidates))
     if state.phase == Phase.DAY_SPEECH.value:
         return Speech(actor=seat, text="我没有更多信息")
-    if state.phase == Phase.DAY_KNIGHT_INTERRUPT.value:
-        return KnightChallenge(actor=seat, target=None)
     if state.phase == Phase.DAY_VOTE.value:
         return Vote(actor=seat, target=rng.choice(stream, state.alive_seats()))
     if state.phase == Phase.DAY_VOTE_PK.value:
@@ -552,43 +545,3 @@ def _fallback_for_phase(state: GameState, seat: Seat, rng: DeterministicRNG) -> 
     if state.phase == Phase.DAY_LAST_WORDS.value:
         return LastWords(actor=seat, text="我没有遗言")
     return Speech(actor=seat, text="我没有更多信息")
-
-
-def _maybe_knight_interrupt(
-    state: GameState,
-    config: GameConfig,
-    agents: AgentMap,
-    rng: DeterministicRNG,
-    event_log: EventLog,
-    *,
-    state_sink: StateSink | None,
-    control_hook: ControlHook | None,
-) -> tuple[GameState, bool]:
-    if state.knight_used:
-        return state, False
-    knight_seats = state.seats_by_role(Role.KNIGHT, alive_only=True)
-    if not knight_seats:
-        return state, False
-    knight = knight_seats[0]
-    previous_phase = state.phase
-    challenge_state = state.with_phase(Phase.DAY_KNIGHT_INTERRUPT.value)
-    action = _decide_with_fallback(
-        challenge_state,
-        config,
-        agents[knight.number],
-        event_log,
-        knight,
-        lambda agent, view: agent.decide_knight_challenge(view),
-        rng,
-    )
-    if not isinstance(action, KnightChallenge) or action.target is None:
-        return state.with_phase(previous_phase), False
-    state = challenge_state
-    state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
-    state, win_events = emit_win_check(state, phase=Phase.DAY_KNIGHT_INTERRUPT.value)
-    event_log.append_all(win_events)
-    _sync_runtime(state, state_sink, control_hook)
-    if state.winner is None:
-        state = advance_to_next_night(state)
-        _sync_runtime(state, state_sink, control_hook)
-    return state, True

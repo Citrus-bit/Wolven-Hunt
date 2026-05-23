@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck test test-fast test-llm check cov simulate serve resimulate
+.PHONY: install lint format typecheck test test-fast test-llm check cov simulate serve serve-prod resimulate
 
 install:
 	uv sync --extra dev
@@ -30,7 +30,11 @@ simulate:
 	uv run python -m wolven_hunt.cli simulate --config configs/games/classic_8.yaml --seed wolven-hunt-demo-seed-001
 
 serve:
-	uv run python -m wolven_hunt.cli serve
+	uv run python -m wolven_hunt.cli serve --host 127.0.0.1 --port 7002
+
+serve-prod:
+	npm run build
+	uv run python -m wolven_hunt.cli serve-prod --host 0.0.0.0 --port 7002
 
 resimulate:
 	uv run python -m wolven_hunt.cli resimulate --events $(FILE)

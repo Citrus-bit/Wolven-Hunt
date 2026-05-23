@@ -3,12 +3,12 @@ from __future__ import annotations
 from wolven_hunt.agents.interface import PlayerInterface
 from wolven_hunt.core.actions import (
     GuardProtect,
-    KnightChallenge,
     LastWords,
     PkVote,
     SeerCheck,
     Speech,
     Vote,
+    WitchAction,
     WolfChatMessage,
     WolfKillVote,
 )
@@ -31,7 +31,7 @@ class HumanPlayer(PlayerInterface):
     def decide_speech(self, view: PlayerView) -> Speech:
         raise NotImplementedError("HumanPlayer is reserved for STEP-06+")
 
-    def decide_knight_challenge(self, view: PlayerView) -> KnightChallenge:
+    def decide_witch(self, view: PlayerView) -> WitchAction:
         raise NotImplementedError("HumanPlayer is reserved for STEP-06+")
 
     def decide_vote(self, view: PlayerView) -> Vote:

@@ -41,6 +41,7 @@ class ResimulateDivergence(ValueError):
 def replay_resimulate(
     events_path: str | Path,
     raw_responses_path: str | Path | None = None,
+    config_path: str | Path | None = None,
 ) -> tuple[Event, ...]:
     events = replay_deterministic(read_events_jsonl(events_path))
     raw_path = (
@@ -66,7 +67,7 @@ def replay_resimulate(
 
     seed = str(events[0].payload["random_seed"])
     config_hash = str(events[0].payload["config_hash"])
-    config = load_game_config(Path("configs/games/classic_8.yaml"))
+    config = load_game_config(_resolve_config_path(Path(events_path), config_path))
     if config.config_hash != config_hash:
         raise ResimulateDivergence(1, "config_hash", config_hash, config.config_hash)
 
@@ -132,6 +133,22 @@ def _read_raw_response_rows(path: Path) -> tuple[dict[str, object], ...]:
             continue
         rows.append(cast(dict[str, object], json.loads(line)))
     return tuple(rows)
+
+
+def _resolve_config_path(events_path: Path, config_path: str | Path | None) -> Path:
+    if config_path is not None:
+        return Path(config_path)
+    manifest_path = events_path.with_name("manifest.json")
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            manifest = {}
+        if isinstance(manifest, dict):
+            value = manifest.get("config_path")
+            if isinstance(value, str) and value:
+                return Path(value)
+    return Path("configs/games/classic_8.yaml")
 
 
 def _validate_raw_response_hashes(rows: tuple[dict[str, object], ...]) -> None:

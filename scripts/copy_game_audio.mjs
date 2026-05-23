@@ -14,12 +14,21 @@ const assets = [
   ['wolf_howl', 'audio', '狼嚎.mp3', 'audio/wolf_howl.mp3', 2200],
   ['night_guard', 'audio', '天黑了，守卫请睁眼.mp3', 'audio/night_guard.mp3', 2800],
   ['night_wolves', 'audio', '狼人请睁眼.mp3', 'audio/night_wolves.mp3', 2500],
+  ['night_witch', 'audio', '女巫请睁眼.mp3', 'audio/night_witch.mp3', 2500],
   ['night_seer', 'audio', '预言家请睁眼.mp3', 'audio/night_seer.mp3', 2600],
   ['day_rooster', 'audio', '鸡鸣.mp3', 'audio/day_rooster.mp3', 1800],
   ['day_dawn', 'audio', '天,亮了.mp3', 'audio/day_dawn.mp3', 1800],
   ['day_death', 'audio', '昨晚,他死了.mp3', 'audio/day_death.mp3', 2500],
   ['day_peaceful', 'audio', '昨晚,是平安夜.mp3', 'audio/day_peaceful.mp3', 2500],
-  ['knight_duel', 'video', '骑士对决.mp4', 'video/knight_duel.mp4', 5000],
+];
+
+const effectAssets = [
+  ['guard_shield', 'image', '守卫的护盾.png', 'effects/guard_shield.png'],
+  ['wolf_attack', 'image', '狼人袭击.png', 'effects/wolf_attack.png'],
+  ['seer_vision', 'image', '预言.png', 'effects/seer_vision.png'],
+  ['potion_antidote', 'image', '解药.jpg', 'effects/potion_antidote.jpg'],
+  ['potion_poison', 'image', '毒药.jpg', 'effects/potion_poison.jpg'],
+  ['out_badge', 'image', 'OUT.png', 'effects/out_badge.png'],
 ];
 
 function sha256(path) {
@@ -73,5 +82,26 @@ if (!existsSync(lobbyBgm)) {
 writeFileSync(
   join(targetDir, 'audio_manifest.json'),
   `${JSON.stringify(manifest, null, 2)}\n`,
+  'utf8',
+);
+
+const effectManifest = {};
+
+for (const [key, kind, sourceName, targetName] of effectAssets) {
+  const source = join(sourceDir, sourceName);
+  const target = join(targetDir, targetName);
+  copyIfChanged(source, target);
+  effectManifest[key] = {
+    key,
+    kind,
+    path: `/assets/game/${targetName}`,
+    source_sha256: sha256(source),
+    target_sha256: sha256(target),
+  };
+}
+
+writeFileSync(
+  join(targetDir, 'effect_manifest.json'),
+  `${JSON.stringify(effectManifest, null, 2)}\n`,
   'utf8',
 );

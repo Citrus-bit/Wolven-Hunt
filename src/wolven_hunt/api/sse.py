@@ -19,14 +19,18 @@ def sse_response(session: GameSession, *, last_event_id: str | None) -> Streamin
     async def stream() -> AsyncIterator[str]:
         cursor = start_after
         while True:
-            events = session.spectator_events_after(cursor)
+            events = session.raw_events_after(cursor)
             if events:
-                for event in events:
-                    cursor = _event_seq(event)
-                    yield _format_event("game_event", cursor, event)
+                for raw_event in events:
+                    cursor = raw_event.seq
+                    event = session.spectator_event_for_seq(cursor)
+                    if event is not None:
+                        yield _format_event("game_event", cursor, event)
                     narrative = _narrative_for_seq(session, cursor)
                     if narrative is not None:
                         yield _format_event("narrative_row", cursor, narrative)
+                    for effect in session.effect_rows_for_seq(cursor):
+                        yield _format_event("spectator_effect", cursor, effect)
                 continue
             if session.is_terminal():
                 yield "event: heartbeat\ndata: {}\n\n"

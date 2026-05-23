@@ -39,13 +39,6 @@ export function toNarrative(event: GameEvent): NarrativeRow | null {
   if (event.type === 'exile') {
     return row(event, 'verdict', `${String(payload.seat ?? '')}号被放逐`);
   }
-  if (event.type === 'knight_challenge') {
-    return row(event, 'action', `骑士向${String(payload.target ?? '')}号发起决斗`);
-  }
-  if (event.type === 'knight_result') {
-    const result = payload.result === 'hit_wolf' ? '命中狼人' : '挑战失败';
-    return row(event, 'verdict', `骑士决斗${result}，${String(payload.killed ?? '')}号死亡`);
-  }
   if (event.type === 'game_end') {
     return row(event, 'verdict', `游戏结束，${winnerLabel(payload.winner)}胜利`);
   }
@@ -75,6 +68,7 @@ function phaseText(phase: string) {
       NIGHT_GUARD: '夜幕降临，守卫开始行动',
       NIGHT_WOLF_CHAT: '狼人正在讨论',
       NIGHT_WOLF_VOTE: '狼人正在行动',
+      NIGHT_WITCH: '女巫正在行动',
       NIGHT_SEER: '预言家正在行动',
       NIGHT_RESOLVE: '夜晚行动结算中',
       DAY_ANNOUNCE: '天亮了，开始公布昨夜情况',

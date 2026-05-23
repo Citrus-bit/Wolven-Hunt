@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from wolven_hunt.core.events import DRAFT_TIMESTAMP, Event, EventType, public_visibility
 from wolven_hunt.core.ids import EventId, GameId
-from wolven_hunt.llm.context import build_prompt_visible_events, select_events_for_prompt
+from wolven_hunt.llm.context import (
+    build_prompt_visible_events,
+    build_speech_context,
+    select_events_for_prompt,
+)
 
 
 def test_select_events_returns_all_when_under_limit() -> None:
@@ -19,7 +23,7 @@ def test_select_events_keeps_important_and_recent() -> None:
                 1: EventType.GAME_START,
                 8: EventType.DEATH_AT_NIGHT,
                 15: EventType.EXILE,
-                24: EventType.KNIGHT_RESULT,
+                24: EventType.WITCH_ACTION,
                 31: EventType.SEER_CHECK_RESULT,
             }.get(seq, EventType.SPEECH),
         )
@@ -33,7 +37,7 @@ def test_select_events_keeps_important_and_recent() -> None:
     assert EventType.GAME_START in selected_types
     assert EventType.DEATH_AT_NIGHT in selected_types
     assert EventType.EXILE in selected_types
-    assert EventType.KNIGHT_RESULT in selected_types
+    assert EventType.WITCH_ACTION in selected_types
     assert EventType.SEER_CHECK_RESULT in selected_types
     assert selected[-1].seq == 60
     assert tuple(event.seq for event in selected) == tuple(sorted(event.seq for event in selected))
@@ -47,7 +51,7 @@ def test_build_prompt_visible_events_summarizes_long_context_deterministically()
                 1: EventType.GAME_START,
                 18: EventType.DEATH_AT_NIGHT,
                 36: EventType.EXILE,
-                50: EventType.KNIGHT_RESULT,
+                50: EventType.WITCH_ACTION,
             }.get(seq, EventType.SPEECH),
         )
         for seq in range(1, 76)
@@ -66,6 +70,23 @@ def test_build_prompt_visible_events_summarizes_long_context_deterministically()
     assert [row["seq"] for row in first[-30:]] == list(range(46, 76))
 
 
+def test_build_speech_context_keeps_other_speakers_out_of_own_history() -> None:
+    events = (
+        _speech_event(1, actor=3, text="我关注4号和6号。"),
+        _speech_event(2, actor=4, text="3号点了我4号，我要回应。"),
+    )
+
+    context = build_speech_context(events, current_seat=5, current_day=1)
+
+    assert context["current_seat"] == 5
+    assert context["already_spoken_seats"] == [3, 4]
+    assert context["own_public_speeches"] == ()
+    assert context["prior_public_speeches"] == (
+        {"seq": 1, "actor": 3, "text": "我关注4号和6号。"},
+        {"seq": 2, "actor": 4, "text": "3号点了我4号，我要回应。"},
+    )
+
+
 def _event(seq: int, event_type: EventType) -> Event:
     return Event(
         event_id=EventId.deterministic("context", seq, event_type.value),
@@ -78,4 +99,19 @@ def _event(seq: int, event_type: EventType) -> Event:
         actor=None if event_type is EventType.GAME_START else ((seq % 8) + 1),
         visibility=public_visibility(),
         payload={"target": ((seq + 1) % 8) + 1} if event_type is not EventType.SPEECH else {},
+    )
+
+
+def _speech_event(seq: int, *, actor: int, text: str) -> Event:
+    return Event(
+        event_id=EventId.deterministic("context-speech", seq, actor),
+        game_id=GameId.deterministic("context-speech"),
+        seq=seq,
+        phase="DAY_SPEECH",
+        day=1,
+        timestamp=DRAFT_TIMESTAMP,
+        type=EventType.SPEECH,
+        actor=actor,
+        visibility=public_visibility(),
+        payload={"text": text},
     )

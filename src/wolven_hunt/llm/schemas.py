@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -8,7 +10,7 @@ class LLMOutput(BaseModel):
 
 
 class GuardOutput(LLMOutput):
-    target: int = Field(ge=1, le=8)
+    target: int = Field(ge=1)
 
 
 class WolfChatOutput(LLMOutput):
@@ -16,28 +18,28 @@ class WolfChatOutput(LLMOutput):
 
 
 class WolfKillOutput(LLMOutput):
-    target: int = Field(ge=1, le=8)
+    target: int = Field(ge=1)
 
 
 class SeerOutput(LLMOutput):
-    target: int = Field(ge=1, le=8)
+    target: int = Field(ge=1)
 
 
 class SpeechOutput(LLMOutput):
     text: str = Field(max_length=300)
 
 
-class KnightOutput(LLMOutput):
-    activate: bool = False
-    target: int | None = Field(default=None, ge=1, le=8)
+class WitchOutput(LLMOutput):
+    action: Literal["save", "poison", "skip"] = "skip"
+    target: int | None = Field(default=None, ge=1)
 
 
 class VoteOutput(LLMOutput):
-    target: int = Field(ge=1, le=8)
+    target: int = Field(ge=1)
 
 
 class PkVoteOutput(LLMOutput):
-    target: int = Field(ge=1, le=8)
+    target: int = Field(ge=1)
 
 
 class LastWordsOutput(LLMOutput):
@@ -48,9 +50,9 @@ PHASE_OUTPUT_MODELS: dict[str, type[LLMOutput]] = {
     "NIGHT_GUARD": GuardOutput,
     "NIGHT_WOLF_CHAT": WolfChatOutput,
     "NIGHT_WOLF_VOTE": WolfKillOutput,
+    "NIGHT_WITCH": WitchOutput,
     "NIGHT_SEER": SeerOutput,
     "DAY_SPEECH": SpeechOutput,
-    "DAY_KNIGHT_INTERRUPT": KnightOutput,
     "DAY_VOTE": VoteOutput,
     "DAY_VOTE_PK": PkVoteOutput,
     "DAY_LAST_WORDS": LastWordsOutput,

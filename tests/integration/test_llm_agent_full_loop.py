@@ -8,6 +8,9 @@ import pytest
 from wolven_hunt.config.settings import Settings
 from wolven_hunt.orchestration.runtime import GameRegistry
 
+CONFIG_PATH = Path("configs/games/classic_10.yaml")
+SEATS = range(1, 11)
+
 
 @pytest.mark.llm
 def test_mock_llm_agent_runs_seeded_games(tmp_path: Path) -> None:
@@ -20,7 +23,7 @@ def test_mock_llm_agent_runs_seeded_games(tmp_path: Path) -> None:
             _create_finished_session(
                 registry,
                 seed=f"llm-agent-seed-{index:03d}",
-                agent_specs={seat: "llm:mock" for seat in range(1, 9)},
+                agent_specs={seat: "llm:mock" for seat in SEATS},
             )
         )
 
@@ -37,7 +40,7 @@ async def _create_finished_session(
     agent_specs: dict[int, str],
 ):
     session = await registry.create_game(
-        config_path=Path("configs/games/classic_8.yaml"),
+        config_path=CONFIG_PATH,
         seed=seed,
         agent_specs=agent_specs,
     )

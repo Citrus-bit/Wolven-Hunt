@@ -18,12 +18,12 @@ from wolven_hunt.config.schema import GameConfig
 from wolven_hunt.config.settings import Settings
 from wolven_hunt.core.actions import (
     GuardProtect,
-    KnightChallenge,
     LastWords,
     PkVote,
     SeerCheck,
     Speech,
     Vote,
+    WitchAction,
     WolfChatMessage,
     WolfKillVote,
 )
@@ -49,6 +49,7 @@ from wolven_hunt.referee.view import PlayerView, build_view
 from wolven_hunt.storage.disk import GameRunStore
 from wolven_hunt.storage.event_log import EventLog
 from wolven_hunt.storage.narrative import event_to_narrative
+from wolven_hunt.storage.spectator_effects import event_to_spectator_effects
 
 MANUAL_ACTION_WAIT_SECONDS = 0.05
 
@@ -144,8 +145,8 @@ class PendingActionAgent:
             return action
         return self._base.decide_speech(view)
 
-    def decide_knight_challenge(self, view: PlayerView) -> KnightChallenge:
-        return self._base.decide_knight_challenge(view)
+    def decide_witch(self, view: PlayerView) -> WitchAction:
+        return self._base.decide_witch(view)
 
     def decide_vote(self, view: PlayerView) -> Vote:
         return self._base.decide_vote(view)
@@ -186,6 +187,7 @@ class GameSession:
     final_reveal: dict[str, object] | None = None
     _lock: threading.RLock = field(default_factory=threading.RLock)
     _narrative_rows: list[dict[str, object]] = field(default_factory=list)
+    _effect_rows: list[dict[str, object]] = field(default_factory=list)
     _wake_tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
     def set_state(self, state: GameState) -> None:
@@ -206,6 +208,10 @@ class GameSession:
             with self._lock:
                 self._narrative_rows.append(row_dict)
             self.store.append_narrative(row_dict)
+        effects = event_to_spectator_effects(event, self.event_log.events)
+        if effects:
+            with self._lock:
+                self._effect_rows.extend(effect.to_dict() for effect in effects)
         self.notify_event_loop()
         self.pacing.on_event(event)
 
@@ -245,12 +251,32 @@ class GameSession:
     def spectator_events_after(self, seq: int) -> tuple[dict[str, object], ...]:
         return tuple(event for event in self.spectator_events() if _event_seq(event) > seq)
 
+    def raw_events_after(self, seq: int) -> tuple[Event, ...]:
+        with self._lock:
+            return tuple(event for event in self.event_log.events if event.seq > seq)
+
+    def spectator_event_for_seq(self, seq: int) -> dict[str, object] | None:
+        for event in self.spectator_events_after(seq - 1):
+            if _event_seq(event) == seq:
+                return event
+        return None
+
     def narrative_rows(self) -> tuple[dict[str, object], ...]:
         with self._lock:
             return tuple(self._narrative_rows)
 
     def narrative_rows_after(self, seq: int) -> tuple[dict[str, object], ...]:
         return tuple(row for row in self.narrative_rows() if _row_seq(row) > seq)
+
+    def effect_rows(self) -> tuple[dict[str, object], ...]:
+        with self._lock:
+            return tuple(self._effect_rows)
+
+    def effect_rows_after(self, seq: int) -> tuple[dict[str, object], ...]:
+        return tuple(row for row in self.effect_rows() if _row_seq(row) > seq)
+
+    def effect_rows_for_seq(self, seq: int) -> tuple[dict[str, object], ...]:
+        return tuple(row for row in self.effect_rows() if _row_seq(row) == seq)
 
     def latest_event_seq(self) -> int:
         events = self.event_log.events
@@ -282,6 +308,7 @@ class GameRegistry:
         store.write_manifest(
             {
                 "config_hash": config.config_hash,
+                "config_path": str(config.path),
                 "seed": seed,
                 "prompt_pack_version": "v1",
                 "started_at": started_at,
@@ -331,6 +358,14 @@ class GameRegistry:
         if session is None:
             raise KeyError(game_id)
         return session
+
+    def game_ids(self) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(self._sessions)
+
+    def sessions(self) -> tuple[GameSession, ...]:
+        with self._lock:
+            return tuple(self._sessions.values())
 
     def run(self, game_id: str) -> GameSession:
         session = self.require(game_id)
@@ -403,6 +438,7 @@ class GameRegistry:
             session.store.write_manifest(
                 {
                     "config_hash": session.config.config_hash,
+                    "config_path": str(session.config.path),
                     "seed": session.seed,
                     "prompt_pack_version": "v1",
                     "started_at": session.started_at,

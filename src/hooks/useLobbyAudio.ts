@@ -275,6 +275,16 @@ export function useLobbyAudio() {
     }
   }, []);
 
+  const pauseForGame = useCallback(() => {
+    const current = getAudio();
+    current.pause();
+    current.muted = true;
+
+    setSnapshot({
+      muted: true,
+    });
+  }, []);
+
   const setVolume = useCallback((next: number) => {
     const nextVolume = clampVolume(next);
     const current = getAudio();
@@ -292,5 +302,6 @@ export function useLobbyAudio() {
     setVolume,
     toggleMute,
     ensureUnlock,
+    pauseForGame,
   };
 }

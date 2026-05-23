@@ -10,6 +10,9 @@ from wolven_hunt.config.settings import Settings
 from wolven_hunt.orchestration.runtime import GameRegistry
 from wolven_hunt.storage.replay import ResimulateDivergence, replay_resimulate
 
+CONFIG_PATH = Path("configs/games/classic_10.yaml")
+SEATS = range(1, 11)
+
 
 @pytest.mark.llm
 def test_resimulate_accepts_persisted_mock_llm_run(tmp_path: Path) -> None:
@@ -45,9 +48,9 @@ def test_resimulate_reports_tampered_raw_response(tmp_path: Path) -> None:
 
 async def _create_finished_session(registry: GameRegistry, *, seed: str):
     session = await registry.create_game(
-        config_path=Path("configs/games/classic_8.yaml"),
+        config_path=CONFIG_PATH,
         seed=seed,
-        agent_specs={seat: "llm:mock" for seat in range(1, 9)},
+        agent_specs={seat: "llm:mock" for seat in SEATS},
     )
     assert session.task is not None
     await session.task

@@ -4,15 +4,16 @@
 
 ## 0. 目标
 
-STEP-06 已经把后端引擎 + LLM 网关 + SSE + replay 打通。STEP-07 的目标是：**让用户从前端「开始游戏」到一局结束，能以观众视角完整看完一场实战 AI 狼人杀**，并且符合 `狼人杀需求阐明.md` §二 / §三 中关于音视频、倒计时、状态显示、骑士决斗视频、高亮特效的全部要求。包括：
+STEP-06 已经把后端引擎 + LLM 网关 + SSE + replay 打通。STEP-07 的目标是：**让用户从前端「开始游戏」到一局结束，能以观众视角完整看完一场实战 AI 狼人杀**，并且符合 `狼人杀需求阐明.md` §二 / §三 中关于音视频、倒计时、状态显示、女巫夜晚行动状态、高亮特效的全部要求。包括：
 
 1. **真实 LLM 入场**：前端 `assignments` 把每个座位绑定到一个 model slot；后端按 per-seat 路由调用对应 provider；CI 仍走 mock，真模型由 env 显式开启。
-2. **叙事化事件流**：把当前 raw JSON 事件渲染成「中文叙事 + 角色头像 + 阶段标记」，狼聊面板显示当前观众身份不可见，结束时一次性揭示。
+2. **叙事化事件流**：把当前 raw JSON 事件渲染成「中文叙事 + 角色头像 + 阶段标记」；观众页使用上帝视角，座位头像显示身份徽标，狼聊面板展示真实狼人夜聊；raw response 和 provider 配置仍不得进入前端。
 3. **节奏控制**：可配置的 phase / speech 间隔，让前端有时间渲染、用户有时间阅读；CI / replay 走 0 延迟模式不变慢。节奏必须与音频时长对齐（见 §A 音视频契约）。
-4. **观赛 UI 改造**：进入夜晚后清空 "夜深了... / 一键分配 / 测试连通性 / 绿色对勾"，聊天框上方改为「倒计时 + 状态显示」；玩家发言时座位高亮特效；骑士决斗触发艺术大字 + 视频播放；投票直方图。
-5. **音视频接入**：把素材目录的 8 条 mp3 + 1 段视频（`骑士对决.mp4`）按需求文档 §二/§三 的脚本播放；BGM 在游戏内淡入淡出与大厅切换。
+4. **观赛 UI 改造**：进入夜晚后清空 "夜深了... / 一键分配 / 测试连通性 / 绿色对勾"，聊天框上方改为「倒计时 + 状态显示」；玩家发言时座位高亮特效；女巫夜晚行动状态展示；投票直方图。
+5. **音频接入**：把素材目录的 9 条游戏 mp3 按需求文档 §二/§三 的脚本播放；女巫不使用专属视频，BGM 在游戏内淡入淡出与大厅切换。
 6. **结局揭晓**：`game_end` 后追加 `role_reveal` 公开事件 + 前端结局浮层（胜方 / 全员身份 / 关键事件回顾）。
 7. **NotebookOps**：`runs/{game_id}/` 写入 `narrative.jsonl`（叙事行）和 `final_reveal.json`，便于 STEP-08 历史回放复用。
+8. **观赛特效流**：后端从完整 EventLog 派生 `spectator_effect`，前端展示护盾、狼袭、预言、女巫药瓶和死亡揭晓动画；普通 PlayerView、prompt、raw spectator events 仍不暴露私有事件原文。
 
 **不在本步骤范围**（留给 STEP-08）：property test 扩展、千局公平性回归、token 预算实测、人类入座 per-seat SSE、历史回放 UI、prompt A/B。
 
@@ -134,7 +135,7 @@ def build_role_reveal(state: GameState) -> Event:
 ```
 
 - 仅在 `state.winner is not None` 时调用；幂等（多次调用产生同一 event_id，因为基于 deterministic 序列号）。
-- highlights 选取规则：第一夜死亡、骑士挑战命中/失误、首次预言家结果（仅 seer 可见的 raw 事件，但 reveal 阶段公开）、放逐结果。固定模板，**不**走 LLM。
+- highlights 选取规则：第一夜死亡、女巫用药命中/失误、首次预言家结果（仅 seer 可见的 raw 事件，但 reveal 阶段公开）、放逐结果。固定模板，**不**走 LLM。
 
 ### 2.6 Narrative 契约
 
@@ -187,7 +188,7 @@ class NarrativeRow:
 
 ### 3.2 新增 `GET /games/{id}/narrative`
 
-- 返回 `tuple[NarrativeRow, ...]`，spectator-safe（基于 spectator events 渲染）。
+- 返回 `tuple[NarrativeRow, ...]`，spectator-safe（基于 Referee 过滤后的 spectator events 渲染；普通叙事不包含 raw response/provider 配置）。
 - 支持 `?after=<seq>` 增量拉取（用于前端在 SSE 重连后回放叙事）。
 
 ### 3.3 新增 `GET /games/{id}/reveal`
@@ -198,7 +199,7 @@ class NarrativeRow:
 
 ### 3.4 SSE 事件类型扩展
 
-- 现有 `event: game_event` 不变（spectator-safe Event）。
+- 现有 `event: game_event` 不变（Referee 过滤后的 spectator Event；STEP-07 观众上帝视角包含身份表和狼人夜聊）。
 - 新增 `event: narrative_row`（增量推送 NarrativeRow）。前端可二选一消费。
 - `event: heartbeat` 不变。
 - `Last-Event-ID` 行为不变；`narrative_row` 与 `game_event` 共享 seq 序列（同源 event）。
@@ -255,7 +256,7 @@ class NarrativeRow:
 
 ### 4.5 stage 切换修正
 
-- 现在 `GamePage` 用最后一条 event 的 phase 推 stage；新版改用 `phase_enter` 事件中第一条 `NIGHT_*` / `DAY_*` 标志位推 stage，避免 `DAY_KNIGHT_INTERRUPT` 这种瞬时 phase 把白天误判成夜晚。
+- 现在 `GamePage` 用最后一条 event 的 phase 推 stage；新版改用 `phase_enter` 事件中第一条 `NIGHT_*` / `DAY_*` 标志位推 stage，避免 `NIGHT_WITCH` 这种瞬时 phase 把白天误判成夜晚。
 
 ## 5. 实施顺序（建议）
 
@@ -265,7 +266,7 @@ class NarrativeRow:
 4. **Role Reveal + Narrative**：`reveal.py` / `narrative.py` + 单测。
 5. **API**：`schemas.py` 升级 + `routes_games.py` 三个端点（含 `POST /games/{id}/ack`）+ `GameSummaryResponse.timings` + 集成测试。
 6. **CLI**：`serve` / `resimulate` 加 `--pacing`，replay 强制 `off`。
-7. **前端**：`copy:game-audio` 脚本 → `gameAudio.ts` / `audioAssets.ts` → `phaseDescriptor.ts` + `GamePhaseHeader`（倒计时 + 状态）→ `gameApi.ts` 签名升级 → `narrative.ts` → GamePage 数据流改造（隐藏准备态按钮、对接 ack） → GameChat 叙事化 + `VoteHistogram` → `KnightDuelBanner` + 视频覆盖层 → `FinalRevealOverlay`。
+7. **前端**：`copy:game-audio` 脚本 → `gameAudio.ts` / `audioAssets.ts` → `phaseDescriptor.ts` + `GamePhaseHeader`（倒计时 + 状态）→ `gameApi.ts` 签名升级 → `narrative.ts` → GamePage 数据流改造（隐藏准备态按钮、对接 ack） → GameChat 叙事化 + `VoteHistogram` → 女巫阶段状态 → `FinalRevealOverlay`。
 8. **手动 smoke**：`WH_LLM_PROVIDER=litellm` 跑一局真实 LLM 实战，从前端开始游戏到 reveal 浮层全流程；截图三张（开局、白天发言、结局浮层）入 `docs/specs/step-07-screenshot-*.png`。
 
 ## 6. 验收指标（GPT 必须全部满足）
@@ -294,8 +295,9 @@ class NarrativeRow:
 ### F. API
 - `POST /games` 接受新 schema、老 schema 都通过；schema 校验失败返回 422 `code=invalid_agent_spec`。
 - `GET /games/{id}/narrative` 在游戏进行中可增量拉取；`?after=` 行为正确。
+- `GET /games/{id}/effects` 在游戏进行中可增量拉取；`?after=` 行为正确，并可从离线 `events.jsonl` 重建。
 - `GET /games/{id}/reveal` 在 winner=None 时 404，结束后 200。
-- `tests/integration/test_spectator_mvp.py`：mock provider 跑完整局，断言 SSE 收到 ≥1 条 `narrative_row`、最终 `role_reveal` 出现、`/reveal` 200。
+- `tests/integration/test_spectator_mvp.py`：mock provider 跑完整局，断言 SSE 收到 ≥1 条 `narrative_row` 与 ≥1 条 `spectator_effect`、最终 `role_reveal` 出现、`/reveal` 200。
 
 ### G. 前端
 - `npm run typecheck` + `npm run lint` 全绿。
@@ -349,7 +351,7 @@ npm run dev
 # 浏览器跑一局，截图 3 张存入 docs/specs/。
 ```
 
-## A. 音视频 + 倒计时 + 状态显示 + 骑士对决（对齐 `狼人杀需求阐明.md` §二/§三）
+## A. 音视频 + 倒计时 + 状态显示 + 女巫行动（对齐 `狼人杀需求阐明.md` §二/§三）
 
 本节是 STEP-07 的硬需求来源之一。**实施前必须先阅读** `狼人杀需求阐明.md` §二「游戏流程」与 §三「特殊注意事项」。
 
@@ -367,7 +369,7 @@ npm run dev
 | `天,亮了.mp3` | `audio/day_dawn.mp3` | 接 `day_rooster` 后播 |
 | `昨晚,他死了.mp3` | `audio/day_death.mp3` | 当 `DAY_ANNOUNCE` 有死亡时播 |
 | `昨晚,是平安夜.mp3` | `audio/day_peaceful.mp3` | 当 `DAY_ANNOUNCE` 无死亡时播 |
-| `骑士对决.mp4` | `video/knight_duel.mp4` | 骑士发起决斗时全屏覆盖播放 |
+| 无女巫视频素材 | 不使用 | 女巫只显示阶段状态 |
 | `游戏大厅待机音乐.mp3` | `audio/lobby_bgm.mp3`（已在 `public/assets/lobby/lobby_bgm.mp3` 存在则跳过） | BGM |
 
 脚本要求：
@@ -382,7 +384,6 @@ npm run dev
 export type GameAudioKey =
   | 'wolf_howl' | 'night_guard' | 'night_wolves' | 'night_seer'
   | 'day_rooster' | 'day_dawn' | 'day_death' | 'day_peaceful';
-export type GameVideoKey = 'knight_duel';
 
 export interface AudioController {
   play(key: GameAudioKey): Promise<void>;        // resolve 时表示已播完
@@ -395,7 +396,7 @@ export interface AudioController {
 - 使用单例 `HTMLAudioElement` 池；同一 key 复用同一元素，重播时 `currentTime=0`。
 - 音量从大厅 `SettingsModal` 的音量 slider 同步（`VOLUME_DEFAULT=80`）。
 - 浏览器 autoplay 限制：在 LobbyHome → GamePage 切换之前用户必然有 click 交互，所以 GamePage mount 时 audio context 已可用；首次播放前若仍被拒，降级为「静音播放占位 + 提示用户解锁声音」按钮（不在 §6 验收范围内，写成 best-effort）。
-- `knight_duel.mp4` 走全屏覆盖 `<video autoPlay playsInline>`，结束后回调通知 FSM 解锁后续推进。
+- 女巫不使用视频覆盖层，`NIGHT_WITCH` 展示阶段状态与倒计时，并播放 `女巫请睁眼.mp3` 对应的 `night_witch` 音频。
 
 ### A.3 音频脚本（与后端节奏对齐）
 
@@ -407,7 +408,7 @@ export interface AudioController {
 | `phase_enter NIGHT_WOLF_CHAT` | 1s 停顿 → 播 `night_wolves` | 等待 `ack:night_wolves_done` |
 | `phase_enter NIGHT_SEER` | 1s 停顿 → 播 `night_seer` | 等待 `ack:night_seer_done` |
 | `phase_enter DAY_ANNOUNCE` | 播 `day_rooster` → 播 `day_dawn` → 若 `death_at_night` 存在则播 `day_death` 否则播 `day_peaceful` | 等待 `ack:day_intro_done` |
-| `knight_challenge` | 屏幕中央艺术大字「骑士发起了对决！」(800ms) → 全屏覆盖 `knight_duel.mp4` 播完 | 等待 `ack:knight_duel_done` |
+| `phase_enter NIGHT_WITCH` | 1s 停顿 → 播 `night_witch`，显示「女巫正在行动」状态与倒计时 | 等待 `ack:night_witch_done` |
 | 其余 phase | 无音频 | 无需 ack |
 
 ### A.4 倒计时 + 状态显示（聊天框上方）
@@ -416,7 +417,7 @@ export interface AudioController {
 - 隐藏：`夜深了...` 按钮、`一键分配`、`测试连通性`、`game-seat-badge`（绿色对勾）、`game-stage-debug`。
 - 在 `GameChat` 上方挂接 `<GamePhaseHeader />`，包含：
   - 倒计时：从 `phase_enter` 时刻起按 §A.6 时长 countdown。
-  - 状态显示：单行中文，例如「守卫正在行动」「狼人正在讨论」「狼人正在行动」「预言家正在行动」「N号玩家正在发言」「正在举行公民投票」「正在 PK 重投」「骑士决斗中」。状态文案与 phase 的映射写在 `src/lib/phaseDescriptor.ts`，单元测试覆盖全部 phase。
+  - 状态显示：单行中文，例如「守卫正在行动」「狼人正在讨论」「狼人正在行动」「预言家正在行动」「N号玩家正在发言」「正在举行公民投票」「正在 PK 重投」「女巫用药中」。状态文案与 phase 的映射写在 `src/lib/phaseDescriptor.ts`，单元测试覆盖全部 phase。
 - 行动状态位置：对话框上方、倒计时下方（对齐需求文档 §三.8）。
 
 ### A.5 ack 接口（前端 → 后端）
@@ -446,7 +447,7 @@ export interface AudioController {
 ### A.7 高亮特效 / 投票直方图
 
 - **发言高亮**：`GameSeat` 在自己是当前发言者时（`current_speaker_seat === seatIndex+1`）应用 `.game-seat--speaking` 类，CSS 添加 outline + glow + 1s pulse 动画。当前发言者由前端从 `speech` 事件 actor 字段维护（在该 phase 内最后一个 speech 的 actor 即当前发言者）。
-- **骑士艺术大字**：新增 `KnightDuelBanner` 组件，800ms 渐入后被 `knight_duel.mp4` 覆盖。字体使用现有项目主字体加阴影；不需要额外字体资源。
+- 女巫不新增视频组件；复用 `GamePhaseHeader` 展示 `NIGHT_WITCH` 状态并由音频 ack 对齐 pacing。
 - **投票直方图**：在 `GameChat` 通用面板内，`vote_result` 事件触发渲染 `VoteHistogram`（横向条 + 票数）。在 `vote_pk_enter` 时清空，重投后再次渲染。
 
 ### A.8 plan.md / architecture.md 同步追加
@@ -463,12 +464,12 @@ export interface AudioController {
 
 - `tests/unit/test_phase_descriptor.py`（其实在前端 vitest 侧）覆盖所有 phase → 中文文案映射。
 - `tests/unit/test_pacing_ack.py`：mock provider 跑一局，断言 `ack` timeout 时 PacingController 仍能推进。
-- `tests/integration/test_audio_manifest.py`：断言 `public/assets/game/audio_manifest.json` 8 条音频 + 1 条视频齐全，hash 与素材原文件一致。
+- `tests/integration/test_audio_manifest.py`：断言 `public/assets/game/audio_manifest.json` 9 条游戏音频齐全，`public/assets/game/effect_manifest.json` 6 条图片特效齐全，hash 与素材原文件一致，且不包含视频条目。
 - `npm run build` 必须先跑 `copy:game-audio`；CI 在没有 ffprobe 的环境下用预设 duration 也不能失败。
-- 手动 smoke 截图新增 2 张：夜晚倒计时 + 状态显示 / 骑士决斗艺术大字 + 视频帧。
-- 手动 smoke 录屏（可选，写入 `docs/specs/step-07-smoke.mp4`），证明：入夜音频序列正确、倒计时与状态显示正确、发言高亮、骑士触发视频、结局浮层。
+- 手动 smoke 截图新增 2 张：夜晚倒计时 + 女巫状态显示。
+- 手动 smoke 录屏（可选，写入 `docs/specs/step-07-smoke.mp4`），证明：入夜音频序列正确、倒计时与状态显示正确、发言高亮、女巫状态显示、结局浮层。
 
-## A. 音视频 + 倒计时 + 状态显示 + 骑士对决（对齐 `狼人杀需求阐明.md` §二/§三）
+## A. 音视频 + 倒计时 + 状态显示 + 女巫行动（对齐 `狼人杀需求阐明.md` §二/§三）
 
 本节是 STEP-07 的硬需求来源之一。**实施前必须先阅读** `狼人杀需求阐明.md` §二「游戏流程」与 §三「特殊注意事项」。
 
@@ -486,7 +487,7 @@ export interface AudioController {
 | `天,亮了.mp3` | `audio/day_dawn.mp3` | 接 `day_rooster` 后播 |
 | `昨晚,他死了.mp3` | `audio/day_death.mp3` | 当 `DAY_ANNOUNCE` 有死亡时播 |
 | `昨晚,是平安夜.mp3` | `audio/day_peaceful.mp3` | 当 `DAY_ANNOUNCE` 无死亡时播 |
-| `骑士对决.mp4` | `video/knight_duel.mp4` | 骑士发起决斗时全屏覆盖播放 |
+| 无女巫视频素材 | 不使用 | 女巫只显示阶段状态 |
 | `游戏大厅待机音乐.mp3` | `audio/lobby_bgm.mp3`（已在 `public/assets/lobby/lobby_bgm.mp3` 存在则跳过） | BGM |
 
 脚本要求：
@@ -501,7 +502,6 @@ export interface AudioController {
 export type GameAudioKey =
   | 'wolf_howl' | 'night_guard' | 'night_wolves' | 'night_seer'
   | 'day_rooster' | 'day_dawn' | 'day_death' | 'day_peaceful';
-export type GameVideoKey = 'knight_duel';
 
 export interface AudioController {
   play(key: GameAudioKey): Promise<void>;        // resolve 时表示已播完
@@ -514,7 +514,7 @@ export interface AudioController {
 - 使用单例 `HTMLAudioElement` 池；同一 key 复用同一元素，重播时 `currentTime=0`。
 - 音量从大厅 `SettingsModal` 的音量 slider 同步（`VOLUME_DEFAULT=80`）。
 - 浏览器 autoplay 限制：在 LobbyHome → GamePage 切换之前用户必然有 click 交互，所以 GamePage mount 时 audio context 已可用；首次播放前若仍被拒，降级为「静音播放占位 + 提示用户解锁声音」按钮（不在 §6 验收范围内，写成 best-effort）。
-- `knight_duel.mp4` 走全屏覆盖 `<video autoPlay playsInline>`，结束后回调通知 FSM 解锁后续推进。
+- 女巫不使用视频覆盖层，`NIGHT_WITCH` 展示阶段状态与倒计时，并播放 `女巫请睁眼.mp3` 对应的 `night_witch` 音频。
 
 ### A.3 音频脚本（与后端节奏对齐）
 
@@ -526,7 +526,7 @@ export interface AudioController {
 | `phase_enter NIGHT_WOLF_CHAT` | 1s 停顿 → 播 `night_wolves` | 等待 `ack:night_wolves_done` |
 | `phase_enter NIGHT_SEER` | 1s 停顿 → 播 `night_seer` | 等待 `ack:night_seer_done` |
 | `phase_enter DAY_ANNOUNCE` | 播 `day_rooster` → 播 `day_dawn` → 若 `death_at_night` 存在则播 `day_death` 否则播 `day_peaceful` | 等待 `ack:day_intro_done` |
-| `knight_challenge` | 屏幕中央艺术大字「骑士发起了对决！」(800ms) → 全屏覆盖 `knight_duel.mp4` 播完 | 等待 `ack:knight_duel_done` |
+| `phase_enter NIGHT_WITCH` | 1s 停顿 → 播 `night_witch`，显示「女巫正在行动」状态与倒计时 | 等待 `ack:night_witch_done` |
 | 其余 phase | 无音频 | 无需 ack |
 
 ### A.4 倒计时 + 状态显示（聊天框上方）
@@ -535,7 +535,7 @@ export interface AudioController {
 - 隐藏：`夜深了...` 按钮、`一键分配`、`测试连通性`、`game-seat-badge`（绿色对勾）、`game-stage-debug`。
 - 在 `GameChat` 上方挂接 `<GamePhaseHeader />`，包含：
   - 倒计时：从 `phase_enter` 时刻起按 §A.6 时长 countdown。
-  - 状态显示：单行中文，例如「守卫正在行动」「狼人正在讨论」「狼人正在行动」「预言家正在行动」「N号玩家正在发言」「正在举行公民投票」「正在 PK 重投」「骑士决斗中」。状态文案与 phase 的映射写在 `src/lib/phaseDescriptor.ts`，单元测试覆盖全部 phase。
+  - 状态显示：单行中文，例如「守卫正在行动」「狼人正在讨论」「狼人正在行动」「预言家正在行动」「N号玩家正在发言」「正在举行公民投票」「正在 PK 重投」「女巫用药中」。状态文案与 phase 的映射写在 `src/lib/phaseDescriptor.ts`，单元测试覆盖全部 phase。
 - 行动状态位置：对话框上方、倒计时下方（对齐需求文档 §三.8）。
 
 ### A.5 ack 接口（前端 → 后端）
@@ -565,7 +565,7 @@ export interface AudioController {
 ### A.7 高亮特效 / 投票直方图
 
 - **发言高亮**：`GameSeat` 在自己是当前发言者时（`current_speaker_seat === seatIndex+1`）应用 `.game-seat--speaking` 类，CSS 添加 outline + glow + 1s pulse 动画。当前发言者由前端从 `speech` 事件 actor 字段维护（在该 phase 内最后一个 speech 的 actor 即当前发言者）。
-- **骑士艺术大字**：新增 `KnightDuelBanner` 组件，800ms 渐入后被 `knight_duel.mp4` 覆盖。字体使用现有项目主字体加阴影；不需要额外字体资源。
+- 女巫不新增视频组件；复用 `GamePhaseHeader` 展示 `NIGHT_WITCH` 状态并由音频 ack 对齐 pacing。
 - **投票直方图**：在 `GameChat` 通用面板内，`vote_result` 事件触发渲染 `VoteHistogram`（横向条 + 票数）。在 `vote_pk_enter` 时清空，重投后再次渲染。
 
 ### A.8 plan.md / architecture.md 同步追加
@@ -582,10 +582,10 @@ export interface AudioController {
 
 - `tests/unit/test_phase_descriptor.py`（其实在前端 vitest 侧）覆盖所有 phase → 中文文案映射。
 - `tests/unit/test_pacing_ack.py`：mock provider 跑一局，断言 `ack` timeout 时 PacingController 仍能推进。
-- `tests/integration/test_audio_manifest.py`：断言 `public/assets/game/audio_manifest.json` 8 条音频 + 1 条视频齐全，hash 与素材原文件一致。
+- `tests/integration/test_audio_manifest.py`：断言 `public/assets/game/audio_manifest.json` 9 条游戏音频齐全，`public/assets/game/effect_manifest.json` 6 条图片特效齐全，hash 与素材原文件一致，且不包含视频条目。
 - `npm run build` 必须先跑 `copy:game-audio`；CI 在没有 ffprobe 的环境下用预设 duration 也不能失败。
-- 手动 smoke 截图新增 2 张：夜晚倒计时 + 状态显示 / 骑士决斗艺术大字 + 视频帧。
-- 手动 smoke 录屏（可选，写入 `docs/specs/step-07-smoke.mp4`），证明：入夜音频序列正确、倒计时与状态显示正确、发言高亮、骑士触发视频、结局浮层。
+- 手动 smoke 截图新增 2 张：夜晚倒计时 + 女巫状态显示。
+- 手动 smoke 录屏（可选，写入 `docs/specs/step-07-smoke.mp4`），证明：入夜音频序列正确、倒计时与状态显示正确、发言高亮、女巫状态显示、结局浮层。
 
 ## 9. 不在本步骤范围
 

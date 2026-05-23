@@ -7,12 +7,12 @@ from wolven_hunt.config.schema import GameConfig
 from wolven_hunt.core.actions import (
     Action,
     GuardProtect,
-    KnightChallenge,
     LastWords,
     PkVote,
     SeerCheck,
     Speech,
     Vote,
+    WitchAction,
     WolfChatMessage,
     WolfKillVote,
 )
@@ -152,8 +152,8 @@ def apply_action(
         return _apply_seer(state, action)
     if isinstance(action, Speech):
         return _apply_speech(state, action, config)
-    if isinstance(action, KnightChallenge):
-        return _apply_knight(state, action)
+    if isinstance(action, WitchAction):
+        return _apply_witch(state, action)
     if isinstance(action, Vote):
         return _apply_vote(state, action)
     if isinstance(action, PkVote):
@@ -164,11 +164,33 @@ def apply_action(
 
 def resolve_night(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
     events: list[Event] = []
-    deaths: tuple[Seat, ...] = ()
-    if state.night_wolf_target is None:
-        new_state = replace(state, last_night_deaths=())
-        return new_state, tuple(events)
-    if state.night_guard_target == state.night_wolf_target:
+    deaths: list[Seat] = []
+    last_words_eligible: list[Seat] = []
+    wolf_target = state.night_wolf_target
+    witch_action = state.night_witch_action
+    witch_target = state.night_witch_target
+
+    if wolf_target is not None:
+        saved_by_witch = witch_action == "save" and witch_target == wolf_target
+        guarded_by_guard = state.night_guard_target == wolf_target
+        if saved_by_witch and guarded_by_guard:
+            deaths.append(wolf_target)
+            if state.day == 1:
+                last_words_eligible.append(wolf_target)
+        elif saved_by_witch or guarded_by_guard:
+            pass
+        else:
+            deaths.append(wolf_target)
+            if state.day == 1:
+                last_words_eligible.append(wolf_target)
+
+    if witch_action == "poison" and witch_target is not None:
+        if witch_target not in deaths:
+            deaths.append(witch_target)
+        if witch_target in last_words_eligible:
+            last_words_eligible.remove(witch_target)
+
+    if not deaths:
         events.append(
             draft_event(
                 game_id=state.game_id,
@@ -181,29 +203,31 @@ def resolve_night(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
             )
         )
     else:
-        death = state.night_wolf_target
-        deaths = (death,)
-        state = state.mark_dead(death, "NIGHT_RESOLVE")
-        events.append(
-            draft_event(
-                game_id=state.game_id,
-                phase="NIGHT_RESOLVE",
-                day=state.day,
-                event_type=EventType.DEATH_AT_NIGHT,
-                actor=None,
-                visibility=public_visibility(),
-                payload={"seat": death.number},
+        for death in deaths:
+            state = state.mark_dead(death, "NIGHT_RESOLVE")
+            events.append(
+                draft_event(
+                    game_id=state.game_id,
+                    phase="NIGHT_RESOLVE",
+                    day=state.day,
+                    event_type=EventType.DEATH_AT_NIGHT,
+                    actor=None,
+                    visibility=public_visibility(),
+                    payload={"seat": death.number},
+                )
             )
-        )
-    first_night_deaths = deaths if state.day == 1 else state.first_night_deaths
+    last_night_deaths = tuple(deaths)
+    first_night_deaths = tuple(last_words_eligible) if state.day == 1 else state.first_night_deaths
     new_state = replace(
         state,
-        last_night_deaths=deaths,
+        last_night_deaths=last_night_deaths,
         first_night_deaths=first_night_deaths,
         last_guard_target=state.night_guard_target,
         night_guard_target=None,
         night_wolf_votes=(),
         night_wolf_target=None,
+        night_witch_action=None,
+        night_witch_target=None,
     )
     return new_state, tuple(events)
 
@@ -477,32 +501,28 @@ def _apply_speech(
     )
 
 
-def _apply_knight(state: GameState, action: KnightChallenge) -> tuple[GameState, tuple[Event, ...]]:
-    if action.target is None:
-        return state, ()
-    target = state.player(action.target)
-    killed = action.target if target.role is Role.WOLF else action.actor
-    result = "hit_wolf" if target.role is Role.WOLF else "hit_good"
-    new_state = state.mark_dead(killed, "KNIGHT_CHALLENGE_RESOLVE")
-    new_state = replace(new_state, knight_used=True)
+def _apply_witch(state: GameState, action: WitchAction) -> tuple[GameState, tuple[Event, ...]]:
+    antidote_used = state.witch_antidote_used or action.action == "save"
+    poison_used = state.witch_poison_used or action.action == "poison"
+    new_state = replace(
+        state,
+        witch_antidote_used=antidote_used,
+        witch_poison_used=poison_used,
+        night_witch_action=action.action,
+        night_witch_target=action.target,
+    )
     return new_state, (
         draft_event(
             game_id=state.game_id,
-            phase="DAY_KNIGHT_INTERRUPT",
+            phase=state.phase,
             day=state.day,
-            event_type=EventType.KNIGHT_CHALLENGE,
+            event_type=EventType.WITCH_ACTION,
             actor=action.actor.number,
-            visibility=public_visibility(),
-            payload={"target": action.target.number},
-        ),
-        draft_event(
-            game_id=state.game_id,
-            phase="DAY_KNIGHT_INTERRUPT",
-            day=state.day,
-            event_type=EventType.KNIGHT_RESULT,
-            actor=action.actor.number,
-            visibility=public_visibility(),
-            payload={"result": result, "killed": killed.number},
+            visibility=seats_visibility((action.actor.number,)),
+            payload={
+                "action": action.action,
+                "target": None if action.target is None else action.target.number,
+            },
         ),
     )
 

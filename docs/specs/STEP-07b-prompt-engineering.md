@@ -24,7 +24,7 @@ STEP-07 验收时发现这个洞：真实 LLM 调用时只拿到 JSON dump + "�
    - 输出 schema 说明
 3. **上下文管理策略**：
    - 事件窗口从固定 40 条改为"重要事件优先 + 滑动窗口"
-   - 长局摘要：超 60 条事件时，首夜 / 首日 / 骑士决斗 / 放逐结果强制保留
+   - 长局摘要：超 60 条事件时，首夜 / 首日 / 女巫用药 / 放逐结果强制保留
    - 写进 `plan.md` §4.4 / `architecture.md` §13
 4. **Leakage 测试**：
    - `tests/leakage/test_prompt_leakage.py`：断言 prompt 不含 model 名、nickname、其他玩家身份
@@ -35,7 +35,7 @@ STEP-07 验收时发现这个洞：真实 LLM 调用时只拿到 JSON dump + "�
 ### 2.1 plan.md
 
 - §4.4 新增"上下文管理策略"小节：
-  - 事件窗口：最近 40 条 + 强制保留首夜/首日/骑士/放逐
+  - 事件窗口：最近 40 条 + 强制保留首夜/首日/女巫/放逐
   - 超 60 条时触发摘要：首 10 条 + 中间摘要 + 最近 30 条
   - 摘要格式：`{type, day, phase, actor, summary_text}`，不走 LLM
 - §6.2 LLM 输出 JSON schema 表后追加"提示词结构"段：
@@ -53,7 +53,7 @@ STEP-07 验收时发现这个洞：真实 LLM 调用时只拿到 JSON dump + "�
 ```markdown
 # 狼人杀 AI 玩家系统提示词 v1
 
-你是一名狼人杀游戏的 AI 玩家。本局为 8 人局，角色配置：3 狼人 + 2 村民 + 1 预言家 + 1 骑士 + 1 守卫。
+你是一名狼人杀游戏的 AI 玩家。本局为 8 人局，角色配置：3 狼人 + 2 村民 + 1 预言家 + 1 女巫 + 1 守卫。
 
 ## 游戏规则摘要
 
@@ -61,9 +61,9 @@ STEP-07 验收时发现这个洞：真实 LLM 调用时只拿到 JSON dump + "�
 - 好人胜：所有狼人死亡
 - 狼人胜：存活狼人数 > 存活好人数，或所有好人死亡
 
-**夜晚顺序**：守卫守护 → 狼人夜聊 → 狼人投刀 → 预言家查验 → 结算
+**夜晚顺序**：守卫守护 → 狼人夜聊 → 狼人投刀 → 女巫用药 → 预言家查验 → 结算
 
-**白天流程**：公布死亡 → 遗言（首夜死亡 / 白天放逐 / 骑士失误）→ 按座位顺序发言 → 投票 → 放逐（平票进 PK）
+**白天流程**：公布死亡 → 遗言（首夜狼刀或双奶死亡 / 白天放逐；毒药死亡无遗言）→ 按座位顺序发言 → 投票 → 放逐（平票进 PK）
 
 **关键约束**：
 - 你只知道其他玩家的**座位编号**（1-8 号），不知道他们的模型名称或昵称
@@ -235,7 +235,7 @@ STEP-07 验收时发现这个洞：真实 LLM 调用时只拿到 JSON dump + "�
 ### 3.4 其余 15 个文件
 
 按同样结构补齐：
-- `knight/speech.v1.md` / `knight/night_action.v1.md` / `knight/vote.v1.md` / `knight/last_words.v1.md`
+- `witch/speech.v1.md` / `witch/night_action.v1.md` / `witch/vote.v1.md` / `witch/last_words.v1.md`
 - `seer/speech.v1.md` / `seer/vote.v1.md` / `seer/last_words.v1.md`
 - `guard/speech.v1.md` / `guard/vote.v1.md` / `guard/last_words.v1.md`
 - `villager/vote.v1.md` / `villager/last_words.v1.md` / `villager/night_action.v1.md`（占位，村民夜晚无行动）
@@ -256,7 +256,7 @@ def select_events_for_prompt(
     events: tuple[Event, ...],
     *,
     max_count: int = 40,
-    force_keep_types: set[str] = {"game_start", "death_at_night", "exile", "knight_result", "seer_check_result"},
+    force_keep_types: set[str] = {"game_start", "death_at_night", "exile", "witch_action", "seer_check_result"},
 ) -> tuple[Event, ...]:
     """
     优先保留重要事件 + 最近事件。
@@ -327,7 +327,7 @@ def test_prompt_does_not_leak_other_player_roles():
 ## 6. 实施顺序
 
 1. **system.v1.md**：写统一系统提示词
-2. **5 个代表性 .md**：wolf/seer/guard/villager/knight 各一个 phase
+2. **5 个代表性 .md**：wolf/seer/guard/villager/witch 各一个 phase
 3. **context.py**：事件选择策略 + 单测
 4. **prompts.py 接入**：`[system] + [role/phase] + [JSON]` 拼接顺序
 5. **其余 15 个 .md**：补齐全部 20 个文件

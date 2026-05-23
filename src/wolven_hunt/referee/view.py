@@ -32,17 +32,28 @@ def build_view(
     teammates: tuple[Seat, ...] = ()
     if player is not None and player.role is Role.WOLF:
         teammates = tuple(wolf for wolf in state.wolf_seats() if wolf != player.seat)
+    seat_start, seat_end = state.seat_range()
     summary: dict[str, Any] = {
         "day": state.day,
         "phase": state.phase,
+        "seat_range": {"start": seat_start, "end": seat_end},
+        "seat_count": len(state.players),
+        "role_counts": state.role_counts(),
         "alive_seats": [seat_.number for seat_ in state.alive_seats()],
-        "last_guard_target": None
-        if state.last_guard_target is None
-        else state.last_guard_target.number,
         "pk_seats": [seat_.number for seat_ in state.pk_seats],
         "max_chars": rule_set.speech.max_chars,
         "can_vote_self": rule_set.vote.can_vote_self,
     }
+    if player is not None and player.role is Role.GUARD and state.phase == "NIGHT_GUARD":
+        summary["last_guard_target"] = (
+            None if state.last_guard_target is None else state.last_guard_target.number
+        )
+    if player is not None and player.role is Role.WITCH and state.phase == "NIGHT_WITCH":
+        summary["wolf_kill_target"] = (
+            None if state.night_wolf_target is None else state.night_wolf_target.number
+        )
+        summary["witch_antidote_available"] = not state.witch_antidote_used
+        summary["witch_poison_available"] = not state.witch_poison_used
     return PlayerView(
         perspective=perspective,
         seat_or_none=seat,

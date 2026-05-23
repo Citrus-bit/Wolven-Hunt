@@ -1,0 +1,44 @@
+{
+  "guard_shield": {
+    "key": "guard_shield",
+    "kind": "image",
+    "path": "/assets/game/effects/guard_shield.png",
+    "source_sha256": "521f103361d0ff518b2b74c8fe047840716aea08f3186b48fc1c998c98b81534",
+    "target_sha256": "521f103361d0ff518b2b74c8fe047840716aea08f3186b48fc1c998c98b81534"
+  },
+  "wolf_attack": {
+    "key": "wolf_attack",
+    "kind": "image",
+    "path": "/assets/game/effects/wolf_attack.png",
+    "source_sha256": "42dca60a84432c8efb789f6757930f5c826cb059699e63cd5c3e7a540f77c379",
+    "target_sha256": "42dca60a84432c8efb789f6757930f5c826cb059699e63cd5c3e7a540f77c379"
+  },
+  "seer_vision": {
+    "key": "seer_vision",
+    "kind": "image",
+    "path": "/assets/game/effects/seer_vision.png",
+    "source_sha256": "bdb2d5b0b4a8b5dda55d362e6daf8103af699d0357029aee808b39acaf3bcb7c",
+    "target_sha256": "bdb2d5b0b4a8b5dda55d362e6daf8103af699d0357029aee808b39acaf3bcb7c"
+  },
+  "potion_antidote": {
+    "key": "potion_antidote",
+    "kind": "image",
+    "path": "/assets/game/effects/potion_antidote.jpg",
+    "source_sha256": "e3561158ac86b2d1de683ea6c78cb4342a3d54d8ae6034d3bc89e47a5ae92b0a",
+    "target_sha256": "e3561158ac86b2d1de683ea6c78cb4342a3d54d8ae6034d3bc89e47a5ae92b0a"
+  },
+  "potion_poison": {
+    "key": "potion_poison",
+    "kind": "image",
+    "path": "/assets/game/effects/potion_poison.jpg",
+    "source_sha256": "f20aae86d2f4789c08f1c3e03173c34c1fbbf0d105cc2d4d465e9b191236ea69",
+    "target_sha256": "f20aae86d2f4789c08f1c3e03173c34c1fbbf0d105cc2d4d465e9b191236ea69"
+  },
+  "out_badge": {
+    "key": "out_badge",
+    "kind": "image",
+    "path": "/assets/game/effects/out_badge.png",
+    "source_sha256": "c0b2235c86fc395e531291deedad72eb6d6ebe602bc59968782ff4670f12d509",
+    "target_sha256": "c0b2235c86fc395e531291deedad72eb6d6ebe602bc59968782ff4670f12d509"
+  }
+}

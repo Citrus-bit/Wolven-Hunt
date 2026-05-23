@@ -54,11 +54,6 @@ def event_to_narrative(event: Event) -> NarrativeRow | None:
         return _row(event, "verdict", "本轮无人被放逐，直接进入夜晚")
     if event.type is EventType.EXILE:
         return _row(event, "verdict", f"{payload.get('seat')}号被放逐")
-    if event.type is EventType.KNIGHT_CHALLENGE:
-        return _row(event, "action", f"骑士向{payload.get('target')}号发起决斗")
-    if event.type is EventType.KNIGHT_RESULT:
-        result = "命中狼人" if payload.get("result") == "hit_wolf" else "挑战失败"
-        return _row(event, "verdict", f"骑士决斗{result}，{payload.get('killed')}号死亡")
     if event.type is EventType.GAME_END:
         return _row(event, "verdict", f"游戏结束，{_winner_label(payload.get('winner'))}胜利")
     return None
@@ -82,6 +77,7 @@ def _phase_text(phase: str) -> str | None:
         "NIGHT_GUARD": "夜幕降临，守卫开始行动",
         "NIGHT_WOLF_CHAT": "狼人正在讨论",
         "NIGHT_WOLF_VOTE": "狼人正在行动",
+        "NIGHT_WITCH": "女巫正在行动",
         "NIGHT_SEER": "预言家正在行动",
         "NIGHT_RESOLVE": "夜晚行动结算中",
         "DAY_ANNOUNCE": "天亮了，开始公布昨夜情况",

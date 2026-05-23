@@ -1,0 +1,24 @@
+schema_version: "1.0"
+name: classic_10_three_gods
+seat_numbering: one_based
+seat_count: 10
+roles:
+  wolf:
+    count: 3
+    camp: wolf
+  villager:
+    count: 4
+    camp: good
+  seer:
+    count: 1
+    camp: good
+  witch:
+    count: 1
+    camp: good
+  guard:
+    count: 1
+    camp: good
+visibility:
+  self_role: true
+  wolves_know_teammates: true
+  spectator_hidden_roles: false

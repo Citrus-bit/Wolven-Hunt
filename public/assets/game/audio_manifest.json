@@ -23,6 +23,14 @@
     "source_sha256": "d806462c05f19dc3b1da56114e093deca1317655ba87157bfd07258f7ace233d",
     "target_sha256": "d806462c05f19dc3b1da56114e093deca1317655ba87157bfd07258f7ace233d"
   },
+  "night_witch": {
+    "key": "night_witch",
+    "kind": "audio",
+    "path": "/assets/game/audio/night_witch.mp3",
+    "duration_ms": 1340,
+    "source_sha256": "d4ebf52c0e8fe4cb109959692cc1221fcc606ca41132850800371cfb13cd6424",
+    "target_sha256": "d4ebf52c0e8fe4cb109959692cc1221fcc606ca41132850800371cfb13cd6424"
+  },
   "night_seer": {
     "key": "night_seer",
     "kind": "audio",
@@ -62,13 +70,5 @@
     "duration_ms": 1700,
     "source_sha256": "6ac14d889405be3a9fbf802d330f35c52b3132a4e799dc4b6f136c5204a08519",
     "target_sha256": "6ac14d889405be3a9fbf802d330f35c52b3132a4e799dc4b6f136c5204a08519"
-  },
-  "knight_duel": {
-    "key": "knight_duel",
-    "kind": "video",
-    "path": "/assets/game/video/knight_duel.mp4",
-    "duration_ms": 5040,
-    "source_sha256": "d6467ae818cb91c44b4c0e1847565f3325a37b7cfe4fb69a0142182ff2db56cc",
-    "target_sha256": "d6467ae818cb91c44b4c0e1847565f3325a37b7cfe4fb69a0142182ff2db56cc"
   }
 }

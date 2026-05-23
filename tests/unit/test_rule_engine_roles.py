@@ -5,12 +5,12 @@ from dataclasses import replace
 from wolven_hunt.config.schema import GameConfig
 from wolven_hunt.core.actions import (
     GuardProtect,
-    KnightChallenge,
     LastWords,
     PkVote,
     SeerCheck,
     Speech,
     Vote,
+    WitchAction,
     WolfKillVote,
 )
 from wolven_hunt.core.events import EventType
@@ -93,17 +93,168 @@ def test_wolf_cannot_kill_teammate(game_config: GameConfig, initial_state: GameS
     assert rejection.rule_id == "wolf.target_teammate"
 
 
-def test_knight_outcomes(game_config: GameConfig, initial_state: GameState) -> None:
-    knight = _seat_by_role(initial_state, Role.KNIGHT)
-    wolf = initial_state.wolf_seats(alive_only=True)[0]
+def test_witch_save_blocks_wolf_kill(game_config: GameConfig, initial_state: GameState) -> None:
+    witch = _seat_by_role(initial_state, Role.WITCH)
+    target = next(player.seat for player in initial_state.players if player.role is not Role.WOLF)
+    state = replace(initial_state.with_phase("NIGHT_WITCH"), night_wolf_target=target)
     state, events = apply_action(
-        initial_state.with_phase("DAY_KNIGHT_INTERRUPT"),
-        KnightChallenge(actor=knight, target=wolf),
+        state,
+        WitchAction(actor=witch, action="save", target=target),
         game_config,
-        DeterministicRNG("knight"),
+        DeterministicRNG("witch"),
     )
-    assert not state.player(wolf).alive
-    assert any(event.type is EventType.KNIGHT_RESULT for event in events)
+    assert state.witch_antidote_used
+    assert events[0].type is EventType.WITCH_ACTION
+    state, events = resolve_night(state)
+    assert state.player(target).alive
+    assert [event.type for event in events] == [EventType.NO_DEATH_TONIGHT]
+
+
+def test_witch_poison_kills_and_guard_does_not_block(
+    game_config: GameConfig, initial_state: GameState
+) -> None:
+    witch = _seat_by_role(initial_state, Role.WITCH)
+    poison_target = next(
+        player.seat
+        for player in initial_state.players
+        if player.role is not Role.WITCH and player.role is not Role.WOLF
+    )
+    state = replace(
+        initial_state.with_phase("NIGHT_WITCH"),
+        night_guard_target=poison_target,
+    )
+    state, _ = apply_action(
+        state,
+        WitchAction(actor=witch, action="poison", target=poison_target),
+        game_config,
+        DeterministicRNG("witch"),
+    )
+    state, events = resolve_night(state)
+    assert not state.player(poison_target).alive
+    assert [event.type for event in events] == [EventType.DEATH_AT_NIGHT]
+    assert state.first_night_deaths == ()
+
+
+def test_witch_double_heal_kills_target(game_config: GameConfig, initial_state: GameState) -> None:
+    witch = _seat_by_role(initial_state, Role.WITCH)
+    target = next(player.seat for player in initial_state.players if player.role is not Role.WOLF)
+    state = replace(
+        initial_state.with_phase("NIGHT_WITCH"),
+        night_guard_target=target,
+        night_wolf_target=target,
+    )
+    state, _ = apply_action(
+        state,
+        WitchAction(actor=witch, action="save", target=target),
+        game_config,
+        DeterministicRNG("witch"),
+    )
+    state, events = resolve_night(state)
+    assert not state.player(target).alive
+    assert [event.type for event in events] == [EventType.DEATH_AT_NIGHT]
+    assert state.first_night_deaths == (target,)
+
+
+def test_witch_same_night_poison_and_wolf_kill_two_deaths(
+    game_config: GameConfig, initial_state: GameState
+) -> None:
+    witch = _seat_by_role(initial_state, Role.WITCH)
+    targets = tuple(player.seat for player in initial_state.players if player.role is not Role.WOLF)
+    wolf_target = targets[0]
+    poison_target = next(seat for seat in targets if seat != wolf_target and seat != witch)
+    state = replace(initial_state.with_phase("NIGHT_WITCH"), night_wolf_target=wolf_target)
+    state, _ = apply_action(
+        state,
+        WitchAction(actor=witch, action="poison", target=poison_target),
+        game_config,
+        DeterministicRNG("witch"),
+    )
+    state, events = resolve_night(state)
+    assert [event.payload["seat"] for event in events] == [
+        wolf_target.number,
+        poison_target.number,
+    ]
+    assert not state.player(wolf_target).alive
+    assert not state.player(poison_target).alive
+    assert state.first_night_deaths == (wolf_target,)
+
+
+def test_witch_poison_and_wolf_kill_same_target_denies_last_words(
+    game_config: GameConfig, initial_state: GameState
+) -> None:
+    witch = _seat_by_role(initial_state, Role.WITCH)
+    target = next(
+        player.seat
+        for player in initial_state.players
+        if player.role is not Role.WOLF and player.role is not Role.WITCH
+    )
+    state = replace(initial_state.with_phase("NIGHT_WITCH"), night_wolf_target=target)
+    state, _ = apply_action(
+        state,
+        WitchAction(actor=witch, action="poison", target=target),
+        game_config,
+        DeterministicRNG("witch"),
+    )
+    state, events = resolve_night(state)
+    assert [event.payload["seat"] for event in events] == [target.number]
+    assert not state.player(target).alive
+    assert state.first_night_deaths == ()
+
+
+def test_witch_cannot_use_two_potions_in_same_night(
+    game_config: GameConfig, initial_state: GameState
+) -> None:
+    witch = _seat_by_role(initial_state, Role.WITCH)
+    save_target = next(
+        player.seat for player in initial_state.players if player.role is not Role.WOLF
+    )
+    poison_target = next(
+        player.seat
+        for player in initial_state.players
+        if player.role is not Role.WOLF
+        and player.role is not Role.WITCH
+        and player.seat != save_target
+    )
+    state = replace(initial_state.with_phase("NIGHT_WITCH"), night_wolf_target=save_target)
+    state, _ = apply_action(
+        state,
+        WitchAction(actor=witch, action="save", target=save_target),
+        game_config,
+        DeterministicRNG("witch"),
+    )
+    rejection = validate_action(
+        state,
+        WitchAction(actor=witch, action="poison", target=poison_target),
+        game_config.rule_set,
+    )
+    assert rejection is not None
+    assert rejection.rule_id == "witch.night_limit"
+
+
+def test_witch_invalid_actions_rejected(game_config: GameConfig, initial_state: GameState) -> None:
+    witch = _seat_by_role(initial_state, Role.WITCH)
+    target = next(player.seat for player in initial_state.players if player.role is not Role.WOLF)
+    state = replace(initial_state.with_phase("NIGHT_WITCH"), night_wolf_target=target)
+
+    save_rejection = validate_action(
+        state,
+        WitchAction(
+            actor=witch,
+            action="save",
+            target=Seat(1 if target.number != 1 else 2),
+        ),
+        game_config.rule_set,
+    )
+    assert save_rejection is not None
+    assert save_rejection.rule_id == "witch.save_target"
+
+    poison_rejection = validate_action(
+        state,
+        WitchAction(actor=witch, action="poison", target=witch),
+        game_config.rule_set,
+    )
+    assert poison_rejection is not None
+    assert poison_rejection.rule_id == "witch.poison_self"
 
 
 def test_vote_self_and_dead_target_rules(game_config: GameConfig, initial_state: GameState) -> None:

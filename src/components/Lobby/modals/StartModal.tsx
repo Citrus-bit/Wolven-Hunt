@@ -8,7 +8,6 @@ type StartModalProps = {
 
 export function StartModal({ open, onClose, onEnterGame }: StartModalProps) {
   const enterGame = () => {
-    console.log('[lobby] enter game');
     onClose();
     onEnterGame();
   };
@@ -16,10 +15,10 @@ export function StartModal({ open, onClose, onEnterGame }: StartModalProps) {
   return (
     <LobbyModal open={open} onClose={onClose} title="开始游戏">
       <p className="lobby-modal-text">
-        尊敬的玩家您好，该游戏目前处于测试版本，所有 api key 均为作者本人自行购买，免费开放，请享受游戏吧～
+        作者已预填 10 个模型的 API key（自费购买），每月轮换一次。你可以直接开始 AI 对局。
       </p>
       <p className="lobby-modal-tip">
-        温馨提示：玩家可以选择人机对战或者 AI 内战，具体游戏规则可在局内查看。
+        如需长期稳定使用，请进入【设置】→【模型配置】填入你自己的 key；浏览器本地配置优先于默认值。
       </p>
       <div className="lobby-modal-notes" aria-label="注意事项">
         <h3>注意事项</h3>

@@ -4,17 +4,17 @@
 
 ## 1. Scope
 
-首期目标是一个可复现、配置驱动、事件日志为单一事实源的 8 人狼人杀引擎骨架。
+首期目标是一个可复现、配置驱动、事件日志为单一事实源的 10 人狼人杀引擎骨架。
 
 首期固定板子：
 
 - 狼人 3 人
-- 村民 2 人
+- 村民 4 人
 - 预言家 1 人
-- 骑士 1 人
+- 女巫 1 人
 - 守卫 1 人
 
-当前阶段为 STEP-07 / P3 观赛 MVP：允许在 STEP-06 外部接入基础上实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、骑士决斗视频与结局浮层。
+当前阶段为 STEP-07 / P3 观赛 MVP：允许在 STEP-06 外部接入基础上实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与结局浮层。
 
 ## 2. Rule Contract
 
@@ -29,11 +29,11 @@
 
 这些 metadata 用于 replay 校验。进入 PlayerView 前必须由 Referee 脱敏。
 
-座位统一使用 1-based 编号，首版固定为 1 到 8 号。`GAME_START` 使用 `random_seed` 派生的 deterministic RNG 洗牌分配角色。玩家只知道自己的角色；狼人额外知道全部狼队同伴身份；spectator 不暴露隐藏身份。
+座位统一使用 1-based 编号，默认固定为 1 到 10 号。`GAME_START` 使用 `random_seed` 派生的 deterministic RNG 洗牌分配角色。玩家只知道自己的角色；狼人额外知道全部狼队同伴身份；STEP-07 起 spectator 是观众上帝视角，可看到全部座位身份、狼人夜聊和 spectator-only 观赛特效，但仍不得看到 raw response、provider 配置、守卫/预言家私有结果、女巫私有结果或狼队投刀事件原文。
 
 ## 3. Win Condition
 
-每次夜晚结算、骑士挑战、投票放逐后立即执行胜负检查。
+每次夜晚结算、投票放逐后立即执行胜负检查。
 
 狼人胜：
 
@@ -65,6 +65,7 @@
 - 不可连续两晚守同一目标，包括首夜到第二夜。
 - 非法目标由 Referee 在 `validate_action` 阶段拒绝并要求重选。
 - 狼刀被守护时生成公开 `no_death_tonight` 事件，但不暴露原因。
+- 守卫只影响狼刀，不阻止女巫毒药。
 
 ### Wolves
 
@@ -74,19 +75,17 @@
 - 平票时在被狼队投到的目标中 deterministic random 选择，并记录 `wolf_tie_random`。
 - 合法刀人目标是所有存活非狼玩家。
 - 不允许自刀、不允许刀狼队友、不允许空刀。
-- 狼队夜聊和投刀事件仅狼队可见。
+- 狼队投刀事件仅狼队可见；狼人夜聊对狼队玩家和 STEP-07 spectator 上帝视角可见。
 
-### Knight
+### Witch
 
-- 白天投票开始前任意时间可发动一次。
-- 首日可发动。
-- 夜晚不能发动。
-- 投票已经开始后不能插入发动。
-- 挑战目标必须是当日存活玩家，不能是自己。
-- 挑中狼人：目标当场死亡；目标无遗言。
-- 挑中好人：骑士死亡；骑士有遗言。
-- 发动后跳过当日剩余发言与投票；若游戏未结束，直接进入夜晚。
-- 每局最多发动一次。
+- 女巫属于好人阵营，每局拥有 1 瓶解药和 1 瓶毒药。
+- 女巫每晚在狼人投刀后、预言家查验前行动；女巫死亡后不再行动。
+- 女巫知道当晚狼刀目标。解药只能救当晚狼刀目标；毒药可以毒任意存活其他玩家，不能毒自己。
+- 每晚最多使用一瓶药，可以选择 `save`、`poison` 或 `skip`；解药和毒药每局各最多使用一次。
+- 若守卫守护目标和女巫解药目标同为当晚狼刀目标，则判定为双奶死亡，该目标死亡。
+- 守卫不挡毒药。若毒药命中目标，该目标死亡；若毒药目标同时也是狼刀目标，按毒药参与死亡处理。
+- 女巫行动生成私有 `witch_action` 事件，仅女巫本人可见。
 
 ### Villager
 
@@ -97,9 +96,11 @@
 
 首夜可以死亡，`first_night_can_die: true` 是首版默认。
 
-首夜死亡在首日 `DAY_ANNOUNCE` 公示。只有首夜被刀死亡者进入首日 `DAY_LAST_WORDS`。第二夜及之后的夜晚死亡者无遗言。
+首夜死亡在首日 `DAY_ANNOUNCE` 公示。首夜狼刀死亡和双奶死亡者进入首日 `DAY_LAST_WORDS`；毒药导致死亡任何情况下无遗言。第二夜及之后的夜晚死亡者无遗言。
 
 白天按座位顺序一轮发言，每名存活玩家一次，中文默认 300 字上限。
+
+每日 `DAY_SPEECH` 发言起点优先由最近一次夜晚公布死亡决定：若 `state.last_night_deaths` 非空，以其中座位号最大的死亡玩家为锚点，从其下一位存活玩家开始，按座位号递增循环一圈并跳过死亡玩家。若当晚无人死亡，则回退 `rule_set.first_speaker_seat`（默认 1 号）作为起点。该规则只影响 `speech` 事件 actor 顺序，不新增事件类型，也不改变投票、遗言、PK 或 replay schema。
 
 投票规则：
 
@@ -117,13 +118,13 @@
 有遗言：
 
 - 白天被放逐者
-- 骑士挑战错误死亡的骑士
-- 首夜被刀死亡者
+- 首夜狼刀死亡者
+- 首夜双奶死亡者
 
 无遗言：
 
 - 第二夜及之后的夜晚死亡者
-- 被骑士挑战死亡的狼人
+- 任何夜晚被毒药导致死亡者
 
 ## 6. Agent Lifecycle
 
@@ -143,13 +144,13 @@ GAME_START
     -> NIGHT_GUARD
     -> NIGHT_WOLF_CHAT
     -> NIGHT_WOLF_VOTE
+    -> NIGHT_WITCH
     -> NIGHT_SEER
     -> NIGHT_RESOLVE
     -> CHECK_WIN
   -> DAY_ANNOUNCE
     -> DAY_LAST_WORDS?
     -> DAY_SPEECH
-    -> DAY_KNIGHT_INTERRUPT?
     -> DAY_VOTE
     -> DAY_VOTE_PK?
     -> DAY_EXILE?
@@ -158,25 +159,28 @@ GAME_START
 GAME_END
 ```
 
-骑士窗口不是固定线性子状态，而是 `DAY_ANNOUNCE` 结束后到 `DAY_VOTE` 开始前的可中断动作。若触发，FSM 暂停当前白天流程，结算骑士决斗和胜负。若未结束，跳过当日剩余白天流程并进入夜晚。
+女巫行动是固定夜晚子状态 `NIGHT_WITCH`，位于狼人投刀后、预言家查验前。`NIGHT_WITCH` 只在女巫存活且仍有至少一瓶药时进入；女巫无药或死亡时跳过。白天不再存在中断技能。现场观赛时前端在 `NIGHT_WITCH` 播放 `night_witch` 音频并通过 `ack:night_witch_done` 解除 pacing 等待；ack 不进入 EventLog。
 
 ## 8. Night Resolve
 
 `NIGHT_RESOLVE` 顺序固定：
 
-1. 读取本晚守卫目标 `G`、狼刀目标 `K`、预言家目标 `S`。
-2. 若 `G == K`，生成 `no_death_tonight`。
-3. 若 `G != K`，`K` 死亡，生成 `death_at_night`。
-4. 首夜死亡会在首日 `DAY_ANNOUNCE` 公示并触发 `DAY_LAST_WORDS`。
-5. 第二夜及之后夜死无遗言。
-6. `seer_check_result` 在 `NIGHT_SEER` 结束时已生成，结算阶段不再处理。
-7. 死亡事件不暴露死因。
+1. 读取本晚守卫目标 `G`、狼刀目标 `K`、女巫动作 `W`、预言家目标 `S`。
+2. 若 `K` 存在且 `W == save(K)` 且 `G == K`，`K` 双奶死亡。
+3. 若 `K` 存在且 `W == save(K)` 且 `G != K`，`K` 存活。
+4. 若 `K` 存在且 `W != save(K)` 且 `G == K`，生成 `no_death_tonight`；否则 `K` 死亡。
+5. 若 `W == poison(P)`，`P` 额外死亡；如果 `P == K`，死亡只记录一次，并标记为毒药参与死亡。
+6. 无死亡时生成 `no_death_tonight`；有死亡时为每个死亡 seat 生成 `death_at_night`。死亡事件不暴露死因。
+7. 首夜狼刀死亡和双奶死亡触发 `DAY_LAST_WORDS`；毒药导致死亡无遗言；第二夜及之后夜死无遗言。
+8. `seer_check_result` 在 `NIGHT_SEER` 结束时已生成，结算阶段不再处理。
 
 同夜信息可见性：
 
 - 狼人不知道今晚是否被守。
+- 女巫只在 `NIGHT_WITCH` 自己的 PlayerView 中看到当晚狼刀目标和药品剩余状态；其他玩家与 spectator 不可见。
 - 预言家查验结果在 `NIGHT_SEER` 结束时立即对本人可见。
 - 守卫不知道自己是否守住狼刀。
+- `last_guard_target` 只允许在守卫本人 `NIGHT_GUARD` PlayerView 的 `rule_set_summary` 中出现，用于合法性约束；spectator、非守卫玩家、守卫的非守卫行动阶段均不可见。
 
 ## 9. Event Log
 
@@ -208,8 +212,8 @@ GAME_END
 事件类型 v1.0：
 
 - 流程：`game_start`, `phase_enter`, `phase_exit`, `game_end`, `role_reveal`
-- 夜晚：`guard_protect`, `wolf_chat_message`, `wolf_kill_vote`, `wolf_kill_decided`, `wolf_tie_random`, `seer_check`, `seer_check_result`, `no_death_tonight`, `death_at_night`
-- 白天：`day_announce`, `last_words`, `speech`, `knight_challenge`, `knight_result`, `vote_cast`, `vote_result`, `vote_pk_enter`, `peaceful_day`, `exile`
+- 夜晚：`guard_protect`, `wolf_chat_message`, `wolf_kill_vote`, `wolf_kill_decided`, `wolf_tie_random`, `witch_action`, `seer_check`, `seer_check_result`, `no_death_tonight`, `death_at_night`
+- 白天：`day_announce`, `last_words`, `speech`, `vote_cast`, `vote_result`, `vote_pk_enter`, `peaceful_day`, `exile`
 - 系统：`win_check`, `agent_timeout`, `agent_invalid_action`, `agent_fallback_triggered`, `agent_budget_warning`
 - 元数据：`llm_call`
 
@@ -229,15 +233,15 @@ GAME_END
 可见性由 Referee 统一处理。
 
 - 公共事件：所有玩家可见，包括死亡 Agent。
-- 狼队事件：仅狼队 seat 可见。
+- 狼队事件：`wolf_kill_vote`、`wolf_kill_decided`、`wolf_tie_random` 仅狼队 seat 可见；`wolf_chat_message` 对狼队 seat 和 STEP-07 spectator 上帝视角可见。
 - 私有事件：仅 actor 或白名单 seat 可见。
-- `llm_call`、完整 `role_assignment`、raw response 存储引用默认不进入任何 PlayerView。
+- `llm_call`、raw response 存储引用默认不进入任何 PlayerView。完整 `role_assignment` 只允许进入 spectator 上帝视角和存储/调试工具，不进入普通玩家 PlayerView。
 
 PlayerView 中的 `game_start` 必须脱敏：
 
 - 本人看到自己的角色。
 - 狼人看到狼队同伴。
-- spectator 不看到隐藏身份。
+- spectator 上帝视角看到完整 `role_assignment`，用于观赛身份徽标。
 
 Referee 是唯一权限边界。核心规则和 Agent 不得自行拼接越权视角。
 
@@ -260,9 +264,9 @@ Referee 是唯一权限边界。核心规则和 Agent 不得自行拼接越权�
 | `NIGHT_GUARD` | 随机选一个合法目标，排除昨晚守护对象 |
 | `NIGHT_WOLF_CHAT` | 发送空消息，占位为 `[沉默]` |
 | `NIGHT_WOLF_VOTE` | 随机选一个合法目标 |
+| `NIGHT_WITCH` | 默认跳过，不消耗药品 |
 | `NIGHT_SEER` | 随机选一个非自己玩家 |
 | `DAY_SPEECH` | 默认模板 `我没有更多信息` |
-| `DAY_KNIGHT_INTERRUPT` | 默认不发动 |
 | `DAY_VOTE` | 随机选一个存活玩家，允许自己 |
 | `DAY_VOTE_PK` | 台下玩家随机投一个 PK 台上存活玩家；如无台下玩家可投，直接平安日 |
 | `DAY_LAST_WORDS` | 默认模板 `我没有遗言` |
@@ -305,25 +309,26 @@ configs/prompts/zh/seer/night_action.v3.md
 [system.v1.md] + [role/phase.v1.md] + [JSON payload] + [retry_error?]
 ```
 
-`system.v1.md` 是全员统一系统提示词，包含规则摘要、信息边界和 JSON-only 输出契约。角色/phase 模板来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events 和 output_schema。LLM 重试时只在末尾追加结构化错误说明。
+`system.v1.md` 是全员统一系统提示词，包含规则摘要、信息边界和 JSON-only 输出契约。角色/phase 模板来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context 和 output_schema。`speech_context` 用于 DAY_SPEECH 的发言归属约束，固定包含 `current_seat`、`already_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。LLM 重试时只在末尾追加结构化错误说明。
 
 输入侧：
 
 - Referee 不审查 Agent 发言内容。
 - Referee 只保证注入 prompt 的私有信息正确脱敏。
 - 发言中声称拥有不存在的信息属于合法角色扮演。
-- 泄漏测试覆盖预言家结果、狼队身份、守卫目标。
+- 泄漏测试覆盖预言家结果、狼队身份、狼刀细节、守卫目标、`last_guard_target`、女巫用药、狼刀目标和药品剩余状态。
 
 输出侧：
 
 - 所有 LLM 输出走结构化 schema 校验。
 - 校验失败进入重试与 fallback。
-- 输出 JSON schema 按 phase 固定为：`NIGHT_GUARD {target}`、`NIGHT_WOLF_CHAT {text}`、`NIGHT_WOLF_VOTE {target}`、`NIGHT_SEER {target}`、`DAY_SPEECH {text}`、`DAY_KNIGHT_INTERRUPT {activate, target?}`、`DAY_VOTE {target}`、`DAY_VOTE_PK {target}`、`DAY_LAST_WORDS {text}`。
+- 输出 JSON schema 按 phase 固定为：`NIGHT_GUARD {target}`、`NIGHT_WOLF_CHAT {text}`、`NIGHT_WOLF_VOTE {target}`、`NIGHT_WITCH {action, target?}`、`NIGHT_SEER {target}`、`DAY_SPEECH {text}`、`DAY_VOTE {target}`、`DAY_VOTE_PK {target}`、`DAY_LAST_WORDS {text}`。
 
 PlayerView 大小控制 / 上下文管理策略：
 
 - Prompt 上下文只从 Referee 过滤后的 `PlayerView.visible_events` 构造。
-- 默认使用最近 40 条事件，并强制保留 `game_start`、`death_at_night`、`exile`、`knight_result`、`seer_check_result`。
+- `speech_context` 只从同一份 `PlayerView.visible_events` 派生，不写入 EventLog，不改变 replay hash，不作为行动合法性来源。
+- 默认使用最近 40 条事件，并强制保留 `game_start`、`death_at_night`、`exile`、`witch_action`、`seer_check_result`。
 - 当可见事件超过 60 条时，payload 使用首 10 条事件 + 中间摘要 + 最近 30 条事件。
 - 摘要格式固定为 `{type, day, phase, actor, summary_text}`，其中 `type` 为 `summary`。
 - 摘要算法必须是基于可见事件的纯函数，不调用 LLM，不改变 EventLog、replay hash 或权限边界。
@@ -364,9 +369,10 @@ FSM
 
 ## 15. API Boundary
 
-FastAPI 在 STEP-06 实现，所有读取接口默认返回 spectator 脱敏视角：
+FastAPI 在 STEP-06 实现，所有读取接口默认返回 Referee 过滤后的 spectator 视角。STEP-07 spectator 为观众上帝视角：可包含完整身份表、狼人夜聊和 spectator-only effects，但不包含 raw response、provider 配置、守卫/预言家/女巫私有事件原文或狼刀投票/决定事件原文。
 
 - `POST /games`
+- `GET /games`
 - `GET /games/{id}`
 - `GET /games/{id}/events`
 - `POST /games/{id}/run`
@@ -376,14 +382,16 @@ FastAPI 在 STEP-06 实现，所有读取接口默认返回 spectator 脱敏视�
 - `POST /games/{id}/dev/inject`
 - `GET /games/{id}/stream`
 - `GET /games/{id}/narrative`
+- `GET /games/{id}/effects`
 - `GET /games/{id}/reveal`
 - `POST /games/{id}/ack`
 - `POST /games/{id}/speech`
 - `POST /games/{id}/wolf_chat`
+- `POST /models/test`
 
-错误体统一为 `{code, message, details?}`。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。
+错误体统一为 `{code, message, details?}`。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。`POST /models/test` 只做临时连通性测试，请求允许携带 `thinking_enabled`，不写 EventLog、不落盘、不返回 API key；失败响应只返回脱敏后的短错误摘要。所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 
-SSE 线协议固定为 `event: game_event`、`id: <seq>`、`data: <spectator Event JSON>`；STEP-07 额外推送同源 `event: narrative_row`，与 `game_event` 共享原始事件 `seq`。每 30s 发送 `event: heartbeat`。`Last-Event-ID` 表示从 `seq + 1` 续推，不存在则返回 410。CORS 默认白名单是 `http://localhost:5173`，可通过 `WH_API_CORS_ORIGINS` 配置。
+SSE 线协议固定为 `event: game_event`、`id: <seq>`、`data: <spectator Event JSON>`；STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`，三类事件共享原始 EventLog `seq`。SSE cursor 按 raw EventLog seq 推进；每条 raw event 独立决定是否产生 filtered `game_event`、`narrative_row`、`spectator_effect`。每 30s 发送 `event: heartbeat`。`Last-Event-ID` 表示从 `seq + 1` 续推，不存在则返回 410。STEP-08 起前端默认同源相对路径；开发模式 Vite `7001` proxy 到 FastAPI `7002`，生产模式 FastAPI `7002` 服务 `dist/` 和 API。
 
 STEP-06 环境变量统一由 `src/wolven_hunt/config/settings.py` 的 `pydantic-settings.BaseSettings` 读取：
 
@@ -402,8 +410,9 @@ STEP-06 环境变量统一由 `src/wolven_hunt/config/settings.py` 的 `pydantic
 - `WH_PACING_ACK_TIMEOUT_MS`：现场观赛 ack 最大等待时间，默认 15000；ack 超时只解除等待，不写 EventLog
 - `WH_RUNS_DIR`：落盘根目录，默认 `./runs`
 - `WH_API_HOST`：FastAPI 监听地址，默认 `127.0.0.1`
-- `WH_API_PORT`：FastAPI 监听端口，默认 8000
-- `WH_API_CORS_ORIGINS`：CORS 白名单，逗号分隔，默认 `http://localhost:5173`
+- `WH_API_PORT`：FastAPI 监听端口，STEP-08 起默认 7002
+- `WH_API_CORS_ORIGINS`：CORS 白名单，逗号分隔，STEP-08 起默认 `http://localhost:7001`
+- `WH_SERVE_STATIC`：生产模式是否由 FastAPI 同源服务 `dist/`，默认 `false`
 
 `.env` 已在 `.gitignore`；`.env.example` 列出全部变量（不含真值）。CI 使用 `WH_LLM_PROVIDER=mock`，不消耗 API key。
 
@@ -421,7 +430,7 @@ STEP-06 环境变量统一由 `src/wolven_hunt/config/settings.py` 的 `pydantic
 
 - 预言家查活人、死人、重复查验、死亡后停用、不能查自己。
 - 胜负三条规则和每个检查点。
-- 首夜死亡遗言、第二夜后夜死无遗言、守卫平安夜、PK、二次平票、骑士挑战。
+- 首夜狼刀/双奶死亡遗言、首夜毒药死亡无遗言、第二夜后夜死无遗言、守卫平安夜、女巫救人、女巫毒人、双奶死亡、同夜双死、PK、二次平票。
 - 死亡 Agent 停用但仍接收公开事件。
 - LLM 异常、重试、fallback。
 - 固定 seed 下 `replay_deterministic` 一致；`replay_resimulate` 使用 raw LLM response 校验事件序列等价。
@@ -440,6 +449,30 @@ STEP-07 新增 per-seat provider map 契约：`ProviderMap = dict[seat_number, P
 
 STEP-07 新增 `PacingController`，由运行时在事件发布后调用；`profile=off` 时为 no-op。现场观赛 audio/video 通过 `POST /games/{id}/ack` 解除等待；ack 不进入 EventLog、不影响 replay hash，超时只解除等待。
 
+## 17.1.1 Spectator-only Effects
+
+STEP-07 新增观赛特效投影 `SpectatorEffect`，它从完整 EventLog 派生，不是 EventLog 事件类型，不进入 PlayerView、prompt、narrative 或 replay hash。schema 固定为 `{seq, day, phase, kind, actor, source_seat, target_seat, asset_key, duration_ms, meta}`，`kind` 固定为 `guard_shield | wolf_attack | seer_vision | witch_potion | death_reveal`。
+
+- `guard_protect` 派生 `guard_shield`，只给 spectator effects 展示目标护盾。
+- `wolf_kill_decided` 派生 `wolf_attack`；如果同夜守卫目标等于狼刀目标，`meta.blocked_by_guard=true`，前端在 3 秒内淡出。
+- `seer_check` 派生 `seer_vision`，只展示查验目标，不展示 `seer_check_result` 的阵营结果。
+- `witch_action(save|poison)` 派生 `witch_potion`，从女巫座位飞向目标座位；`skip` 不派生特效。
+- `day_announce` 中的死亡列表派生 `death_reveal`，前端在白天公布后再灰化头像。
+
+`GET /games/{id}/effects?after=<seq>` 返回 spectator-only effects。SSE 使用 `event: spectator_effect` 推送同一投影；这不允许前端绕过 Referee 获取可用于玩家决策的私有事件原文。
+
+## 17.2 STEP-08 Playable Distribution
+
+STEP-08 目标是 10 个 AI 自动对局从前端开局后可无卡点观赛到终局，不实现真人入座或多人房间。
+
+- 部署拓扑：dev 使用 Vite `7001` + proxy，prod 使用 FastAPI `7002` 挂载 `dist/` 静态文件；前端 API base 默认空字符串，即同源相对路径。
+- 历史复盘：`GET /games` 从 `runs/` 读取 manifest 汇总；`GET /games/{id}/events` 在线返回 session spectator events，离线从 `events.jsonl` 读取并按 spectator 过滤。不得读取或暴露 `raw_responses.jsonl`，但可保留身份表和狼人夜聊供观众复盘。
+- replay 恢复：STEP-08 起 manifest 必须写入 `config_path`；`replay_resimulate` 在未显式传入 config 时从同目录 manifest 恢复配置，兼容旧 run 回退 classic_8；新 run 默认使用 classic_10。
+- 前端健壮性：SSE 客户端必须使用 `Last-Event-ID` 断点续传，最多 5 次带 jitter 重连；失败后显示错误状态。倒计时归零后显示等待状态，避免误判为卡死。
+- 模型测试：前端只调用后端 `POST /models/test`；测试失败不能永久阻止开始游戏，用户可继续开局，运行期由 LLM 重试和 fallback 保证收敛。
+- 模型联网：正式对局 LLM 调用、`POST /models/test` 与真实 LLM smoke test 均强制直连，忽略系统代理环境变量。
+- 文档与 CI：默认 CI 使用 mock provider；真实 LLM smoke 必须通过环境变量显式开启。默认前端模型 key 保留为作者轮换 key 策略，用户 localStorage 覆盖优先。
+
 ## 18. Web Shell Boundary
 
 本节是 `plan.md` §14「前端入口骨架（Web Lobby Shell）」的契约落地。前端壳与 Python 引擎在同一仓库共存，但权限边界、数据流与命名空间必须严格切开。
@@ -448,7 +481,7 @@ STEP-07 新增 `PacingController`，由运行时在事件发布后调用；`prof
 
 - 前端入口壳的源码位于仓库根目录：`package.json`、`package-lock.json`、`index.html`、`vite.config.ts`、`tsconfig.json`、`tsconfig.node.json`、`src/components/`、`src/hooks/`、`src/main.tsx`、`src/App.tsx`、`src/styles.css`、`public/`。
 - 与 `src/wolven_hunt/*` 双向不导入：前端不得引用 `src/wolven_hunt/*` 或 `configs/*`；Python 引擎不得依赖前端代码。
-- 前端只消费 spectator 脱敏视角。任何玩家视角、行动校验、私有信息均通过 §15 FastAPI 边界（P2 实现）；前端**不得绕过 Referee**。
+- 前端只消费 Referee 过滤后的 spectator 视角。STEP-07 观众页可展示全部身份与狼人夜聊；任何玩家视角、行动校验、raw response、provider 配置、守卫/预言家私有事件和狼刀细节均通过 §15 FastAPI 边界控制；前端**不得绕过 Referee**。
 - 第一阶段大厅页**没有任何后端调用**：纯静态资源 + UI 状态，不发起 HTTP / WebSocket / SSE 请求。
 
 ### 18.2 前端栈
@@ -511,9 +544,9 @@ STEP-07 新增 `PacingController`，由运行时在事件发布后调用；`prof
 
 ### 18.10 模型配置存储（Model Configs）
 
-- 系统设置弹窗内含 8 个模型 slot。每个 slot 由两部分组成：
+- 系统设置弹窗内含 10 个模型 slot。每个 slot 由两部分组成：
   - **静态部分**（不进 `localStorage`）：`slot` 索引、中文 `nickname`、ASCII `iconPath`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_SLOTS` 常量数组。
-  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置；8 个默认 slot 的 `thinkingEnabled` 固定为 `true`。
+  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置；10 个默认 slot 的 `thinkingEnabled` 固定为 `true`。
   - **用户覆盖部分**：用户在 UI 中修改的 `baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`。
 - 用户覆盖输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName, thinkingEnabled}`；不存在 key 时使用仓库默认配置显示。
 - 读取旧版 `{baseUrl, apiKey, modelName}` 缓存时必须兼容：`thinkingEnabled` 缺失或不是 boolean 时回退对应 slot 的默认值。
@@ -532,16 +565,16 @@ STEP-07 新增 `PacingController`，由运行时在事件发布后调用；`prof
 - `App.tsx` 顶层维护 `page: 'lobby' | 'game'` 与 `phase: 'idle' | 'fade-out' | 'fade-in'` 两个 state；不引入路由库，避免增加依赖（与 §18.1 极小依赖原则一致）。
 - 进入游戏过渡时序：`fade-out` 600ms ease-in（overlay 0→1，画面渐黑）→ `setPage('game')` 切换组件树 → 下一帧（`requestAnimationFrame`）切到 `fade-in` 800ms ease-out（overlay 1→0，白天背景渐亮）→ `idle`。
 - 过渡 overlay 是固定挂在 `App.tsx` 的 `<div className="page-transition-overlay">`，z-index 9999，`pointer-events` 在 `fade-out` 阶段为 `all`（防止过渡中重复点击触发），其他阶段为 `none`。
-- 进入游戏触发时同步调用 `useLobbyAudio.toggleMute()` 静音 BGM（仅当未 muted）；audio store 是模块级单例，lobby 卸载后 mute 状态保留。不新增 fadeOut ramp API；如需平滑淡出留给后续步骤。
-- 游戏准备页 `<GamePage />`：白天背景图（`/assets/game/day_bg.png`）`object-fit: cover` 全屏；席位区分左右两列，每列 4 个席位垂直 flex 居中分布。
+- 进入游戏触发时同步调用 `useLobbyAudio.pauseForGame()` 暂停 BGM，但不写入 `wolven_hunt.lobby.muted`；audio store 是模块级单例，lobby 卸载后播放状态保留。不新增 fadeOut ramp API；如需平滑淡出留给后续步骤。游戏页阶段语音由独立 `gameAudio` 控制，使用右上角游戏语音开关与 `wolven_hunt.game.*` 本地状态。
+- 游戏准备页 `<GamePage />`：白天背景图（`/assets/game/day_bg.png`）`object-fit: cover` 全屏；席位区分左右两列，左列 1–5、右列 6–10 垂直 flex 居中分布。
 - 席位组件 `<GameSeat />` 两态：
   - 空态：圆形虚线边框 + lucide `Plus` 图标；点击触发 `ModelPicker` 弹窗。
   - 已分配态：圆形模型头像 + 外侧加粗昵称文字；点击头像同样触发 picker，可重新选择。昵称需带增强文字阴影，避免白天背景下可读性不足。
-- 席位编号是 `<GameSeat />` 的纯 UI 徽标：基于 `seatIndex + 1` 显示 1–8，左列编号位于圆圈左下角，右列编号位于圆圈右下角；编号不写入 `assignments`，也不进入 Referee / FSM / RuleEngine 边界。
-- 模型选择 `<ModelPicker />`：使用游戏页自有弹窗外壳（不复用大厅 `LobbyModal` 或 `settings_panel_bg.png`），渲染 `MODEL_SLOTS` 8 张卡片网格；已被其他席位占用的卡片主体 `disabled` + 灰度滤镜，但卡片右下角保留图标型「交换」按钮，用于把当前席位模型与该模型所在席位互换。当前席位已选卡片黄色边框高亮。
-- 分配状态 `assignments: (number | null)[]`（长度 8）保存在 `<GamePage />` 内部 state；不写 `localStorage`，刷新页面恢复初态。每个 model slot 在 8 席位中至多出现一次。
+- 席位编号是 `<GameSeat />` 的纯 UI 徽标：基于 `seatIndex + 1` 显示 1–10，左列编号位于圆圈左下角，右列编号位于圆圈右下角；编号不写入 `assignments`，也不进入 Referee / FSM / RuleEngine 边界。
+- 模型选择 `<ModelPicker />`：使用游戏页自有弹窗外壳（不复用大厅 `LobbyModal` 或 `settings_panel_bg.png`），渲染 `MODEL_SLOTS` 10 张卡片网格；已被其他席位占用的卡片主体 `disabled` + 灰度滤镜，但卡片右下角保留图标型「交换」按钮，用于把当前席位模型与该模型所在席位互换。当前席位已选卡片黄色边框高亮。
+- 分配状态 `assignments: (number | null)[]`（长度 10）保存在 `<GamePage />` 内部 state；不写 `localStorage`，刷新页面恢复初态。每个 model slot 在 10 席位中至多出现一次。
 - 模型交换只调换 `assignments` 中两个 seat index 的 slot 值，不写 `localStorage` / 事件日志 / replay，不触发 Referee / FSM / RuleEngine，也不清空按 model slot 记录的 `testResults`；测试徽标随模型头像移动。
-- 「一键分配」是游戏准备页的纯 UI 快捷操作：入口位于左下角，由 `quick_assign_raccoon.png` 装饰图与按钮组成；点击后用 Fisher-Yates 洗牌 `MODEL_SLOTS` 的 0–7 索引并一次性写入 `assignments`。该随机不写事件日志、不参与 replay、不进入 Referee / FSM / RuleEngine；触发后必须清空旧 `testResults` 与测试提示，避免旧连通性标记误用于新席位。
+- 「一键分配」是游戏准备页的纯 UI 快捷操作：入口位于左下角，由 `quick_assign_raccoon.png` 装饰图与按钮组成；点击后用 Fisher-Yates 洗牌 `MODEL_SLOTS` 的 0–9 索引并一次性写入 `assignments`。该随机不写事件日志、不参与 replay、不进入 Referee / FSM / RuleEngine；触发后必须清空旧 `testResults` 与测试提示，避免旧连通性标记误用于新席位。
 - 席位身份占位 `.game-seat-role` 本步骤 `display: none`，作为 `身份分配 / 标识展示` 的扩展点，**不进入** Referee 边界；后续与游戏阶段同步显示分配结果时仍由 Referee 提供脱敏视角，不绕过 §18.1 单一权限边界。
 - 游戏准备页**不发起任何网络请求**、**不引入游戏逻辑**、**不读取 `wolven_hunt/*` 模块**，与 §18.1 / §18.7 / §18.9 同等边界一致。
 - 游戏准备页复用 `MODEL_SLOTS` 头像与昵称；模型 API 默认值只用于系统设置弹窗预填，不在本步骤用于席位分配或网络调用。
@@ -550,15 +583,14 @@ STEP-07 新增 `PacingController`，由运行时在事件发布后调用；`prof
 
 本节是 STEP-04 的架构契约，与 `plan.md` §14.14 一致。在 §18.12 基础上叠加：
 
-- **`App.tsx` 双向页面切换**：新增 `targetPageRef: useRef<Page | null>` 记录 fade-out 后的目标页；`handleEnterGame` 设 `targetPageRef.current = 'game'` + `phase = 'fade-out'`，`handleExitGame` 设 `targetPageRef.current = 'lobby'` + `phase = 'fade-out'`。`onTransitionEnd` 在 fade-out 结束时读 `targetPageRef.current` 切页面 + 下一帧切 fade-in。退出时不自动还原 BGM 静音。
+- **`App.tsx` 双向页面切换**：新增 `targetPageRef: useRef<Page | null>` 记录 fade-out 后的目标页；`handleEnterGame` 设 `targetPageRef.current = 'game'` + `phase = 'fade-out'`，`handleExitGame` 设 `targetPageRef.current = 'lobby'` + `phase = 'fade-out'`。`onTransitionEnd` 在 fade-out 结束时读 `targetPageRef.current` 切页面 + 下一帧切 fade-in。退出时不自动还原 BGM 播放状态。
 - **GamePage 内部 stage 状态机**：`stage: { dayNumber, phase }` 与 `bgPhase: 'idle' | 'fade-out' | 'fade-in'` 由 GamePage 持有；`pendingStageRef` 临时记录待切换的 stage。`<img class="game-bg" src={...}>` src 由 `stage.phase` 派生。`.game-stage-overlay` 的 z-index = 4，覆盖背景图但低于顶栏（z=5）和模态弹窗（createPortal 到 body）。**不复用** App 层 `.page-transition-overlay`，避免白天↔黑夜与 lobby↔game 切换互相耦合。
 - **阶段与布局修正**：`StageIndicator` 显示太阳/月亮 + `第{dayNumber}天`，图标与文案垂直居中。席位昵称显示在头像下方并限制宽度；聊天区位于两列席位之间（当前 `left/right: clamp(118px, 25vw, 220px)`），底部预留操作区空间（当前 `bottom: clamp(200px, 20vh, 260px)`），在约 500px 宽 in-app browser 下也不得与昵称或底部按钮重叠。
 - **GameTopBar / StageIndicator / GameChat / GameBottomActions / RulesModal / ExitConfirmModal** 全部位于 `src/components/Game/` 命名空间。`RulesModal` 使用游戏页自有弹窗外壳与滚动正文背景，不复用大厅 `settings_panel_bg.png`，并对 `rules.md` 做轻量 markdown 解析（标题 / 列表 / 加粗）后渲染为结构化正文；`ExitConfirmModal` 使用游戏页自有紧凑确认面板，不复用大厅竖版背景图；游戏页跨命名空间复用仅限通用 UI 外壳与 `MODEL_SLOTS` 静态配置。
-- **席位测试态边界**：`<GameSeat testStatus>` 仅是 UI hint，不进入 Referee / FSM / RuleEngine；testStatus 由 GamePage 派生自 `testResults[assignment]`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`，并兼容旧缓存的 `thinkingEnabled` 默认回退。`testResults` 与测试状态提示不写 `localStorage`，刷新或退出大厅再进入即重置。改 assignments 时清除被覆盖 slot 的 testResult。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要。
+- **席位测试态边界**：`<GameSeat testStatus>` 仅是 UI hint，不进入 Referee / FSM / RuleEngine；testStatus 由 GamePage 派生自 `testResults[assignment]`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`，并兼容旧缓存的 `thinkingEnabled` 默认回退。`testResults` 与测试状态提示不写 `localStorage`，刷新或退出大厅再进入即重置。改 assignments 时清除被覆盖 slot 的 testResult。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要；失败时展示模型昵称与后端返回的脱敏短错误。
 - **网络请求边界（§18.1 / §18.7 豁免登记）**：STEP-04 首次允许前端代码出现 `fetch()`，仅在以下两类受限场景：
   - **同源静态资源 fetch**（`/assets/game/rules.md`）：等价于 `<img>` / `<video>` 的资源加载，不构成跨域 / 后端 / LLM 调用，不破坏单一权限边界。
-  - **用户主动触发的 LLM 配置自检 fetch**（`testModelConnection`）：仅响应"测试模型连通性"按钮点击；OpenAI 兼容协议，基础 body 为 `{model, messages, max_tokens: 1}`。若该 slot `thinkingEnabled === true`，请求体按模型名追加思考模式字段：`qwen*` 用 `enable_thinking: true`；`kimi*` / `mimo*` / `deepseek*` / `glm*` / `doubao*` 用 `thinking: {type: "enabled"}`；`hy3*` 用 `chat_template_kwargs: {thinking: true, reasoning_effort: "medium"}`；`MiniMax*` 用 `reasoning_effort: "medium"`。若 `thinkingEnabled === false`，不发送任何 thinking / reasoning 附加字段。返回值仅用于 ✓/✗ 视觉反馈，**不构成 PlayerView**、**不进事件日志**、**不参与胜负判定**。属于工具型调用，与 §18.1 "Referee 唯一权限边界"不冲突——因为它不产生任何游戏状态。
+  - **用户主动触发的 LLM 配置自检 fetch**（`testModelConnection`）：仅响应"测试模型连通性"按钮点击；前端只向同源后端 `POST /models/test` 发送 `{provider, model, base_url, api_key, timeout_seconds, thinking_enabled}`，后端临时发起 OpenAI 兼容调用。若该 slot `thinkingEnabled === true`，后端按模型名追加思考模式字段：`qwen*` 用 `enable_thinking: true`；`kimi*` / `mimo*` / `deepseek*` / `glm*` / `doubao*` 用 `thinking: {type: "enabled"}`；`hy3*` 用 `chat_template_kwargs: {thinking: true, reasoning_effort: "medium"}`；`MiniMax*` 用 `reasoning_effort: "medium"`。若 `thinkingEnabled === false`，不发送任何 thinking / reasoning 附加字段。返回值仅用于 ✓/✗ 视觉反馈与脱敏错误诊断，**不构成 PlayerView**、**不进事件日志**、**不参与胜负判定**。属于工具型调用，与 §18.1 "Referee 唯一权限边界"不冲突——因为它不产生任何游戏状态。
   - 这两类豁免**不允许**扩展到对局推进、聊天消息收发、玩家行动同步等任何 runtime 数据流；引擎数据流必须等 P2 接入 FastAPI 后由 Referee 控制。
-  - apiKey 在 fetch header 明文传输；文档明确要求仅在 HTTPS 或本地 dev 使用。CORS 失败由用户感知为 ✗，不静默吞错。
-  - **未来规划**：P2 接入 FastAPI 后，连通性测试改走后端 `POST /api/test-model`，前端只发同域请求；STEP-04 直连是过渡方案。届时 §18.13 本节豁免 B 收紧。
+  - apiKey 只在前端到本地同源后端的临时请求体中传输；后端不得记录或回显，失败响应必须脱敏。网络/API 失败由用户感知为 ✗ 与短错误，不静默吞错。
 - **DEV-only 调试入口**：`import.meta.env.DEV` 守卫的 [debug] 推进按钮仅供开发期预览白天/黑夜切换；生产 Vite 构建会 tree-shake；不进入交付路径。

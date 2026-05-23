@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      WH_LLM_PROVIDER: mock
+      WH_PACING_PROFILE: off
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install uv
+        run: pip install uv
+      - name: Install Python dependencies
+        run: uv sync --extra dev
+      - name: Python tests
+        run: uv run pytest -ra --strict-markers
+      - name: Python typecheck
+        run: uv run mypy src/wolven_hunt
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Frontend tests
+        run: npm run test:frontend
+      - name: Frontend build
+        run: npm run build
+
+  real-llm-smoke:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Install Python dependencies
+        run: uv sync --extra dev
+      - name: Real LLM smoke
+        run: uv run pytest -m llm tests/integration/test_real_llm_smoke.py
+        env:
+          WH_REAL_LLM_SMOKE: "1"
+          WH_LLM_PROVIDER: litellm
+          WH_LLM_API_KEY: ${{ secrets.WH_LLM_API_KEY }}
+          WH_LLM_BASE_URL: ${{ secrets.WH_LLM_BASE_URL }}
+          WH_LLM_MODEL: ${{ secrets.WH_LLM_MODEL }}

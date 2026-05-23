@@ -3,6 +3,7 @@ import {
   MODEL_CONFIG_DEFAULTS,
   type ModelConfigUserInput,
 } from './modelConfigs';
+import { testModelConnection as testModelConnectionViaApi } from './gameApi';
 
 export type ModelTestStatus = 'idle' | 'testing' | 'pass' | 'fail';
 
@@ -31,109 +32,61 @@ type ModelConfigRequestInput = Pick<
   'baseUrl' | 'apiKey' | 'modelName' | 'thinkingEnabled'
 >;
 
-type ChatCompletionRequestBody = {
-  model: string;
-  messages: { role: 'user'; content: string }[];
-  max_tokens: number;
-  enable_thinking?: true;
-  thinking?: { type: 'enabled' };
-  chat_template_kwargs?: {
-    thinking: true;
-    reasoning_effort: 'medium';
-  };
-  reasoning_effort?: 'medium';
-};
-
-export function buildThinkingPayload(
-  modelName: string,
-  enabled: boolean,
-): Partial<ChatCompletionRequestBody> {
-  if (!enabled) {
-    return {};
-  }
-
-  const normalizedModelName = modelName.trim().toLowerCase();
-
-  if (normalizedModelName.startsWith('qwen')) {
-    return { enable_thinking: true };
-  }
-
-  if (
-    normalizedModelName.startsWith('kimi') ||
-    normalizedModelName.startsWith('mimo') ||
-    normalizedModelName.startsWith('deepseek') ||
-    normalizedModelName.startsWith('glm') ||
-    normalizedModelName.startsWith('doubao')
-  ) {
-    return { thinking: { type: 'enabled' } };
-  }
-
-  if (normalizedModelName.startsWith('hy3')) {
-    return {
-      chat_template_kwargs: {
-        thinking: true,
-        reasoning_effort: 'medium',
-      },
-    };
-  }
-
-  if (normalizedModelName.startsWith('minimax')) {
-    return { reasoning_effort: 'medium' };
-  }
-
-  return {};
-}
-
-function buildChatCompletionRequestBody(
-  req: ModelTestRequest,
-): ChatCompletionRequestBody {
-  return {
-    model: req.modelName,
-    messages: [{ role: 'user', content: 'ping' }],
-    max_tokens: 1,
-    ...buildThinkingPayload(req.modelName, req.thinkingEnabled),
-  };
+export function missingModelConfigResult(): ModelTestResult {
+  return { status: 'fail', errorMessage: '配置缺失' };
 }
 
 export async function testModelConnection(
   req: ModelTestRequest,
   signal?: AbortSignal,
 ): Promise<ModelTestResult> {
-  const url = req.baseUrl.replace(/\/+$/, '') + '/chat/completions';
-  const controller = new AbortController();
-  const abortFromSignal = () => controller.abort();
-  const timeoutId = window.setTimeout(() => controller.abort(), 15000);
-
-  signal?.addEventListener('abort', abortFromSignal, { once: true });
-
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${req.apiKey}`,
-      },
-      body: JSON.stringify(buildChatCompletionRequestBody(req)),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      return { status: 'fail', errorMessage: `HTTP ${res.status}` };
+    if (signal?.aborted) {
+      return { status: 'fail', errorMessage: '已取消' };
     }
-
-    const data: unknown = await res.json();
-    if (typeof data !== 'object' || data === null) {
-      return { status: 'fail', errorMessage: '非 JSON 响应' };
+    const result = await testModelConnectionViaApi({
+      provider: 'litellm',
+      model: req.modelName,
+      base_url: req.baseUrl,
+      api_key: req.apiKey,
+      timeout_seconds: 15,
+      thinking_enabled: req.thinkingEnabled,
+    }, signal);
+    if (typeof result.ok !== 'boolean') {
+      return {
+        status: 'fail',
+        errorMessage: '后端连通性测试接口不可用',
+      };
     }
-
-    return { status: 'pass' };
+    return result.ok
+      ? { status: 'pass' }
+      : {
+          status: 'fail',
+          errorMessage: formatModelTestError(result.message ?? '模型测试失败'),
+        };
   } catch (error) {
     const message = error instanceof Error ? error.message : '未知错误';
-    return { status: 'fail', errorMessage: message.slice(0, 80) };
-  } finally {
-    window.clearTimeout(timeoutId);
-    signal?.removeEventListener('abort', abortFromSignal);
+    return {
+      status: 'fail',
+      errorMessage: isModelTestInterfaceError(message)
+        ? '后端连通性测试接口不可用'
+        : formatModelTestError(message),
+    };
   }
+}
+
+function isModelTestInterfaceError(message: string) {
+  return (
+    /^HTTP \d+/.test(message) ||
+    message.toLowerCase().includes('failed to fetch') ||
+    message.toLowerCase().includes('fetch failed') ||
+    message.toLowerCase().includes('networkerror')
+  );
+}
+
+function formatModelTestError(message: string) {
+  const normalized = message.trim() || '模型测试失败';
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
 }
 
 export function readModelConfig(slot: number): ModelTestRequest | null {

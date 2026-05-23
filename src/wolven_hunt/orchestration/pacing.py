@@ -63,8 +63,6 @@ class PacingController:
         }:
             self._sleep(self.profile.speech_ms)
             return
-        if event.type is EventType.KNIGHT_RESULT:
-            self._wait_for_ack("DAY_KNIGHT_INTERRUPT", "knight_duel_done")
 
     def _sleep(self, ms: int) -> None:
         if ms <= 0:
@@ -119,6 +117,7 @@ def _ack_event_for_phase(phase: str) -> str | None:
     return {
         "NIGHT_START": "night_intro_done",
         "NIGHT_WOLF_CHAT": "night_wolves_done",
+        "NIGHT_WITCH": "night_witch_done",
         "NIGHT_SEER": "night_seer_done",
         "DAY_ANNOUNCE": "day_intro_done",
     }.get(phase)

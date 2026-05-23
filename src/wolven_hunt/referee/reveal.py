@@ -64,9 +64,9 @@ def _summary_for_event(event: Event) -> str | None:
         return "首夜是平安夜"
     if event.type is EventType.SEER_CHECK_RESULT:
         return f"预言家首次查验 {payload.get('target')} 号为{_camp_label(payload.get('camp'))}"
-    if event.type is EventType.KNIGHT_RESULT:
-        result = "命中狼人" if payload.get("result") == "hit_wolf" else "挑战失败"
-        return f"骑士决斗{result}，{payload.get('killed')} 号死亡"
+    if event.type is EventType.WITCH_ACTION and payload.get("action") != "skip":
+        action = "解药" if payload.get("action") == "save" else "毒药"
+        return f"女巫使用{action}，目标是 {payload.get('target')} 号"
     if event.type is EventType.EXILE:
         return f"白天放逐 {payload.get('seat')} 号玩家"
     return None

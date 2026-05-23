@@ -11,7 +11,7 @@ DEFAULT_FORCE_KEEP_TYPES = frozenset(
         "game_start",
         "death_at_night",
         "exile",
-        "knight_result",
+        "witch_action",
         "seer_check_result",
     }
 )
@@ -74,6 +74,41 @@ def build_prompt_visible_events(
     return tuple(rows)
 
 
+def build_speech_context(
+    events: tuple[Event, ...],
+    *,
+    current_seat: int | None,
+    current_day: int | None,
+    max_speeches: int = 20,
+) -> dict[str, Any]:
+    if max_speeches <= 0:
+        raise ValueError("max_speeches must be positive")
+
+    speech_events = tuple(event for event in events if _is_public_speech(event))
+    already_spoken_seats: list[int] = []
+    seen_seats: set[int] = set()
+    for event in speech_events:
+        if event.day != current_day or event.phase != "DAY_SPEECH" or event.actor is None:
+            continue
+        if event.actor in seen_seats:
+            continue
+        already_spoken_seats.append(event.actor)
+        seen_seats.add(event.actor)
+
+    own_public_speeches = tuple(
+        _speech_row(event) for event in speech_events if event.actor == current_seat
+    )
+    prior_public_speeches = tuple(
+        _speech_row(event) for event in speech_events if event.actor != current_seat
+    )
+    return {
+        "current_seat": current_seat,
+        "already_spoken_seats": already_spoken_seats,
+        "own_public_speeches": own_public_speeches[-max_speeches:],
+        "prior_public_speeches": prior_public_speeches[-max_speeches:],
+    }
+
+
 def summarize_events_for_prompt(events: Iterable[Event]) -> dict[str, Any]:
     event_tuple = tuple(events)
     if not event_tuple:
@@ -133,6 +168,18 @@ def _event_to_prompt_dict(event: Event) -> dict[str, Any]:
         payload.pop(internal_key, None)
     row["payload"] = payload
     return row
+
+
+def _speech_row(event: Event) -> dict[str, Any]:
+    return {
+        "seq": event.seq,
+        "actor": event.actor,
+        "text": str(event.payload.get("text", "")),
+    }
+
+
+def _is_public_speech(event: Event) -> bool:
+    return _event_type(event) == "speech" and event.visibility.public and event.actor is not None
 
 
 def _one_line_event_summary(event: Event) -> str:

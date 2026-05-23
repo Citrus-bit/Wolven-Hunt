@@ -157,7 +157,7 @@ src/wolven_hunt/
 │   ├── seat.py                  # Seat (1-based int 包装) + Camp / Role 枚举
 │   ├── events.py                # Event 模型 + EventType 枚举（v1.0）
 │   ├── state.py                 # GameState（不可变，dataclasses(frozen=True)）
-│   ├── actions.py               # Action 类层级（GuardProtect / WolfVote / SeerCheck / Speech / Vote / KnightChallenge / LastWords ...）
+│   ├── actions.py               # Action 类层级（GuardProtect / WolfVote / SeerCheck / Speech / Vote / WitchAction / LastWords ...）
 │   ├── rng.py                   # DeterministicRNG（基于 random_seed + rng_stream 派生）
 │   ├── win.py                   # WinCondition 纯函数（读 GameState → 'wolf' | 'good' | None）
 │   └── rule_engine.py           # apply(state, action) -> (new_state, [Event]); 纯函数
@@ -201,7 +201,7 @@ tests/
 │   ├── test_rule_engine_seer.py
 │   ├── test_rule_engine_guard.py
 │   ├── test_rule_engine_wolf.py
-│   ├── test_rule_engine_knight.py
+│   ├── test_rule_engine_witch.py
 │   ├── test_rule_engine_vote.py
 │   ├── test_rule_engine_pk.py
 │   ├── test_rule_engine_last_words.py
@@ -264,14 +264,14 @@ class Role(StrEnum):
     WOLF = "wolf"
     VILLAGER = "villager"
     SEER = "seer"
-    KNIGHT = "knight"
+    WITCH = "witch"
     GUARD = "guard"
 
 ROLE_TO_CAMP: dict[Role, Camp] = {
     Role.WOLF: Camp.WOLF,
     Role.VILLAGER: Camp.GOOD,
     Role.SEER: Camp.GOOD,
-    Role.KNIGHT: Camp.GOOD,
+    Role.WITCH: Camp.GOOD,
     Role.GUARD: Camp.GOOD,
 }
 
@@ -310,8 +310,7 @@ class EventType(StrEnum):
     DAY_ANNOUNCE = "day_announce"
     LAST_WORDS = "last_words"
     SPEECH = "speech"
-    KNIGHT_CHALLENGE = "knight_challenge"
-    KNIGHT_RESULT = "knight_result"
+    WITCH_ACTION = "witch_action"
     VOTE_CAST = "vote_cast"
     VOTE_RESULT = "vote_result"
     VOTE_PK_ENTER = "vote_pk_enter"
@@ -397,7 +396,8 @@ class GameState:
     day: int                           # 1-based
     phase: str                         # 当前 FSM 子状态
     last_guard_target: Seat | None     # 守卫连守约束
-    knight_used: bool
+    witch_antidote_used: bool
+    witch_poison_used: bool
     pk_seats: tuple[Seat, ...]         # 当前在 PK 台上的 seats
     pk_round: int                      # 0=未进 PK；1=首轮；2=二次平票
     winner: Camp | None
@@ -407,7 +407,7 @@ class GameState:
 
 ### 4.6 `core/actions.py`
 
-每种 Agent 动作一个 dataclass：`GuardProtect(target: Seat)`、`WolfChatMessage(text: str)`、`WolfKillVote(target: Seat)`、`SeerCheck(target: Seat)`、`Speech(text: str)`、`KnightChallenge(target: Seat | None)`（None 表示不发动）、`Vote(target: Seat)`、`PkVote(target: Seat)`、`LastWords(text: str)`。`Speech` / `LastWords` / `WolfChatMessage` 强制 `len(text) <= rule_set.speech.max_chars`，超长由 Referee 截断 + 记 `agent_invalid_action`（再触发 fallback）。
+每种 Agent 动作一个 dataclass：`GuardProtect(actor: Seat, target: Seat)`、`WolfChatMessage(actor: Seat, text: str)`、`WolfKillVote(actor: Seat, target: Seat)`、`SeerCheck(actor: Seat, target: Seat)`、`Speech(actor: Seat, text: str)`、`WitchAction(actor: Seat, action: Literal["save", "poison", "skip"], target: Seat | None)`、`Vote(actor: Seat, target: Seat)`、`PkVote(actor: Seat, target: Seat)`、`LastWords(actor: Seat, text: str)`。`Speech` / `LastWords` / `WolfChatMessage` 强制 `len(text) <= rule_set.speech.max_chars`，超长由 Referee 截断 + 记 `agent_invalid_action`（再触发 fallback）。
 
 ---
 
@@ -419,12 +419,12 @@ class GameState:
 
 ```
 GAME_START
-NIGHT_START NIGHT_GUARD NIGHT_WOLF_CHAT NIGHT_WOLF_VOTE NIGHT_SEER NIGHT_RESOLVE CHECK_WIN_NIGHT
+NIGHT_START NIGHT_GUARD NIGHT_WOLF_CHAT NIGHT_WOLF_VOTE NIGHT_WITCH NIGHT_SEER NIGHT_RESOLVE CHECK_WIN_NIGHT
 DAY_ANNOUNCE DAY_LAST_WORDS DAY_SPEECH DAY_VOTE DAY_VOTE_PK DAY_EXILE CHECK_WIN_DAY
 GAME_END
 ```
 
-`DAY_KNIGHT_INTERRUPT` 不是固定子状态：而是 FSM 在 `DAY_ANNOUNCE` 完成后到 `DAY_VOTE` 进入前每次轮到下一个发言者前都会先调用 Knight Agent 的 `decide_knight_challenge`；返回非 `None` 时插入 knight_challenge 处理流程，处理完跳过当日剩余 DAY_SPEECH/DAY_VOTE。
+`NIGHT_WITCH` 是固定夜晚子状态，位于 `NIGHT_WOLF_VOTE` 之后、`NIGHT_SEER` 之前；仅女巫存活且至少有一瓶药可用时进入，否则由 FSM 跳过。
 
 ### 5.2 调用链
 
@@ -447,11 +447,14 @@ FSM.next_phase
 
 按 `architecture.md` §8 顺序硬编码（不允许走第二种顺序）：
 
-1. 取本晚 `guard_protect` 目标 G、`wolf_kill_decided` 目标 K。
-2. `G == K` → emit `no_death_tonight`（公开，不暴露原因）。
-3. `G != K` → K 死亡，emit `death_at_night`（公开，不暴露死因）。
-4. **不在结算阶段做 seer_check**：`seer_check_result` 已在 `NIGHT_SEER` 结束时由 RuleEngine emit 私有事件。
-5. 立即调 `WinCondition.check`，emit `win_check`。
+1. 取本晚 `guard_protect` 目标 G、`wolf_kill_decided` 目标 K、`witch_action` 动作 W。
+2. 若 W 为 `save` 且解药目标为 K：当 `G == K` 时判定双奶死亡，K 死亡；否则 K 被救下。
+3. 若 W 不是有效 `save`：`G == K` 时 K 被守护；`G != K` 时 K 死亡。
+4. 若 W 为 `poison`：毒药目标死亡；守卫不挡毒。若毒药目标同时也是 K，只产生一个死亡事件，并按毒药参与死亡处理。
+5. 逐个 emit `death_at_night`（公开，不暴露死因）；若无人死亡则 emit `no_death_tonight`。
+6. 首夜狼刀死亡与首夜双奶死亡进入 `first_night_deaths`，后续触发遗言；毒药参与死亡永远不进入遗言队列。
+7. **不在结算阶段做 seer_check**：`seer_check_result` 已在 `NIGHT_SEER` 结束时由 RuleEngine emit 私有事件。
+8. 立即调 `WinCondition.check`，emit `win_check`。
 
 ### 5.4 平票 / PK / 平安日
 
@@ -459,15 +462,15 @@ FSM.next_phase
 - `DAY_VOTE_PK` 中：PK 台上玩家**不参与重投**；台下玩家只能投 `pk_seats` 内的目标；台下玩家若全部死亡或 fallback 命中 `random_pk_alive_player_by_non_pk_voter_or_peaceful_day` 时无台下玩家可投，则直接 `peaceful_day`。
 - 二次平票 → emit `peaceful_day`，**不进入 `DAY_EXILE`**，直接进入 `NIGHT_START`。
 
-### 5.5 骑士中断
+### 5.5 女巫夜晚行动
 
-骑士 Agent 在 `DAY_ANNOUNCE` 结束后、每次 DAY_SPEECH 进入前、DAY_VOTE 进入前**都**会被 FSM 询问一次。发动后：
+女巫 Agent 只在 `NIGHT_WITCH` 被 FSM 询问一次。女巫视角由 Referee 暴露当晚狼刀目标、解药剩余状态、毒药剩余状态；其他玩家和 spectator 不可见。
 
-1. emit `knight_challenge`（公开，含目标 seat）。
-2. 立即结算：目标是狼 → 目标死亡 + emit `knight_result(killed=target)` + `death`（无遗言事件）；目标是好人 → 骑士死亡 + emit `knight_result(killed=knight)` + `death` + 触发骑士 `last_words`（架构契约 §5）。
-3. emit `win_check`。
-4. 若未结束：跳过当日剩余流程，直接进入 `NIGHT_START`。
-5. `state.knight_used = True`，本局再不会被询问。
+1. 输出 `WitchAction(action="save" | "poison" | "skip", target=...)`。
+2. Referee 校验：`save` 必须解药未用且目标等于狼刀目标；`poison` 必须毒药未用且目标为存活非自己玩家；`skip` 必须 `target=None`。
+3. emit 私有 `witch_action`（仅女巫本人可见），记录动作和目标。
+4. `save` 消耗解药，`poison` 消耗毒药，`skip` 不消耗药品。
+5. 死亡统一在 `NIGHT_RESOLVE` 按 §5.3 结算。
 
 ### 5.6 Fallback
 
@@ -500,10 +503,12 @@ class PlayerView:
 | 事件 | 公开？ | 谁看得到 |
 |---|---|---|
 | `game_start`（脱敏 payload） | ✓ | 全员 + spectator（按本人/狼队/spectator 三套脱敏） |
-| `phase_enter`/`phase_exit`/`day_announce`/`speech`/`vote_cast`/`vote_result`/`vote_pk_enter`/`peaceful_day`/`exile`/`death_at_night`/`no_death_tonight`/`knight_challenge`/`knight_result`/`last_words`/`win_check`/`game_end` | ✓ | 全员 + spectator |
-| `wolf_chat_message`/`wolf_kill_vote`/`wolf_kill_decided`/`wolf_tie_random` | ✗ | 仅 `visibility.seats`（狼队 seats） |
+| `phase_enter`/`phase_exit`/`day_announce`/`speech`/`vote_cast`/`vote_result`/`vote_pk_enter`/`peaceful_day`/`exile`/`death_at_night`/`no_death_tonight`/`last_words`/`win_check`/`game_end` | ✓ | 全员 + spectator |
+| `wolf_chat_message` | ✗ | 狼队 seats + STEP-07 spectator 上帝视角 |
+| `wolf_kill_vote`/`wolf_kill_decided`/`wolf_tie_random` | ✗ | 仅 `visibility.seats`（狼队 seats） |
 | `guard_protect` | ✗ | 仅守卫本人 |
 | `seer_check`/`seer_check_result` | ✗ | 仅预言家本人 |
+| `witch_action` | ✗ | 仅女巫本人 |
 | `agent_*`/`llm_call` | ✗ | 永不进 PlayerView，仅存储层 |
 
 `game_start.payload.role_assignment` 是私有 metadata：spectator 视角下完全不出现在 PlayerView；玩家视角下 Referee 重写为「本人角色 + （仅狼人）狼队同伴」。
@@ -517,7 +522,7 @@ class PlayerView:
 - `NIGHT_SEER`：不能查自己（`can_check_self=False`）；可以查死人（`can_check_dead=True`）。
 - `DAY_VOTE`：目标必须是存活玩家；允许投自己（`can_vote_self=True`）；不允许投死人。
 - `DAY_VOTE_PK`：投票者本人必须**不在** `state.pk_seats`；目标必须**在** `state.pk_seats` 且仍存活。
-- `DAY_KNIGHT_INTERRUPT`：`state.knight_used == False`；调用者活着且角色是 Knight；目标存活、不是自己。
+- `NIGHT_WITCH`：调用者活着且角色是 Witch；`save` 必须解药未用且目标等于当晚狼刀目标；`poison` 必须毒药未用且目标存活、不是自己；`skip` 必须 `target=None`。
 
 `Reject` 不抛异常；FSM 用返回值决定走重试还是 fallback。
 
@@ -534,7 +539,7 @@ class PlayerInterface(Protocol):
     def decide_wolf_vote(self, view: PlayerView) -> WolfKillVote: ...
     def decide_seer(self, view: PlayerView) -> SeerCheck: ...
     def decide_speech(self, view: PlayerView) -> Speech: ...
-    def decide_knight_challenge(self, view: PlayerView) -> KnightChallenge: ...
+    def decide_witch(self, view: PlayerView) -> WitchAction: ...
     def decide_vote(self, view: PlayerView) -> Vote: ...
     def decide_pk_vote(self, view: PlayerView) -> PkVote: ...
     def decide_last_words(self, view: PlayerView) -> LastWords: ...
@@ -550,7 +555,7 @@ class PlayerInterface(Protocol):
 - 狼人投刀：每个狼独立投「按 seat 升序的第一个存活非狼」——这样会确定性多数决，不会产生 `wolf_tie_random`。
 - 预言家：按 seat 升序查第一个未被自己查过（含死人）且不是自己的目标。
 - 发言：固定模板「我是 N 号好人」（N=自己 seat）。
-- 骑士挑战：每天询问时**默认不发动**（返回 `KnightChallenge(target=None)`）；测试夹具可以在特定 seed 下让 mock 主动发动一次（用于 golden）。
+- 女巫用药：进入 `NIGHT_WITCH` 时默认 `skip`；测试夹具可以在特定 seed 下让 mock 主动 `save` 或 `poison`（用于 golden）。
 - 投票：按 seat 升序投存活第一个非自己玩家；自己若是最后一个存活则投自己（满足「允许投自己」+「不能弃票」）。
 - PK 投票：按 seat 升序投 PK 台上第一个存活玩家。
 - 遗言：固定模板「我没有遗言」。
@@ -641,10 +646,10 @@ JSONL，每行一个事件 `model_dump_json()`。 进程退出码 0 表示正常
 | `rule_engine_seer` | 查活人 / 查死人 / 重复查同一人 / 不能查自己 / 死亡后再调直接 reject |
 | `rule_engine_guard` | 自守 / 第一晚可守 / 连守同一目标被 reject / 守目标==狼刀目标 → no_death_tonight |
 | `rule_engine_wolf` | 多数决 / 平票走 wolf_tie_random（候选集 + selected 写入 payload）/ 自刀被 reject / 刀狼队友被 reject / 空刀被 reject |
-| `rule_engine_knight` | 挑中狼立死无遗言 / 挑中好人骑士死有遗言 / 投票阶段后挑战被 reject / 第二次挑战被 reject |
+| `rule_engine_witch` | 解药救狼刀目标 / 毒药击杀且守卫不挡 / 同夜狼刀+毒药双死 / 双奶死亡 / 同目标狼刀+毒药无遗言 / 第二次用同类药被 reject |
 | `rule_engine_vote` | 投自己合法 / 投死人 reject / 平票进 PK / 单人最高票直接 exile |
 | `rule_engine_pk` | PK 台上玩家不可投 / 台下玩家只能投 PK seats / 二次平票 → peaceful_day |
-| `rule_engine_last_words` | 首夜被刀者有遗言 / 第二夜后夜死无遗言 / 骑士错挑致死有遗言 / 被骑士挑死的狼无遗言 |
+| `rule_engine_last_words` | 首夜被刀者有遗言 / 首夜双奶死亡有遗言 / 第二夜后夜死无遗言 / 毒药参与死亡无遗言 |
 | `referee_validate` | 每个 phase 至少一组 Reject 用例，rule_id 字符串可读 |
 | `referee_view` | spectator 视角不含私有事件；狼人视角含狼队事件；预言家视角含 seer_check_result |
 
@@ -665,7 +670,8 @@ JSONL，每行一个事件 `model_dump_json()`。 进程退出码 0 表示正常
 
 - 对每局事件流，取 8 个玩家视角 + 1 个 spectator 视角；对每个视角断言：
   - 不在 visibility 白名单内的事件 type **不可**出现。
-  - `wolf_chat_message` / `wolf_kill_vote` / `wolf_kill_decided` 仅出现在狼队视角。
+  - `wolf_chat_message` 仅出现在狼队视角和 STEP-07 spectator 上帝视角。
+  - `wolf_kill_vote` / `wolf_kill_decided` / `wolf_tie_random` 仅出现在狼队视角。
   - `seer_check_result` / `seer_check` 仅出现在预言家视角。
   - `guard_protect` 仅出现在守卫视角。
   - 任何视角中 `game_start.payload` 不含完整 `role_assignment`（spectator 完全没有；玩家视角只看到自己 + 狼队同伴）。
@@ -689,11 +695,11 @@ JSONL，每行一个事件 `model_dump_json()`。 进程退出码 0 表示正常
 1. `seq` 在事件日志中严格递增。
 2. `alive_wolves + alive_good == alive_total` 在每个 phase_exit 后恒成立。
 3. `len(state.players) == 8` 永远不变。
-4. `state.knight_used` 一旦为 True 就不会被重置为 False。
+4. `state.witch_antidote_used` 和 `state.witch_poison_used` 一旦为 True 就不会被重置为 False。
 5. `state.last_guard_target` 在第二晚开始时不允许等于第一晚的 target。
 6. PlayerView.visible_events 是 EventLog 的子序列（保 seq 单调）。
 7. 不存在两个 `game_end`。
-8. spectator PlayerView 中所有事件 `visibility.public == True`。
+8. spectator PlayerView 中所有事件必须是公开事件，或属于明确白名单（当前仅 `wolf_chat_message`）。
 
 策略：用 `hypothesis.strategies.text(...)` 生成 seed，调 `simulate(seed) -> events`，再断言上述不变量。`max_examples=50`、`deadline=1500ms`。
 
@@ -748,7 +754,7 @@ JSONL，每行一个事件 `model_dump_json()`。 进程退出码 0 表示正常
 2. **数据模型**：`core/ids.py` → `core/seat.py` → `core/events.py` → `core/rng.py` → `core/state.py` → `core/actions.py`。每写完一个 module 配对 unit 测试当场跑通再继续。
 3. **配置加载**：`config/schema.py` + `config/loader.py`，把 fixture seed 下的 `classic_8.yaml` 加载并断言 `config_hash` 稳定。
 4. **WinCondition**：`core/win.py` + `tests/unit/test_win.py`。
-5. **RuleEngine**：按角色拆 13 个 unit 文件之顺序逐角色实现 `apply` 分支：guard → wolf → seer → night_resolve → day_speech → knight → vote → pk → last_words。每实现一个分支跑对应 unit。
+5. **RuleEngine**：按角色拆 13 个 unit 文件之顺序逐角色实现 `apply` 分支：guard → wolf → seer → night_resolve → day_speech → witch → vote → pk → last_words。每实现一个分支跑对应 unit。
 6. **Referee**：`visibility.py` → `view.py` → `validate.py` + 两个 unit。
 7. **FSM**：`orchestration/phases.py` + `orchestration/fsm.py`。先跑通一局 mock + spectator 输出。
 8. **Mock Agent**：`agents/deterministic_mock.py`。
@@ -804,7 +810,7 @@ JSONL，每行一个事件 `model_dump_json()`。 进程退出码 0 表示正常
 | D2 | 守目标 == 狼刀目标 → 当晚 `no_death_tonight`，无 `death_at_night` |
 | D3 | 狼刀平票 → emit `wolf_tie_random`，payload 含 `rng_stream`、`candidates`、`selected`、`reason` |
 | D4 | 预言家查死人成功，结果只含 `camp` 不含 `role` |
-| D5 | 骑士挑中狼 → 狼立死、`last_words` 不出现于该狼；挑中好人 → 骑士死且其 `last_words` 出现 |
+| D5 | 女巫解药救狼刀目标；女巫毒药击杀目标且不被守卫阻挡；守卫和解药同救狼刀目标时双奶死亡 |
 | D6 | 平票后 PK 仍平票 → `peaceful_day`，无 `exile` |
 | D7 | 投自己合法；投死人 reject |
 
@@ -812,9 +818,9 @@ JSONL，每行一个事件 `model_dump_json()`。 进程退出码 0 表示正常
 
 | ID | 检查项 |
 |---|---|
-| E1 | spectator 视角 PlayerView.visible_events 中 `wolf_chat_message`/`wolf_kill_vote`/`wolf_kill_decided`/`wolf_tie_random`/`seer_check`/`seer_check_result`/`guard_protect` 均不出现 |
+| E1 | spectator 视角 PlayerView.visible_events 可以包含 `wolf_chat_message`，但不得包含 `wolf_kill_vote`/`wolf_kill_decided`/`wolf_tie_random`/`seer_check`/`seer_check_result`/`guard_protect`/`witch_action` |
 | E2 | 玩家视角 PlayerView 中不出现 `agent_fallback_triggered`/`agent_invalid_action`/`agent_timeout`/`llm_call` |
-| E3 | 玩家视角 game_start payload 仅含本人 role + 狼队同伴（仅当本人是狼）；spectator game_start payload 不含 role_assignment |
+| E3 | 玩家视角 game_start payload 仅含本人 role + 狼队同伴（仅当本人是狼）；spectator 上帝视角 game_start payload 可含 role_assignment，但不得含 RNG candidates/selected |
 | E4 | `validate_action` 对未规则化的 phase 默认 reject 而非通过 |
 
 ### F. FSM 集成
@@ -881,7 +887,7 @@ JSONL，每行一个事件 `model_dump_json()`。 进程退出码 0 表示正常
 - 持久化：SQLite、磁盘 events.jsonl 落盘到默认路径（CLI 可显式 `--out` 写文件，但运行时不写）。
 - replay_resimulate（依赖 raw LLM response，留 STEP-06）。
 - 公平性回归 / token 预算测试（依赖真模型，留 P3）。
-- 前端 UI：倒计时、阶段音效、骑士对决视频、投票直方图、玩家高亮、死亡变灰——这些都属于 STEP-07+。
+- 前端 UI：倒计时、阶段音效、女巫夜晚行动状态、投票直方图、玩家高亮、死亡变灰——这些都属于 STEP-07+。
 - 动作字符截断的细化策略（本步骤简单粗暴：超长 → reject → fallback 到模板）。
 
 ---

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
 from wolven_hunt.core.seat import Seat
 
@@ -37,8 +37,9 @@ class Speech:
 
 
 @dataclass(frozen=True, slots=True)
-class KnightChallenge:
+class WitchAction:
     actor: Seat
+    action: Literal["save", "poison", "skip"]
     target: Seat | None
 
 
@@ -66,7 +67,7 @@ Action: TypeAlias = (
     | WolfKillVote
     | SeerCheck
     | Speech
-    | KnightChallenge
+    | WitchAction
     | Vote
     | PkVote
     | LastWords

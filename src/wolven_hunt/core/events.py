@@ -22,6 +22,7 @@ class EventType(StrEnum):
     WOLF_KILL_VOTE = "wolf_kill_vote"
     WOLF_KILL_DECIDED = "wolf_kill_decided"
     WOLF_TIE_RANDOM = "wolf_tie_random"
+    WITCH_ACTION = "witch_action"
     SEER_CHECK = "seer_check"
     SEER_CHECK_RESULT = "seer_check_result"
     NO_DEATH_TONIGHT = "no_death_tonight"
@@ -29,8 +30,6 @@ class EventType(StrEnum):
     DAY_ANNOUNCE = "day_announce"
     LAST_WORDS = "last_words"
     SPEECH = "speech"
-    KNIGHT_CHALLENGE = "knight_challenge"
-    KNIGHT_RESULT = "knight_result"
     VOTE_CAST = "vote_cast"
     VOTE_RESULT = "vote_result"
     VOTE_PK_ENTER = "vote_pk_enter"
@@ -55,8 +54,8 @@ class Visibility(BaseModel):
     @classmethod
     def _seats_in_range(cls, value: tuple[int, ...]) -> tuple[int, ...]:
         for seat in value:
-            if not 1 <= seat <= 8:
-                raise ValueError(f"seat out of range: {seat}")
+            if seat < 1:
+                raise ValueError(f"seat must be positive: {seat}")
         return tuple(sorted(set(value)))
 
 

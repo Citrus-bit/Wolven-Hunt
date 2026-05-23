@@ -2,18 +2,29 @@ import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 
 import { INITIAL_STAGE, type GameStage } from '../../lib/gameStage';
 import {
   createGame,
+  getEffects,
+  getEvents,
   getGame,
   getNarrative,
   sendAck,
   subscribeGameEvents,
-  type AgentSpec,
   type GameEvent,
   type GameTimings,
   type NarrativeRow,
+  type SpectatorEffect,
 } from '../../lib/gameApi';
-import { gameAudio } from '../../lib/gameAudio';
+import { buildAgentSpecs } from '../../lib/agentSpecs';
+import { preloadGameEffectAssets } from '../../lib/effectAssets';
+import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
+import {
+  buildSeatEffectMap,
+  deathRevealSeats,
+  seedEffectSeenAt,
+  type EffectSeenAtMap,
+} from '../../lib/gameEffects';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import {
+  missingModelConfigResult,
   readModelConfig,
   testModelConnection,
   type ModelTestResult,
@@ -22,23 +33,28 @@ import { ExitConfirmModal } from './ExitConfirmModal';
 import { FinalRevealOverlay } from './FinalRevealOverlay';
 import { GameBottomActions } from './GameBottomActions';
 import { GameChat } from './GameChat';
+import { GameEffectsLayer } from './GameEffectsLayer';
 import { GamePhaseHeader } from './GamePhaseHeader';
-import { GameSeat } from './GameSeat';
+import { GameSeat, type SeatRole } from './GameSeat';
 import { GameTopBar } from './GameTopBar';
-import { KnightDuelBanner } from './KnightDuelBanner';
 import { ModelPicker } from './ModelPicker';
 import { RulesModal } from './RulesModal';
 import { StageIndicator } from './StageIndicator';
 import { toNarrative } from '../../lib/narrative';
+import { deriveDaySpeechProgress } from '../../lib/speechProgress';
 
-const SEAT_COUNT = 8;
+const SEAT_COUNT = 10;
 const MIN_TESTING_MS = 800;
-const leftSeats = [0, 1, 2, 3];
-const rightSeats = [4, 5, 6, 7];
+const MAX_RECONNECT_ATTEMPTS = 5;
+const PACING_STORAGE_KEY = 'wolven_hunt.pacing_mode';
+const leftSeats = [0, 1, 2, 3, 4];
+const rightSeats = [5, 6, 7, 8, 9];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
+export type PacingMode = 'live' | 'fast' | 'off';
 
 type GamePageProps = {
   onExitGame: () => void;
+  replayGameId?: string | null;
 };
 
 function shuffledModelSlots() {
@@ -52,8 +68,20 @@ function shuffledModelSlots() {
   return slots;
 }
 
-export function GamePage({ onExitGame }: GamePageProps) {
-  const [gameId, setGameId] = useState<string | null>(null);
+function readPacingMode(): PacingMode {
+  try {
+    const value = window.localStorage.getItem(PACING_STORAGE_KEY);
+    if (value === 'live' || value === 'fast' || value === 'off') {
+      return value;
+    }
+  } catch {
+    // Local storage may be unavailable in restricted browser contexts.
+  }
+  return 'live';
+}
+
+export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
+  const [gameId, setGameId] = useState<string | null>(replayGameId);
   const [assignments, setAssignments] = useState<(number | null)[]>(() =>
     Array.from({ length: SEAT_COUNT }, () => null),
   );
@@ -72,13 +100,22 @@ export function GamePage({ onExitGame }: GamePageProps) {
   const eventsRef = useRef<GameEvent[]>([]);
   const [narrativeRows, setNarrativeRows] = useState<NarrativeRow[]>([]);
   const narrativeSeqRef = useRef(0);
+  const [spectatorEffects, setSpectatorEffects] = useState<SpectatorEffect[]>([]);
+  const effectSeenAtRef = useRef<EffectSeenAtMap>({});
+  const [effectClockMs, setEffectClockMs] = useState(() => Date.now());
+  const effectSeqRef = useRef(0);
+  const streamCursorRef = useRef(0);
   const [timings, setTimings] = useState<GameTimings | null>(null);
   const [currentPhase, setCurrentPhase] = useState<string | null>(null);
   const [streamStatus, setStreamStatus] = useState<
-    'idle' | 'connecting' | 'open' | 'error'
+    'idle' | 'connecting' | 'open' | 'error' | 'failed'
   >('idle');
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [isStartingGame, setIsStartingGame] = useState(false);
-  const [knightDuelActive, setKnightDuelActive] = useState(false);
+  const [allowStartWithWarnings, setAllowStartWithWarnings] = useState(false);
+  const [pacingMode, setPacingMode] = useState<PacingMode>(() => readPacingMode());
+  const gameAudioControls = useGameAudioControls();
+  const isReplay = replayGameId !== null;
 
   const allSeatsAssigned = assignments.every(
     (assignment) => assignment !== null,
@@ -89,27 +126,113 @@ export function GamePage({ onExitGame }: GamePageProps) {
       (slotIndex) =>
         slotIndex !== null && testResults[slotIndex]?.status === 'pass',
     );
+  const allTestsCompleted =
+    allSeatsAssigned &&
+    assignments.every(
+      (slotIndex) =>
+        slotIndex !== null &&
+        ['pass', 'fail'].includes(testResults[slotIndex]?.status ?? ''),
+    );
   const bgSrc =
     stage.phase === 'day' ? '/assets/game/day_bg.png' : '/assets/game/night_bg.png';
   const gameStarted = gameId !== null;
-  const currentSpeakerSeat = currentPhase === 'DAY_SPEECH'
-    ? [...events].reverse().find((event) => event.type === 'speech')?.actor ?? null
-    : null;
-  const deadSeats = deriveDeadSeats(events);
+  const speechProgress = deriveDaySpeechProgress(events, currentPhase);
+  const currentSpeakerSeat = speechProgress.nextSpeakerSeat;
+  const seatEffects = buildSeatEffectMap(spectatorEffects, currentPhase, {
+    nowMs: effectClockMs,
+    seenAtByKey: effectSeenAtRef.current,
+  });
+  const deadSeats = deriveDeadSeats(events, spectatorEffects);
+  const seatRoles = deriveSeatRoles(events);
+  const failedModelSummaries =
+    !gameStarted && allTestsCompleted
+      ? assignments
+          .filter((slotIndex): slotIndex is number => slotIndex !== null)
+          .filter((slotIndex) => testResults[slotIndex]?.status === 'fail')
+          .map((slotIndex) => {
+            const nickname = MODEL_SLOTS[slotIndex]?.nickname ?? `模型 ${slotIndex + 1}`;
+            const message =
+              testResults[slotIndex]?.errorMessage?.trim() || '模型测试失败';
+            return `${nickname}: ${message}`;
+          })
+      : [];
 
   useEffect(() => {
-    try {
-      const volume = Number(window.localStorage.getItem('wolven_hunt.lobby.volume') ?? '80');
-      const muted = window.localStorage.getItem('wolven_hunt.lobby.muted') === 'true';
-      gameAudio.setVolume(Number.isFinite(volume) ? volume / 100 : 0.8);
-      gameAudio.setMuted(muted);
-    } catch {
-      gameAudio.setVolume(0.8);
-    }
+    gameAudio.preload();
+    preloadGameEffectAssets();
     return () => gameAudio.stopAll();
   }, []);
 
   useEffect(() => {
+    const nowMs = Date.now();
+    seedEffectSeenAt(spectatorEffects, effectSeenAtRef.current, nowMs);
+    setEffectClockMs(nowMs);
+  }, [spectatorEffects]);
+
+  useEffect(() => {
+    if (spectatorEffects.length === 0) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => setEffectClockMs(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [spectatorEffects.length]);
+
+  useEffect(() => {
+    if (!isReplay || !replayGameId) {
+      return undefined;
+    }
+    let cancelled = false;
+    setStreamStatus('connecting');
+    Promise.all([getEvents(replayGameId), getEffects(replayGameId)])
+      .then(([loadedEvents, loadedEffects]) => {
+        if (cancelled) {
+          return;
+        }
+        setGameId(replayGameId);
+        setEvents(loadedEvents);
+        eventsRef.current = loadedEvents;
+        setSpectatorEffects(loadedEffects);
+        effectSeqRef.current = loadedEffects.reduce(
+          (max, effect) => Math.max(max, effect.seq),
+          0,
+        );
+        streamCursorRef.current = Math.max(
+          loadedEvents[loadedEvents.length - 1]?.seq ?? 0,
+          effectSeqRef.current,
+        );
+        setNarrativeRows(
+          loadedEvents
+            .map(toNarrative)
+            .filter((row): row is NarrativeRow => row !== null),
+        );
+        const lastPhaseEnter = [...loadedEvents]
+          .reverse()
+          .find((event) => event.type === 'phase_enter');
+        if (lastPhaseEnter) {
+          const phase = String(lastPhaseEnter.payload.phase ?? lastPhaseEnter.phase);
+          setCurrentPhase(phase);
+          setStage({
+            dayNumber: lastPhaseEnter.day,
+            phase: phase.startsWith('NIGHT') ? 'night' : 'day',
+          });
+        }
+        setStreamStatus('open');
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setStreamStatus('error');
+          setTestMessage(error instanceof Error ? error.message : '复盘加载失败');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isReplay, replayGameId]);
+
+  useEffect(() => {
+    if (isReplay) {
+      return undefined;
+    }
     if (!gameId) {
       setStreamStatus('idle');
       setCurrentPhase(null);
@@ -120,57 +243,105 @@ export function GamePage({ onExitGame }: GamePageProps) {
     eventsRef.current = [];
     setNarrativeRows([]);
     narrativeSeqRef.current = 0;
+    setSpectatorEffects([]);
+    effectSeenAtRef.current = {};
+    setEffectClockMs(Date.now());
+    effectSeqRef.current = 0;
+    streamCursorRef.current = 0;
     setCurrentPhase(null);
     setStreamStatus('connecting');
-    const source = subscribeGameEvents(
-      gameId,
-      (event) => {
-        setStreamStatus('open');
-        if (event.type === 'phase_enter') {
-          setCurrentPhase(String(event.payload.phase ?? event.phase));
-        }
-        if (event.type === 'knight_challenge') {
-          setKnightDuelActive(true);
-        }
-        setEvents((prev) => {
-          if (prev.some((existing) => existing.seq === event.seq)) {
-            return prev;
+    let closed = false;
+    let source: EventSource | null = null;
+    let reconnectTimer: number | null = null;
+
+    const connect = (lastSeq: number, attempt: number) => {
+      source = subscribeGameEvents(
+        gameId,
+        (event) => {
+          setStreamStatus('open');
+          setReconnectAttempts(0);
+          streamCursorRef.current = Math.max(streamCursorRef.current, event.seq);
+          if (event.type === 'phase_enter') {
+            setCurrentPhase(String(event.payload.phase ?? event.phase));
           }
-          const next = [...prev, event];
-          eventsRef.current = next;
-          return next;
-        });
-        const row = toNarrative(event);
-        if (row) {
-          narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
-          appendNarrativeRow(setNarrativeRows, row);
-        }
-        void handleAudioTrigger(gameId, event, eventsRef);
-      },
-      () => {
-        setStreamStatus('error');
-        void getGame(gameId).then((summary) => {
-          setCurrentPhase(summary.phase);
-          setTimings(summary.timings);
-        }).catch(() => undefined);
-        void getNarrative(gameId, narrativeSeqRef.current)
-          .then((rows) => rows.forEach((row) => {
+          setEvents((prev) => {
+            if (prev.some((existing) => existing.seq === event.seq)) {
+              return prev;
+            }
+            const next = [...prev, event];
+            eventsRef.current = next;
+            return next;
+          });
+          const row = toNarrative(event);
+          if (row) {
             narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
             appendNarrativeRow(setNarrativeRows, row);
-          }))
-          .catch(() => undefined);
-      },
-      (row) => {
-        narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
-        appendNarrativeRow(setNarrativeRows, row);
-      },
-    );
+          }
+          void handleAudioTrigger(gameId, event, eventsRef);
+        },
+        () => {
+          source?.close();
+          void getGame(gameId).then((summary) => {
+            setCurrentPhase(summary.phase);
+            setTimings(summary.timings);
+            if (summary.status === 'failed') {
+              setStreamStatus('failed');
+            }
+          }).catch(() => undefined);
+          void getNarrative(gameId, narrativeSeqRef.current)
+            .then((rows) => rows.forEach((row) => {
+              narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
+              streamCursorRef.current = Math.max(streamCursorRef.current, row.seq);
+              appendNarrativeRow(setNarrativeRows, row);
+            }))
+            .catch(() => undefined);
+          void getEffects(gameId, effectSeqRef.current)
+            .then((effects) => effects.forEach((effect) => {
+              effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
+              streamCursorRef.current = Math.max(streamCursorRef.current, effect.seq);
+              appendSpectatorEffect(setSpectatorEffects, effect);
+            }))
+            .catch(() => undefined);
+          if (closed) {
+            return;
+          }
+          const nextAttempt = attempt + 1;
+          setReconnectAttempts(nextAttempt);
+          setStreamStatus('error');
+          if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
+            return;
+          }
+          const jitter = Math.floor(Math.random() * 1000);
+          reconnectTimer = window.setTimeout(() => {
+            connect(streamCursorRef.current || lastSeq, nextAttempt);
+          }, 2000 + jitter);
+        },
+        (row) => {
+          narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
+          streamCursorRef.current = Math.max(streamCursorRef.current, row.seq);
+          appendNarrativeRow(setNarrativeRows, row);
+        },
+        (effect) => {
+          effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
+          streamCursorRef.current = Math.max(streamCursorRef.current, effect.seq);
+          appendSpectatorEffect(setSpectatorEffects, effect);
+        },
+        lastSeq,
+      );
+    };
+    connect(0, 0);
 
-    return () => source.close();
-  }, [gameId]);
+    return () => {
+      closed = true;
+      source?.close();
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+      }
+    };
+  }, [gameId, isReplay]);
 
   useEffect(() => {
-    if (!gameId) {
+    if (!gameId || isReplay) {
       return undefined;
     }
 
@@ -193,7 +364,7 @@ export function GamePage({ onExitGame }: GamePageProps) {
     return () => {
       cancelled = true;
     };
-  }, [gameId]);
+  }, [gameId, isReplay]);
 
   useEffect(() => {
     const lastPhaseEnter = [...events]
@@ -252,6 +423,7 @@ export function GamePage({ onExitGame }: GamePageProps) {
       return next;
     });
     setTestMessage(null);
+    setAllowStartWithWarnings(false);
     setPickerSeat(null);
   };
 
@@ -291,6 +463,7 @@ export function GamePage({ onExitGame }: GamePageProps) {
     setAssignments(shuffledModelSlots());
     setTestResults({});
     setTestMessage(null);
+    setAllowStartWithWarnings(false);
   };
 
   const transitionToStage = (next: GameStage) => {
@@ -343,10 +516,7 @@ export function GamePage({ onExitGame }: GamePageProps) {
         if (!config) {
           return {
             slotIndex,
-            result: {
-              status: 'fail',
-              errorMessage: '配置缺失',
-            } satisfies ModelTestResult,
+            result: missingModelConfigResult(),
           };
         }
 
@@ -399,24 +569,32 @@ export function GamePage({ onExitGame }: GamePageProps) {
     const passCount = Object.values(nextResults).filter(
       (result) => result.status === 'pass',
     ).length;
+    const hasFailures = passCount < assignedSlots.length;
     setTestMessage(
-      passCount === assignedSlots.length
-        ? '全部模型连通性测试通过'
-        : `${passCount}/${assignedSlots.length} 个模型连通性测试通过，请检查标记为 ✕ 的模型配置`,
+      hasFailures
+        ? `${passCount}/${assignedSlots.length} 个模型连通性测试通过；仍可开局，运行失败时后端会按 fallback 继续`
+        : '全部模型连通性测试通过',
     );
+    setAllowStartWithWarnings(hasFailures);
     setIsTesting(false);
   };
 
   const handleClickEnterNight = async () => {
-    if (!allTestsPassed || isStartingGame || gameStarted) {
+    if (!allSeatsAssigned || isStartingGame || gameStarted) {
+      return;
+    }
+    if (!allTestsPassed && !allowStartWithWarnings && allTestsCompleted) {
+      setAllowStartWithWarnings(true);
+      setTestMessage('模型测试存在失败；再次点击“仍然开局”将继续，后端 fallback 会兜底');
       return;
     }
     setPickerSeat(null);
     setIsStartingGame(true);
     setTestMessage('正在创建对局并接入模型');
     try {
+      void gameAudioControls.unlock();
       const agents = buildAgentSpecs(assignments);
-      const created = await createGame({ agents, pacing: 'live' });
+      const created = await createGame({ agents, pacing: pacingMode });
       setGameId(created.game_id);
       transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
     } catch (caught) {
@@ -432,11 +610,24 @@ export function GamePage({ onExitGame }: GamePageProps) {
     onExitGame();
   };
 
-  const handleKnightDuelDone = () => {
-    setKnightDuelActive(false);
-    if (gameId) {
-      void sendAck(gameId, 'DAY_KNIGHT_INTERRUPT', 'knight_duel_done');
+  const handleChangePacingMode = (mode: PacingMode) => {
+    if (gameStarted) {
+      return;
     }
+    setPacingMode(mode);
+    try {
+      window.localStorage.setItem(PACING_STORAGE_KEY, mode);
+    } catch {
+      // Local storage is optional; the in-memory selection still applies.
+    }
+  };
+
+  const handleToggleGameAudio = () => {
+    if (gameAudioControls.playError && !gameAudioControls.muted) {
+      void gameAudioControls.unlock();
+      return;
+    }
+    gameAudioControls.toggleMuted();
   };
 
   return (
@@ -457,6 +648,14 @@ export function GamePage({ onExitGame }: GamePageProps) {
       <GameTopBar
         onClickRules={() => setRulesOpen(true)}
         onClickExit={() => setExitConfirmOpen(true)}
+        streamStatus={streamStatus}
+        reconnectAttempts={reconnectAttempts}
+        pacingMode={pacingMode}
+        gameStarted={gameStarted}
+        gameAudioMuted={gameAudioControls.muted}
+        gameAudioError={gameAudioControls.playError}
+        onChangePacingMode={handleChangePacingMode}
+        onToggleGameAudio={handleToggleGameAudio}
       />
       <StageIndicator stage={stage} />
       {gameStarted && (
@@ -464,6 +663,7 @@ export function GamePage({ onExitGame }: GamePageProps) {
           phase={currentPhase}
           timings={timings}
           speakerSeat={currentSpeakerSeat}
+          speechComplete={speechProgress.complete}
         />
       )}
       <GameChat
@@ -472,7 +672,8 @@ export function GamePage({ onExitGame }: GamePageProps) {
         assignments={assignments}
         streamStatus={streamStatus}
       />
-      {!gameStarted && (
+      <GameEffectsLayer effects={spectatorEffects} />
+      {!gameStarted && !isReplay && (
         <div className="game-quick-assign-helper">
           <button
             type="button"
@@ -495,6 +696,7 @@ export function GamePage({ onExitGame }: GamePageProps) {
                 seatIndex={seatIndex}
                 side="left"
                 assignment={assignment}
+                role={seatRoles[seatIndex + 1] ?? null}
                 testStatus={
                   assignment !== null
                     ? testResults[assignment]?.status
@@ -503,6 +705,7 @@ export function GamePage({ onExitGame }: GamePageProps) {
                 showTestBadge={!gameStarted}
                 speaking={currentSpeakerSeat === seatIndex + 1}
                 dead={deadSeats.has(seatIndex + 1)}
+                effects={seatEffects[seatIndex + 1]}
                 disabled={gameStarted}
                 onClickSeat={handleClickSeat}
               />
@@ -519,6 +722,7 @@ export function GamePage({ onExitGame }: GamePageProps) {
                 seatIndex={seatIndex}
                 side="right"
                 assignment={assignment}
+                role={seatRoles[seatIndex + 1] ?? null}
                 testStatus={
                   assignment !== null
                     ? testResults[assignment]?.status
@@ -527,6 +731,7 @@ export function GamePage({ onExitGame }: GamePageProps) {
                 showTestBadge={!gameStarted}
                 speaking={currentSpeakerSeat === seatIndex + 1}
                 dead={deadSeats.has(seatIndex + 1)}
+                effects={seatEffects[seatIndex + 1]}
                 disabled={gameStarted}
                 onClickSeat={handleClickSeat}
               />
@@ -534,18 +739,20 @@ export function GamePage({ onExitGame }: GamePageProps) {
           })}
         </div>
       </div>
-      {!gameStarted && (
+      {!gameStarted && !isReplay && (
         <GameBottomActions
           allSeatsAssigned={allSeatsAssigned}
           allTestsPassed={allTestsPassed}
+          canStartWithWarnings={allowStartWithWarnings || allTestsCompleted}
           isTesting={isTesting}
           isStartingGame={isStartingGame}
           testMessage={testMessage}
+          testFailures={failedModelSummaries}
           onClickTest={handleClickTest}
           onClickEnterNight={handleClickEnterNight}
         />
       )}
-      {import.meta.env.DEV && !gameStarted && (
+      {import.meta.env.DEV && !gameStarted && !isReplay && (
         <button
           type="button"
           className="game-stage-debug"
@@ -569,7 +776,6 @@ export function GamePage({ onExitGame }: GamePageProps) {
         onSwap={handleSwapModel}
       />
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
-      <KnightDuelBanner active={knightDuelActive} onDone={handleKnightDuelDone} />
       <FinalRevealOverlay
         gameId={gameId}
         events={events}
@@ -604,40 +810,33 @@ function appendNarrativeRow(
   });
 }
 
-function buildAgentSpecs(assignments: (number | null)[]): Record<number, AgentSpec> {
-  const agents: Record<number, AgentSpec> = {};
-  assignments.forEach((slotIndex, seatIndex) => {
-    if (slotIndex === null) {
-      throw new Error(`第 ${seatIndex + 1} 号席位尚未分配模型`);
+function appendSpectatorEffect(
+  setEffects: Dispatch<SetStateAction<SpectatorEffect[]>>,
+  effect: SpectatorEffect,
+) {
+  setEffects((prev) => {
+    if (
+      prev.some(
+        (existing) =>
+          existing.seq === effect.seq &&
+          existing.kind === effect.kind &&
+          existing.target_seat === effect.target_seat &&
+          existing.asset_key === effect.asset_key,
+      )
+    ) {
+      return prev;
     }
-    const config = readModelConfig(slotIndex);
-    if (!config) {
-      throw new Error(`${MODEL_SLOTS[slotIndex]?.nickname ?? '模型'} 配置缺失`);
-    }
-    agents[seatIndex + 1] = {
-      kind: 'llm',
-      provider: 'litellm',
-      model: config.modelName,
-      base_url: config.baseUrl,
-      api_key: config.apiKey,
-    };
+    return [...prev, effect];
   });
-  return agents;
 }
 
-function deriveDeadSeats(events: GameEvent[]) {
-  const dead = new Set<number>();
+function deriveDeadSeats(events: GameEvent[], effects: SpectatorEffect[]) {
+  const dead = deathRevealSeats(effects);
   for (const event of events) {
-    if (event.type === 'death_at_night' || event.type === 'exile') {
+    if (event.type === 'exile') {
       const seat = Number(event.payload.seat);
       if (Number.isFinite(seat)) {
         dead.add(seat);
-      }
-    }
-    if (event.type === 'knight_result') {
-      const killed = Number(event.payload.killed);
-      if (Number.isFinite(killed)) {
-        dead.add(killed);
       }
     }
     if (event.type === 'role_reveal' && Array.isArray(event.payload.seats)) {
@@ -657,6 +856,45 @@ function deriveDeadSeats(events: GameEvent[]) {
   return dead;
 }
 
+function deriveSeatRoles(events: GameEvent[]): Partial<Record<number, SeatRole>> {
+  const roles: Partial<Record<number, SeatRole>> = {};
+  for (const event of events) {
+    if (event.type === 'game_start') {
+      const assignment = event.payload.role_assignment;
+      if (assignment && typeof assignment === 'object' && !Array.isArray(assignment)) {
+        for (const [seat, role] of Object.entries(assignment as Record<string, unknown>)) {
+          if (isSeatRole(role)) {
+            roles[Number(seat)] = role;
+          }
+        }
+      }
+    }
+    if (event.type === 'role_reveal' && Array.isArray(event.payload.seats)) {
+      for (const seatInfo of event.payload.seats) {
+        if (!seatInfo || typeof seatInfo !== 'object') {
+          continue;
+        }
+        const seat = 'seat' in seatInfo ? Number(seatInfo.seat) : NaN;
+        const role = 'role' in seatInfo ? seatInfo.role : null;
+        if (Number.isFinite(seat) && isSeatRole(role)) {
+          roles[seat] = role;
+        }
+      }
+    }
+  }
+  return roles;
+}
+
+function isSeatRole(value: unknown): value is SeatRole {
+  return (
+    value === 'wolf' ||
+    value === 'villager' ||
+    value === 'seer' ||
+    value === 'witch' ||
+    value === 'guard'
+  );
+}
+
 async function handleAudioTrigger(
   gameId: string,
   event: GameEvent,
@@ -673,6 +911,9 @@ async function handleAudioTrigger(
     } else if (phase === 'NIGHT_WOLF_CHAT') {
       await gameAudio.playSequence(['night_wolves'], 1000);
       await sendAck(gameId, phase, 'night_wolves_done');
+    } else if (phase === 'NIGHT_WITCH') {
+      await gameAudio.playSequence(['night_witch'], 1000);
+      await sendAck(gameId, phase, 'night_witch_done');
     } else if (phase === 'NIGHT_SEER') {
       await gameAudio.playSequence(['night_seer'], 1000);
       await sendAck(gameId, phase, 'night_seer_done');
@@ -691,6 +932,8 @@ async function handleAudioTrigger(
       await sendAck(gameId, phase, 'night_intro_done').catch(() => undefined);
     } else if (phase === 'NIGHT_WOLF_CHAT') {
       await sendAck(gameId, phase, 'night_wolves_done').catch(() => undefined);
+    } else if (phase === 'NIGHT_WITCH') {
+      await sendAck(gameId, phase, 'night_witch_done').catch(() => undefined);
     } else if (phase === 'NIGHT_SEER') {
       await sendAck(gameId, phase, 'night_seer_done').catch(() => undefined);
     } else if (phase === 'DAY_ANNOUNCE') {

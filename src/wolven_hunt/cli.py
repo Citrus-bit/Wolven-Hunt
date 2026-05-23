@@ -29,23 +29,28 @@ def main(argv: list[str] | None = None) -> int:
     simulate.add_argument(
         "--perspective",
         default="spectator",
-        choices=["spectator", *[f"seat:{seat}" for seat in range(1, 9)]],
     )
 
     replay = subparsers.add_parser("replay", help="render a deterministic timeline from events")
     replay.add_argument("--events", required=True)
     replay.add_argument("--raw", default=None)
+    replay.add_argument("--config", default=None)
     replay.add_argument("--mode", default="deterministic", choices=["deterministic", "resimulate"])
 
     resimulate = subparsers.add_parser("resimulate", help="resimulate a run from events/raw JSONL")
     resimulate.add_argument("--events", required=True)
     resimulate.add_argument("--raw", default=None)
+    resimulate.add_argument("--config", default=None)
     resimulate.add_argument("--pacing", choices=["off"], default="off")
 
     serve = subparsers.add_parser("serve", help="start the FastAPI server")
     serve.add_argument("--host", default=None)
     serve.add_argument("--port", type=int, default=None)
     serve.add_argument("--pacing", choices=["live", "fast", "off"], default=None)
+
+    serve_prod = subparsers.add_parser("serve-prod", help="serve API and built frontend")
+    serve_prod.add_argument("--host", default="0.0.0.0")
+    serve_prod.add_argument("--port", type=int, default=7002)
 
     args = parser.parse_args(argv)
     if args.cmd == "simulate":
@@ -56,12 +61,17 @@ def main(argv: list[str] | None = None) -> int:
         return _run_resimulate(args)
     if args.cmd == "serve":
         return _run_serve(args)
+    if args.cmd == "serve-prod":
+        return _run_serve_prod(args)
     return 2
 
 
 def _run_simulate(args: argparse.Namespace) -> int:
     config = load_game_config(Path(args.config))
-    agents = {seat: DeterministicMockAgent(Seat(seat)) for seat in range(1, 9)}
+    agents = {
+        seat: DeterministicMockAgent(Seat(seat))
+        for seat in range(config.seat_range.start, config.seat_range.end + 1)
+    }
     store: GameRunStore | None = None
     if args.out_dir is not None:
         store = GameRunStore(
@@ -78,6 +88,7 @@ def _run_simulate(args: argparse.Namespace) -> int:
         store.write_manifest(
             {
                 "config_hash": config.config_hash,
+                "config_path": str(config.path),
                 "seed": str(args.seed),
                 "prompt_pack_version": "v1",
                 "started_at": None,
@@ -87,6 +98,8 @@ def _run_simulate(args: argparse.Namespace) -> int:
         )
     perspective = str(args.perspective)
     seat = None if perspective == "spectator" else Seat(int(perspective.split(":", 1)[1]))
+    if seat is not None and not state.has_seat(seat):
+        raise ValueError(f"perspective seat out of game range: {seat.number}")
     visible = build_view(
         state, event_log.events, rule_set=config.rule_set, seat=seat
     ).visible_events
@@ -100,7 +113,11 @@ def _run_simulate(args: argparse.Namespace) -> int:
 
 def _run_replay(args: argparse.Namespace) -> int:
     if args.mode == "resimulate":
-        events = replay_resimulate(Path(args.events), None if args.raw is None else Path(args.raw))
+        events = replay_resimulate(
+            Path(args.events),
+            None if args.raw is None else Path(args.raw),
+            None if args.config is None else Path(args.config),
+        )
     else:
         events = replay_deterministic(read_events_jsonl(Path(args.events)))
     sys.stdout.write(events_to_jsonl(events))
@@ -111,8 +128,29 @@ def _run_replay(args: argparse.Namespace) -> int:
 
 
 def _run_resimulate(args: argparse.Namespace) -> int:
-    events = replay_resimulate(Path(args.events), None if args.raw is None else Path(args.raw))
+    events = replay_resimulate(
+        Path(args.events),
+        None if args.raw is None else Path(args.raw),
+        None if args.config is None else Path(args.config),
+    )
     sys.stdout.write(events_to_jsonl(events))
+    return 0
+
+
+def _run_serve_prod(args: argparse.Namespace) -> int:
+    os.environ["WH_SERVE_STATIC"] = "true"
+    os.environ["WH_API_HOST"] = str(args.host)
+    os.environ["WH_API_PORT"] = str(args.port)
+    os.environ["WH_API_CORS_ORIGINS"] = ""
+    import uvicorn
+
+    uvicorn.run(
+        "wolven_hunt.api.app:create_app",
+        factory=True,
+        host=str(args.host),
+        port=int(args.port),
+        reload=False,
+    )
     return 0
 
 

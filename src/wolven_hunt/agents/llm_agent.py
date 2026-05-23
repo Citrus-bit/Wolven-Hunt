@@ -5,12 +5,12 @@ from typing import cast
 from wolven_hunt.agents.interface import PlayerInterface
 from wolven_hunt.core.actions import (
     GuardProtect,
-    KnightChallenge,
     LastWords,
     PkVote,
     SeerCheck,
     Speech,
     Vote,
+    WitchAction,
     WolfChatMessage,
     WolfKillVote,
 )
@@ -26,12 +26,12 @@ from wolven_hunt.llm.gateway import (
 from wolven_hunt.llm.prompts import PromptRenderer
 from wolven_hunt.llm.schemas import (
     GuardOutput,
-    KnightOutput,
     LastWordsOutput,
     PkVoteOutput,
     SeerOutput,
     SpeechOutput,
     VoteOutput,
+    WitchOutput,
     WolfChatOutput,
     WolfKillOutput,
 )
@@ -78,10 +78,10 @@ class LLMAgent(PlayerInterface):
         parsed = cast(SpeechOutput, self._call(view, "DAY_SPEECH", SpeechOutput))
         return Speech(actor=self.seat, text=parsed.text)
 
-    def decide_knight_challenge(self, view: PlayerView) -> KnightChallenge:
-        parsed = cast(KnightOutput, self._call(view, "DAY_KNIGHT_INTERRUPT", KnightOutput))
-        target = None if not parsed.activate or parsed.target is None else Seat(parsed.target)
-        return KnightChallenge(actor=self.seat, target=target)
+    def decide_witch(self, view: PlayerView) -> WitchAction:
+        parsed = cast(WitchOutput, self._call(view, "NIGHT_WITCH", WitchOutput))
+        target = None if parsed.target is None else Seat(parsed.target)
+        return WitchAction(actor=self.seat, action=parsed.action, target=target)
 
     def decide_vote(self, view: PlayerView) -> Vote:
         parsed = cast(VoteOutput, self._call(view, "DAY_VOTE", VoteOutput))
@@ -104,7 +104,7 @@ class LLMAgent(PlayerInterface):
         | type[WolfKillOutput]
         | type[SeerOutput]
         | type[SpeechOutput]
-        | type[KnightOutput]
+        | type[WitchOutput]
         | type[VoteOutput]
         | type[PkVoteOutput]
         | type[LastWordsOutput],

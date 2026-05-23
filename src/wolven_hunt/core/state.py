@@ -34,20 +34,39 @@ class GameState:
     day: int
     phase: str
     last_guard_target: Seat | None = None
-    knight_used: bool = False
+    witch_antidote_used: bool = False
+    witch_poison_used: bool = False
     pk_seats: tuple[Seat, ...] = ()
     pk_round: int = 0
     winner: Camp | None = None
     night_guard_target: Seat | None = None
     night_wolf_votes: tuple[tuple[Seat, Seat], ...] = ()
     night_wolf_target: Seat | None = None
+    night_witch_action: str | None = None
+    night_witch_target: Seat | None = None
     last_night_deaths: tuple[Seat, ...] = ()
     first_night_deaths: tuple[Seat, ...] = ()
     votes: tuple[tuple[Seat, Seat], ...] = ()
     pk_votes: tuple[tuple[Seat, Seat], ...] = ()
 
     def player(self, seat: Seat) -> PlayerState:
+        if not self.has_seat(seat):
+            raise ValueError(f"seat out of game range: {seat.number}")
         return self.players[seat.number - 1]
+
+    def has_seat(self, seat: Seat) -> bool:
+        return 1 <= seat.number <= len(self.players)
+
+    def seat_range(self) -> tuple[int, int]:
+        if not self.players:
+            return (1, 0)
+        return (self.players[0].seat.number, self.players[-1].seat.number)
+
+    def role_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for player in self.players:
+            counts[player.role.value] = counts.get(player.role.value, 0) + 1
+        return counts
 
     def with_phase(self, phase: str) -> GameState:
         return replace(self, phase=phase)

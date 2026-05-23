@@ -81,6 +81,7 @@ function ModelConfigRow({ slot }: { slot: ModelConfigSlot }) {
       <label className="lobby-sr-only" htmlFor={`${inputId}-api-key`}>
         {slot.nickname} apikey
       </label>
+      <span className="lobby-model-hint">留空则使用作者预填的轮换 key</span>
       <input
         id={`${inputId}-api-key`}
         className="lobby-model-input lobby-model-input--api"

@@ -9,21 +9,31 @@ type TransitionPhase = 'idle' | 'fade-out' | 'fade-in';
 export default function App() {
   const [page, setPage] = useState<Page>('lobby');
   const [phase, setPhase] = useState<TransitionPhase>('idle');
+  const [replayGameId, setReplayGameId] = useState<string | null>(null);
   const targetPageRef = useRef<Page | null>(null);
-  const { muted, toggleMute } = useLobbyAudio();
+  const { pauseForGame } = useLobbyAudio();
 
   const handleEnterGame = useCallback(() => {
     if (phase !== 'idle') {
       return;
     }
 
-    if (!muted) {
-      toggleMute();
-    }
+    pauseForGame();
 
     targetPageRef.current = 'game';
+    setReplayGameId(null);
     setPhase('fade-out');
-  }, [muted, phase, toggleMute]);
+  }, [pauseForGame, phase]);
+
+  const handleEnterReplay = useCallback((gameId: string) => {
+    if (phase !== 'idle') {
+      return;
+    }
+    pauseForGame();
+    setReplayGameId(gameId);
+    targetPageRef.current = 'game';
+    setPhase('fade-out');
+  }, [pauseForGame, phase]);
 
   const handleExitGame = useCallback(() => {
     if (phase !== 'idle') {
@@ -51,9 +61,14 @@ export default function App() {
 
   return (
     <>
-      {page === 'lobby' && <LobbyHome onEnterGame={handleEnterGame} />}
+      {page === 'lobby' && (
+        <LobbyHome
+          onEnterGame={handleEnterGame}
+          onEnterReplay={handleEnterReplay}
+        />
+      )}
       {page === 'game' && (
-        <GamePage onExitGame={handleExitGame} />
+        <GamePage onExitGame={handleExitGame} replayGameId={replayGameId} />
       )}
       <div
         className={`page-transition-overlay ${

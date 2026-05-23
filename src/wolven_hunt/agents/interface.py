@@ -4,12 +4,12 @@ from typing import Protocol
 
 from wolven_hunt.core.actions import (
     GuardProtect,
-    KnightChallenge,
     LastWords,
     PkVote,
     SeerCheck,
     Speech,
     Vote,
+    WitchAction,
     WolfChatMessage,
     WolfKillVote,
 )
@@ -27,7 +27,7 @@ class PlayerInterface(Protocol):
 
     def decide_speech(self, view: PlayerView) -> Speech: ...
 
-    def decide_knight_challenge(self, view: PlayerView) -> KnightChallenge: ...
+    def decide_witch(self, view: PlayerView) -> WitchAction: ...
 
     def decide_vote(self, view: PlayerView) -> Vote: ...
 

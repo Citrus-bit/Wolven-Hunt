@@ -5,7 +5,7 @@
 > plan.md §11 把这一阶段标为 P2；architecture.md §16 把 `replay_resimulate` 显式留到 "STEP-06+"。两份文档把外部边界冻结了，但**没有**写死落盘目录、SSE 线协议、JSON 输出 schema、错误分类映射、resimulate 一致性范围。按 AGENTS.md 硬约束 #2，这些新增边界必须先同步进 plan.md / architecture.md，再落代码——本 spec 第 2 节给出完整同步清单。
 
 硬性约束（节选）：
-- 第一阶段固定 8 人板（3 狼 / 2 民 / 1 预言家 / 1 骑士 / 1 守卫）不变；新增板子只能通过 `configs/games/*.yaml` 扩展。
+- 第一阶段固定 8 人板（3 狼 / 2 民 / 1 预言家 / 1 女巫 / 1 守卫）不变；新增板子只能通过 `configs/games/*.yaml` 扩展。
 - LLM 输出必须走 Pydantic / JSON Schema 校验；失败路径按 plan.md §4 + 本 spec §5.3 处理。
 - 完整 raw response 只进私有存储；`llm_call` 事件只携带 `prompt_hash` / `raw_response_hash` / `storage_ref` / model / token / cost，不进 PlayerView。
 - Referee 是唯一权限边界；FastAPI 默认且**仅**返回 spectator 脱敏视角。
@@ -32,7 +32,7 @@
 |---|---|---|---|
 | 落盘目录 | §1.1（GameConfig 节附说明）+ 新增 §9.3 | §1 末尾 + §14 模块表 | `runs/{game_id}/{events,raw_responses,cost}.jsonl + manifest.json`，原子写策略，权限位 0600 |
 | `llm_call` 事件 schema | §3.3 元数据补字段说明 | §9 | `prompt_hash` / `raw_response_hash` / `storage_ref` / `model` / `prompt_tokens` / `completion_tokens` / `cost_usd` / `prompt_version` 字段类型 |
-| LLM 输出 JSON schema（按 phase） | §6.2 后追加表格 | §13 | guard / wolf_chat / wolf_kill / seer / speech / knight / vote / pk_vote / last_words 各自的 Pydantic 模型字段 |
+| LLM 输出 JSON schema（按 phase） | §6.2 后追加表格 | §13 | guard / wolf_chat / wolf_kill / seer / speech / witch / vote / pk_vote / last_words 各自的 Pydantic 模型字段 |
 | 错误子类映射到 3 类 | §4.1 表格扩列 | §11 | timeout / rate_limit / network / invalid_json / schema_violation / illegal_action → `agent_timeout` \| `agent_invalid_action` |
 | 重试 prompt 增量 | §4.2 | §11 | "重试时附加的错误说明"具体格式 |
 | SSE 线协议 | §9.2 `GET /games/{id}/stream` 项展开 | §15 | `event:` 名称、`id:` = seq、`data:` JSON、心跳 `event:heartbeat`、`Last-Event-ID` 语义 |

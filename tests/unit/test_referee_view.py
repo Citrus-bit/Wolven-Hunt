@@ -11,17 +11,30 @@ from wolven_hunt.orchestration.fsm import run_game
 from wolven_hunt.referee.view import build_view
 
 
-def test_spectator_does_not_see_private_events(game_config: GameConfig) -> None:
+def test_spectator_god_view_sees_roles_and_wolf_chat_only(game_config: GameConfig) -> None:
     state, event_log = simulate(game_config, "ref-view")
     view = build_view(state, event_log.events, rule_set=game_config.rule_set, seat=None)
-    private = {EventType.SEER_CHECK_RESULT, EventType.GUARD_PROTECT, EventType.WOLF_CHAT_MESSAGE}
+    game_start = view.visible_events[0]
+    assert "role_assignment" in game_start.payload
+    assert any(event.type is EventType.WOLF_CHAT_MESSAGE for event in view.visible_events)
+    private = {
+        EventType.SEER_CHECK_RESULT,
+        EventType.GUARD_PROTECT,
+        EventType.WOLF_KILL_VOTE,
+        EventType.WOLF_KILL_DECIDED,
+        EventType.WOLF_TIE_RANDOM,
+        EventType.WITCH_ACTION,
+    }
     assert not any(event.type in private for event in view.visible_events)
 
 
 def test_wolf_view_sees_wolf_chat(game_config: GameConfig) -> None:
     state, _ = build_initial_state(game_config, "wolf-view")
     wolf = state.wolf_seats()[0]
-    agents = {seat: DeterministicMockAgent(Seat(seat)) for seat in range(1, 9)}
+    agents = {
+        seat: DeterministicMockAgent(Seat(seat))
+        for seat in range(game_config.seat_range.start, game_config.seat_range.end + 1)
+    }
     final_state, log = run_game(config=game_config, seed="wolf-view", agents=agents)
     view = build_view(final_state, log.events, rule_set=game_config.rule_set, seat=wolf)
     assert any(event.type is EventType.WOLF_CHAT_MESSAGE for event in view.visible_events)

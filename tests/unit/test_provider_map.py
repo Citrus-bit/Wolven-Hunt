@@ -7,7 +7,12 @@ import pytest
 
 from wolven_hunt.config.settings import Settings
 from wolven_hunt.core.seat import Seat
-from wolven_hunt.llm.provider_map import load_provider_map
+from wolven_hunt.llm.provider import normalize_litellm_model
+from wolven_hunt.llm.provider_map import (
+    ProviderConfig,
+    load_provider_map,
+    merge_provider_config,
+)
 from wolven_hunt.orchestration.runtime import GameRegistry
 
 
@@ -70,6 +75,38 @@ default:
         load_provider_map(Settings(llm_provider_map=str(path), pacing_profile="off"), environ={})
 
 
+def test_merge_provider_config_none_timeout_uses_fallback() -> None:
+    config = merge_provider_config(
+        ProviderConfig(
+            provider="litellm",
+            model="fallback-model",
+            timeout_seconds=22,
+        ),
+        {
+            "kind": "llm",
+            "provider": "litellm",
+            "model": "seat-model",
+            "timeout_seconds": None,
+        },
+    )
+
+    assert config.timeout_seconds == 22
+
+
+def test_litellm_model_with_base_url_uses_custom_openai_prefix() -> None:
+    assert (
+        normalize_litellm_model(model="qwen3.6-plus", base_url="https://example.test/v1")
+        == "custom_openai/qwen3.6-plus"
+    )
+    assert (
+        normalize_litellm_model(
+            model="custom_openai/qwen3.6-plus",
+            base_url="https://example.test/v1",
+        )
+        == "custom_openai/qwen3.6-plus"
+    )
+
+
 def test_provider_api_key_is_not_written_to_manifest(tmp_path: Path) -> None:
     registry = GameRegistry(
         settings=Settings(runs_dir=tmp_path, llm_provider="mock", pacing_profile="off")
@@ -81,7 +118,7 @@ def test_provider_api_key_is_not_written_to_manifest(tmp_path: Path) -> None:
 
 async def _finished_provider_map_session(registry: GameRegistry):
     session = await registry.create_game(
-        config_path=Path("configs/games/classic_8.yaml"),
+        config_path=Path("configs/games/classic_10.yaml"),
         seed="provider-map-secret",
         agent_specs={
             1: {

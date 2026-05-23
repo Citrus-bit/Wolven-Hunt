@@ -7,12 +7,12 @@ from wolven_hunt.config.schema import RuleSet
 from wolven_hunt.core.actions import (
     Action,
     GuardProtect,
-    KnightChallenge,
     LastWords,
     PkVote,
     SeerCheck,
     Speech,
     Vote,
+    WitchAction,
     WolfChatMessage,
     WolfKillVote,
 )
@@ -30,6 +30,9 @@ ValidationResult: TypeAlias = None | Reject
 
 
 def validate_action(state: GameState, action: Action, rule_set: RuleSet) -> ValidationResult:
+    seat_reject = _validate_action_seats(state, action)
+    if seat_reject is not None:
+        return seat_reject
     if isinstance(action, GuardProtect):
         return _validate_guard(state, action, rule_set)
     if isinstance(action, WolfChatMessage):
@@ -40,14 +43,25 @@ def validate_action(state: GameState, action: Action, rule_set: RuleSet) -> Vali
         return _validate_seer(state, action, rule_set)
     if isinstance(action, Speech):
         return _validate_text(state, action.actor, action.text, rule_set, expected_role=None)
-    if isinstance(action, KnightChallenge):
-        return _validate_knight(state, action, rule_set)
+    if isinstance(action, WitchAction):
+        return _validate_witch(state, action, rule_set)
     if isinstance(action, Vote):
         return _validate_vote(state, action, rule_set)
     if isinstance(action, PkVote):
         return _validate_pk_vote(state, action)
     if isinstance(action, LastWords):
         return _validate_text(state, action.actor, action.text, rule_set, expected_role=None)
+
+
+def _validate_action_seats(state: GameState, action: Action) -> ValidationResult:
+    seats = [action.actor]
+    target = getattr(action, "target", None)
+    if target is not None:
+        seats.append(target)
+    for seat in seats:
+        if not state.has_seat(seat):
+            return Reject("seat.range", f"seat {seat.number} is not in this game")
+    return None
 
 
 def _validate_guard(state: GameState, action: GuardProtect, rule_set: RuleSet) -> ValidationResult:
@@ -101,28 +115,39 @@ def _validate_seer(state: GameState, action: SeerCheck, rule_set: RuleSet) -> Va
     return None
 
 
-def _validate_knight(
-    state: GameState, action: KnightChallenge, rule_set: RuleSet
-) -> ValidationResult:
-    if action.target is None:
-        return None
+def _validate_witch(state: GameState, action: WitchAction, rule_set: RuleSet) -> ValidationResult:
     actor = state.player(action.actor)
-    target = state.player(action.target)
-    if actor.role is not Role.KNIGHT:
-        return Reject("knight.actor_role", "only knight can challenge")
-    if state.knight_used:
-        return Reject("knight.used", "knight has already challenged")
+    if actor.role is not Role.WITCH:
+        return Reject("witch.actor_role", "only witch can use potions")
     if not actor.alive:
-        return Reject("knight.actor_alive", "dead knight cannot challenge")
+        return Reject("witch.actor_alive", "dead witch cannot use potions")
+    if action.action == "skip":
+        if action.target is not None:
+            return Reject("witch.skip_target", "skip must not include target")
+        return None
+    if action.target is None:
+        return Reject("witch.target_required", "witch potion action requires target")
+    if rule_set.witch.max_potions_per_night <= 1 and state.night_witch_action in {
+        "save",
+        "poison",
+    }:
+        return Reject("witch.night_limit", "witch can use at most one potion per night")
+    target = state.player(action.target)
     if not target.alive:
-        return Reject("knight.target_alive", "knight target must be alive")
-    if action.actor == action.target:
-        return Reject("knight.self", "knight cannot challenge self")
-    if state.phase.startswith("NIGHT") and not rule_set.knight.can_act_at_night:
-        return Reject("knight.night", "knight cannot act at night")
-    if state.phase == "DAY_VOTE":
-        return Reject("knight.vote_started", "knight cannot act after vote starts")
-    return None
+        return Reject("witch.target_alive", "witch target must be alive")
+    if action.action == "save":
+        if state.witch_antidote_used:
+            return Reject("witch.antidote_used", "witch antidote already used")
+        if action.target != state.night_wolf_target:
+            return Reject("witch.save_target", "witch can only save wolf kill target")
+        return None
+    if action.action == "poison":
+        if state.witch_poison_used:
+            return Reject("witch.poison_used", "witch poison already used")
+        if action.actor == action.target and not rule_set.witch.poison_can_target_self:
+            return Reject("witch.poison_self", "witch cannot poison self")
+        return None
+    return Reject("witch.action", "unknown witch action")
 
 
 def _validate_vote(state: GameState, action: Vote, rule_set: RuleSet) -> ValidationResult:

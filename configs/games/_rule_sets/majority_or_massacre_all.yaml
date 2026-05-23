@@ -8,7 +8,6 @@ speech:
 win_conditions:
   check_after:
     - NIGHT_RESOLVE
-    - KNIGHT_CHALLENGE_RESOLVE
     - DAY_EXILE
   wolf_wins_when:
     - alive_wolves_gt_alive_good_players
@@ -30,12 +29,13 @@ wolves:
   tie_break: deterministic_random_among_voted_targets
   can_no_kill: false
   can_kill_wolf_teammate: false
-knight:
-  max_uses_per_game: 1
-  can_act_first_day: true
-  can_act_at_night: false
-  window: after_day_announce_before_day_vote
-  after_action_skip_remaining_day: true
+witch:
+  antidote_uses_per_game: 1
+  poison_uses_per_game: 1
+  max_potions_per_night: 1
+  knows_wolf_target: true
+  poison_can_target_self: false
+  double_heal_kills: true
 vote:
   mode: simultaneous
   public_ballot: true
@@ -50,20 +50,20 @@ vote:
 last_words:
   allowed:
     - day_exiled
-    - knight_wrong_and_knight_dies
-    - first_night_killed
+    - first_night_wolf_killed
+    - first_night_double_heal_killed
   denied:
     - night_death_after_first_night
-    - wolf_killed_by_knight
+    - poison_death
 fallback:
   max_retries: 2
   actions:
     NIGHT_GUARD: random_legal_target_excluding_previous_guard
     NIGHT_WOLF_CHAT: silence_message
     NIGHT_WOLF_VOTE: random_legal_target
+    NIGHT_WITCH: skip
     NIGHT_SEER: random_non_self_player
     DAY_SPEECH: default_no_more_information
-    DAY_KNIGHT_INTERRUPT: do_not_activate
     DAY_VOTE: random_alive_player_allow_self
     DAY_VOTE_PK: random_pk_alive_player_by_non_pk_voter_or_peaceful_day
     DAY_LAST_WORDS: default_no_last_words
@@ -76,10 +76,10 @@ timings:
   night_guard_ms: 60000
   night_wolf_chat_ms: 120000
   night_wolf_vote_ms: 30000
+  night_witch_ms: 60000
   night_seer_ms: 60000
   day_announce_ms: 1000
   day_last_words_ms: 60000
   day_speech_ms: 60000
   day_vote_ms: 30000
   day_vote_pk_ms: 30000
-  knight_duel_ms: 800

@@ -14,7 +14,7 @@ from wolven_hunt.orchestration.fsm import run_game
 from wolven_hunt.storage.event_log import EventLog
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG_PATH = ROOT / "configs/games/classic_8.yaml"
+CONFIG_PATH = ROOT / "configs/games/classic_10.yaml"
 
 
 @pytest.fixture
@@ -39,8 +39,8 @@ def initial_state(game_config: GameConfig, seed: str) -> GameState:
 
 
 @pytest.fixture
-def mock_agents() -> dict[int, DeterministicMockAgent]:
-    return {seat: DeterministicMockAgent(Seat(seat)) for seat in range(1, 9)}
+def mock_agents(game_config: GameConfig) -> dict[int, DeterministicMockAgent]:
+    return _mock_agents_for_config(game_config)
 
 
 @pytest.fixture
@@ -49,5 +49,12 @@ def event_log(seed: str) -> EventLog:
 
 
 def simulate(game_config: GameConfig, seed_value: str) -> tuple[GameState, EventLog]:
-    agents = {seat: DeterministicMockAgent(Seat(seat)) for seat in range(1, 9)}
+    agents = _mock_agents_for_config(game_config)
     return run_game(config=game_config, seed=seed_value, agents=agents)
+
+
+def _mock_agents_for_config(game_config: GameConfig) -> dict[int, DeterministicMockAgent]:
+    return {
+        seat: DeterministicMockAgent(Seat(seat))
+        for seat in range(game_config.seat_range.start, game_config.seat_range.end + 1)
+    }

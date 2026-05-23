@@ -66,14 +66,15 @@ class WolfRules(BaseModel):
     can_kill_wolf_teammate: bool
 
 
-class KnightRules(BaseModel):
+class WitchRules(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    max_uses_per_game: int
-    can_act_first_day: bool
-    can_act_at_night: bool
-    window: str
-    after_action_skip_remaining_day: bool
+    antidote_uses_per_game: int
+    poison_uses_per_game: int
+    max_potions_per_night: int
+    knows_wolf_target: bool
+    poison_can_target_self: bool
+    double_heal_kills: bool
 
 
 class VoteRules(BaseModel):
@@ -120,13 +121,13 @@ class TimingRules(BaseModel):
     night_guard_ms: int = Field(ge=0)
     night_wolf_chat_ms: int = Field(ge=0)
     night_wolf_vote_ms: int = Field(ge=0)
+    night_witch_ms: int = Field(ge=0)
     night_seer_ms: int = Field(ge=0)
     day_announce_ms: int = Field(ge=0)
     day_last_words_ms: int = Field(ge=0)
     day_speech_ms: int = Field(ge=0)
     day_vote_ms: int = Field(ge=0)
     day_vote_pk_ms: int = Field(ge=0)
-    knight_duel_ms: int = Field(ge=0)
 
 
 class RuleSet(BaseModel):
@@ -141,7 +142,7 @@ class RuleSet(BaseModel):
     seer: SeerRules
     guard: GuardRules
     wolves: WolfRules
-    knight: KnightRules
+    witch: WitchRules
     vote: VoteRules
     last_words: LastWordsRules
     fallback: FallbackRules
