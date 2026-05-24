@@ -136,7 +136,7 @@ class ModelTestRequest(BaseModel):
     base_url: str = ""
     api_key: str = ""
     timeout_seconds: float = Field(default=15.0, gt=0)
-    thinking_enabled: bool = True
+    thinking_enabled: bool = False
 
 
 class ModelTestResponse(BaseModel):

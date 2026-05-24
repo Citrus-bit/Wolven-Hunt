@@ -18,7 +18,7 @@ import { preloadGameEffectAssets } from '../../lib/effectAssets';
 import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
 import {
   buildSeatEffectMap,
-  deathRevealSeats,
+  publicEliminatedSeats,
   seedEffectSeenAt,
   type EffectSeenAtMap,
 } from '../../lib/gameEffects';
@@ -138,11 +138,13 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const gameStarted = gameId !== null;
   const speechProgress = deriveDaySpeechProgress(events, currentPhase);
   const currentSpeakerSeat = speechProgress.nextSpeakerSeat;
+  const currentDay = deriveCurrentDay(events, stage.dayNumber);
   const seatEffects = buildSeatEffectMap(spectatorEffects, currentPhase, {
+    currentDay,
     nowMs: effectClockMs,
     seenAtByKey: effectSeenAtRef.current,
   });
-  const deadSeats = deriveDeadSeats(events, spectatorEffects);
+  const deadSeats = publicEliminatedSeats(events, spectatorEffects);
   const seatRoles = deriveSeatRoles(events);
   const failedModelSummaries =
     !gameStarted && allTestsCompleted
@@ -672,7 +674,13 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         assignments={assignments}
         streamStatus={streamStatus}
       />
-      <GameEffectsLayer effects={spectatorEffects} />
+      <GameEffectsLayer
+        effects={spectatorEffects}
+        currentDay={currentDay}
+        currentPhase={currentPhase}
+        nowMs={effectClockMs}
+        seenAtByKey={effectSeenAtRef.current}
+      />
       {!gameStarted && !isReplay && (
         <div className="game-quick-assign-helper">
           <button
@@ -830,32 +838,6 @@ function appendSpectatorEffect(
   });
 }
 
-function deriveDeadSeats(events: GameEvent[], effects: SpectatorEffect[]) {
-  const dead = deathRevealSeats(effects);
-  for (const event of events) {
-    if (event.type === 'exile') {
-      const seat = Number(event.payload.seat);
-      if (Number.isFinite(seat)) {
-        dead.add(seat);
-      }
-    }
-    if (event.type === 'role_reveal' && Array.isArray(event.payload.seats)) {
-      for (const seat of event.payload.seats) {
-        if (
-          typeof seat === 'object' &&
-          seat !== null &&
-          'seat' in seat &&
-          'alive' in seat &&
-          !seat.alive
-        ) {
-          dead.add(Number(seat.seat));
-        }
-      }
-    }
-  }
-  return dead;
-}
-
 function deriveSeatRoles(events: GameEvent[]): Partial<Record<number, SeatRole>> {
   const roles: Partial<Record<number, SeatRole>> = {};
   for (const event of events) {
@@ -883,6 +865,15 @@ function deriveSeatRoles(events: GameEvent[]): Partial<Record<number, SeatRole>>
     }
   }
   return roles;
+}
+
+function deriveCurrentDay(events: GameEvent[], fallbackDay: number) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index].type === 'phase_enter') {
+      return events[index].day;
+    }
+  }
+  return fallbackDay;
 }
 
 function isSeatRole(value: unknown): value is SeatRole {

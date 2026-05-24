@@ -53,8 +53,8 @@ export const MODEL_SLOTS: readonly ModelConfigSlot[] = [
   },
   {
     slot: 7,
-    nickname: '阿元替身版',
-    iconPath: '/assets/lobby/model_icon_ayuan_tishenban.png',
+    nickname: 'Gemini',
+    iconPath: '/assets/lobby/model_icon_gemini.png',
   },
   {
     slot: 8,
@@ -72,7 +72,7 @@ export const EMPTY_USER_INPUT: ModelConfigUserInput = {
   baseUrl: '',
   apiKey: '',
   modelName: '',
-  thinkingEnabled: true,
+  thinkingEnabled: false,
 };
 
 export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
@@ -80,61 +80,61 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
     baseUrl: 'https://api.minimaxi.com/v1',
     apiKey: 'sk-cp-J9LpYlhs5Q8issU-lrXNRA_hxvpTptheFq7h75UQYVHXMwgkcM1Vo9XNk2CQ5EWerz5cyN4OqKZQDQ7lOag-a6kwbYDS77LP5fDD3qt1UcrdDsDwAhk5IlQ',
     modelName: 'MiniMax-M2.7-highspeed',
-    thinkingEnabled: true,
+    thinkingEnabled: false,
   },
   {
-    baseUrl: 'https://yunwu.ai/v1',
-    apiKey: 'sk-hxPnpVvndFQNyNr3AcgxintDYBAIgPDZcjrls9V0o9THsZnQ',
+    baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    apiKey: 'sk-sp-D.HDXRM.WBYB.MEUCIQDsTRWgINcmA5E+3jY2ESrb/zPm3LwWcbPBQ6HxCxq6lAIgLWMi8mhr+FFH3q6fQxCqWSp4UUQEOLWLK1zHgnCQKj0=',
     modelName: 'qwen3.6-plus',
-    thinkingEnabled: true,
+    thinkingEnabled: false,
   },
   {
     baseUrl: 'https://yunwu.ai/v1',
     apiKey: 'sk-oYxZIF9K6UWfnodFX8mWoSer32fzlnTlFU18uLAznCC6UWOQ',
     modelName: 'kimi-k2.5',
-    thinkingEnabled: true,
+    thinkingEnabled: false,
   },
   {
     baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1',
     apiKey: 'tp-snbqlbrzy2c08jcyumrk4bs166tzbl02u5focufi7kqry1g6',
     modelName: 'mimo-v2.5-pro',
-    thinkingEnabled: true,
+    thinkingEnabled: false,
   },
   {
     baseUrl: 'https://yunwu.ai/v1',
     apiKey: 'sk-3xVFT4xdHR3DYvBf7haR7A1Fb1ndJznxwrs1onoZ5JrywzRV',
     modelName: 'glm-5.1',
-    thinkingEnabled: true,
+    thinkingEnabled: false,
   },
   {
     baseUrl: 'https://yunwu.ai/v1',
     apiKey: 'sk-pM36Wb0voJI7mhfvgQSf5eGfXPvisvXSmiN6fm0ZrW2hmKUZ',
     modelName: 'doubao-seed-2-0-pro-260215',
-    thinkingEnabled: true,
+    thinkingEnabled: false,
   },
   {
     baseUrl: 'https://api.deepseek.com',
     apiKey: 'sk-303313d10b7149bf831b7909bf70ad4f',
     modelName: 'deepseek-v4-pro',
-    thinkingEnabled: true,
+    thinkingEnabled: false,
   },
   {
-    baseUrl: 'https://api.lkeap.cloud.tencent.com/plan/v3',
-    apiKey: 'sk-tp-BU7lFgCBrhOAAUBy2kQSY4lvMbMqPPXUNiQoyska14l8iVRC',
-    modelName: 'hy3-preview',
-    thinkingEnabled: true,
+    baseUrl: 'https://yunwu.ai/v1',
+    apiKey: 'sk-rp77BMMBfwtVUhSdRFEpjBf7OHXPFzodJvO0vQLFwKabnSDa',
+    modelName: 'gemini-3.1-pro-preview',
+    thinkingEnabled: false,
   },
   {
     baseUrl: 'https://yunwu.ai/v1',
     apiKey: 'sk-iXCFTRD3WI7v1xTc6zwPOSqA9uQMDq0tevGh7J2P1QjvoJoz',
     modelName: 'claude-sonnet-4-6',
-    thinkingEnabled: true,
+    thinkingEnabled: false,
   },
   {
     baseUrl: 'https://yunwu.ai/v1',
     apiKey: 'sk-E6zcCAknXsLSLTL51m74vwDyn09cBnVYTx7X0xmXyuOdojZM',
     modelName: 'gpt-5.4',
-    thinkingEnabled: true,
+    thinkingEnabled: false,
   },
 ] as const;
 

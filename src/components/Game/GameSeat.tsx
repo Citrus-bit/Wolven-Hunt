@@ -42,6 +42,8 @@ export function GameSeat({
   const label = slot
     ? `更换 ${slot.nickname}`
     : `添加第 ${seatIndex + 1} 号席位的模型`;
+  const showOutBadge = dead || effects?.outBadge;
+  const outBadgeKey = effects?.outBadgeSeq ?? (showOutBadge ? 'eliminated' : undefined);
 
   return (
     <div
@@ -88,6 +90,7 @@ export function GameSeat({
         <span className="game-seat-effect-slot" aria-hidden="true">
           {effects?.guardShield && (
             <img
+              key={effects.guardShieldSeq}
               src={gameEffectAssetPath('guard_shield')}
               alt=""
               className="game-seat-effect game-seat-effect--guard"
@@ -95,6 +98,7 @@ export function GameSeat({
           )}
           {effects?.wolfAttack && (
             <img
+              key={effects.wolfAttackSeq}
               src={gameEffectAssetPath('wolf_attack')}
               alt=""
               className={[
@@ -112,8 +116,9 @@ export function GameSeat({
               className="game-seat-effect game-seat-effect--seer"
             />
           )}
-          {effects?.outBadge && (
+          {showOutBadge && (
             <img
+              key={outBadgeKey}
               src={gameEffectAssetPath('out_badge')}
               alt=""
               className="game-seat-effect game-seat-effect--out"

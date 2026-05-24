@@ -7,7 +7,7 @@
   - **狼人胜**：`alive_wolves > alive_good_players`（严格大于），或 `alive_good_players == 0`（屠城）。
   - **好人胜**：`alive_wolves == 0`。
 - 预言家规则：每晚查验一名玩家（**可查死人**，**不可查自己**），只返回阵营（`wolf` / `good`），不返回具体角色。
-- 首夜可以死亡；**首夜狼刀死亡和双奶死亡的玩家**在首日白天有遗言；毒药导致的死亡任何情况下无遗言，后续夜晚死亡玩家无遗言。
+- 白天被投票放逐的玩家有遗言；首夜可以死亡，**首夜狼刀死亡和双奶死亡的玩家**在首日白天有遗言；毒药导致的死亡任何情况下无遗言，后续夜晚死亡玩家无遗言。
 - 女巫每晚在狼人之后、预言家之前行动；每局一瓶解药、一瓶毒药，每晚最多使用一瓶药。
 - 投票只能投存活玩家，允许投自己；PK 重投只能投 PK 台上玩家，且 PK 台上玩家不参与重投。
 - 编排核心采用**纯 Python FSM 优先**；裁判层（Referee）负责视角隔离与合法性校验；**事件日志是单一事实源**。
@@ -39,7 +39,7 @@
 
 ### 1.3 首版 WinCondition
 
-- 每次「夜晚结算」「投票放逐」后**立即**执行胜负检查。
+- 每次「夜晚结算」后立即执行胜负检查；「投票放逐」后若有放逐者先执行其遗言，再执行胜负检查。
 - 三条胜负规则按上述 Summary 写死，写入 `majority_or_massacre_all.yaml`。
 
 ### 1.4 预言家
@@ -118,11 +118,12 @@ GAME_START
     → NIGHT_RESOLVE        # 结算：守、刀、解药、毒药，生成死亡/no_death_tonight 事件
     → CHECK_WIN
   → DAY_ANNOUNCE           # 公示夜晚结果
-    → DAY_LAST_WORDS?      # 仅首夜被刀死亡者有遗言；其他夜死跳过
+    → DAY_LAST_WORDS?      # 首日符合条件的夜死遗言；其他夜死跳过
     → DAY_SPEECH           # 按座位顺序发言
     → DAY_VOTE             # 同时投票
     → DAY_VOTE_PK?         # 平票时进入；PK 台下玩家重投
     → DAY_EXILE?           # 有放逐才进入；二次平票平安日则跳过
+    → DAY_LAST_WORDS?      # 白天被放逐者遗言；平安日跳过
     → CHECK_WIN
   → 循环回 NIGHT_START
 GAME_END
@@ -159,7 +160,7 @@ GAME_END
 - 女巫行动是固定夜晚子状态 `NIGHT_WITCH`，不再存在白天中断技能。
 - `NIGHT_WITCH` 只在女巫存活且仍有至少一瓶药时进入；女巫无药或死亡时跳过。
 - 女巫行动结束后继续进入 `NIGHT_SEER`，胜负只在 `NIGHT_RESOLVE` 后统一检查。
-- 白天流程固定按 `DAY_SPEECH → DAY_VOTE → DAY_VOTE_PK? → DAY_EXILE` 推进。
+- 白天流程固定按 `DAY_SPEECH → DAY_VOTE → DAY_VOTE_PK? → DAY_EXILE? → DAY_LAST_WORDS? → CHECK_WIN` 推进；只有实际放逐者触发放逐遗言，平安日跳过。
 
 ---
 
@@ -395,7 +396,7 @@ final_reveal.json
 │       │   ├── model_icon_xueba.png
 │       │   ├── model_icon_xiaodoubao.png
 │       │   ├── model_icon_haiseyin.png
-│       │   ├── model_icon_ayuan_tishenban.png
+│       │   ├── model_icon_gemini.png
 │       │   ├── model_icon_claude.png
 │       │   └── model_icon_gpt.png
 │       └── game/                               # 游戏页静态资源（见 §14.13）
@@ -633,7 +634,7 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 - 本阶段范围固定为「10 个 AI 自动对局 + spectator 观赛」，不实现真人入座、多人房间或玩家私有视角。
 - 默认开发端口为前端 Vite `7001`、后端 FastAPI `7002`。前端运行时 API base 默认空字符串，即同源相对路径；开发模式通过 Vite proxy 转发 `/games`、`/models`、`/healthz`。
 - 生产模式由 `wolven-hunt serve-prod` 设置 `WH_SERVE_STATIC=true`，FastAPI 在 API 路由之后挂载 `dist/`，单端口 `7002` 同时服务前端和 API。
-- 前端模型连通性测试必须走后端 `POST /models/test`。浏览器不得再直接向第三方模型 base URL 发请求；连通性测试失败不能永久阻止开局，用户可选择继续开局，运行期失败由 LLM 重试与 fallback 兜底。请求允许携带 `thinking_enabled`，后端按模型名追加 provider 兼容的 thinking 参数。
+- 前端模型连通性测试必须走后端 `POST /models/test`。浏览器不得再直接向第三方模型 base URL 发请求；连通性测试失败不能永久阻止开局，用户可选择继续开局，运行期失败由 LLM 重试与 fallback 兜底。请求允许携带 `thinking_enabled`，未携带时默认为 `false`；仅为 `true` 时后端按模型名追加 provider 兼容的 thinking 参数。
 - `POST /models/test` 只做临时 provider 调用，不写入 `runs/`、EventLog、raw response、cost 或 narrative，不返回或记录 API key；失败响应只返回脱敏后的短错误摘要，供前端展示诊断信息。
 - 所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 - 历史复盘只消费 Referee 过滤后的 spectator 上帝视角。`GET /games` 从 `runs/` 汇总 manifest；`GET /games/{id}/events` 在线时返回 session spectator events，离线历史从 `events.jsonl` 读取并按 spectator 过滤，不读取 `raw_responses.jsonl`。
@@ -678,7 +679,7 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
   - `model_icon_xueba.png`（源自 `素材/学霸.png`）
   - `model_icon_xiaodoubao.png`（源自 `素材/小豆包儿.png`）
   - `model_icon_haiseyin.png`（源自 `素材/海瑟音.png`）
-  - `model_icon_ayuan_tishenban.png`（源自 `素材/阿元替身版.png`）
+  - `model_icon_gemini.png`（源自 `素材/Gemini.png`）
   - 游戏页附加资源放在 `public/assets/game/`，例如 `quick_assign_raccoon.png`（源自 `素材/小浣熊.png`，用于「一键分配」入口装饰）。
 - 中文素材保留在 `素材/` 目录，仅作为构建输入，不被运行时直接引用。
 - **中文昵称作为数据**由 TS 配置驱动（见 §14.11），不进文件名；运行时 UI 标签从 `MODEL_SLOTS` 读取。
@@ -742,7 +743,7 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 
 - 系统设置弹窗内含 10 个模型 slot，每个 slot 由两部分组成：
   - **静态部分**（不进 `localStorage`）：`slot` 索引、中文 `nickname`、ASCII `iconPath`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_SLOTS` 常量数组。
-  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置；10 个默认 slot 的 `thinkingEnabled` 固定为 `true`。
+  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置；10 个默认 slot 的 `thinkingEnabled` 固定为 `false`。
   - **用户覆盖部分**：用户在 UI 中修改的 `baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`。
 - 用户覆盖输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName, thinkingEnabled}`；不存在 key 时使用仓库默认配置显示。
 - 读取旧版 `{baseUrl, apiKey, modelName}` 缓存时必须兼容：`thinkingEnabled` 缺失或不是 boolean 时回退对应 slot 的默认值。

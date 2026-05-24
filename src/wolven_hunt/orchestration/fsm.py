@@ -233,19 +233,16 @@ def _run_day(
     event_log.append_all(phase_exit(state))
 
     if state.day == 1 and state.first_night_deaths:
-        state = _enter_phase(state, Phase.DAY_LAST_WORDS, event_log, state_sink, control_hook)
-        for seat in state.first_night_deaths:
-            action = _decide_with_fallback(
-                state,
-                config,
-                agents[seat.number],
-                event_log,
-                seat,
-                lambda agent, view: agent.decide_last_words(view),
-                rng,
-            )
-            state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
-        event_log.append_all(phase_exit(state))
+        state = _run_last_words(
+            state,
+            config,
+            agents,
+            rng,
+            event_log,
+            state.first_night_deaths,
+            state_sink=state_sink,
+            control_hook=control_hook,
+        )
 
     state = _enter_phase(state, Phase.DAY_SPEECH, event_log, state_sink, control_hook)
     for seat in day_speech_order(state, config.rule_set):
@@ -276,15 +273,18 @@ def _run_day(
     state, vote_events = finish_vote(state)
     event_log.append_all(vote_events)
     _sync_runtime(state, state_sink, control_hook)
+    exiled_seat = _exiled_seat_from_events(vote_events)
     event_log.append_all(phase_exit(state))
 
     if state.pk_seats:
         state = _enter_phase(state, Phase.DAY_VOTE_PK, event_log, state_sink, control_hook)
+        exiled_seat = None
         voters = tuple(seat for seat in state.alive_seats() if seat not in state.pk_seats)
         if not voters:
             state, events = finish_pk_vote(state)
             event_log.append_all(events)
             _sync_runtime(state, state_sink, control_hook)
+            exiled_seat = _exiled_seat_from_events(events)
         else:
             for seat in voters:
                 action = _decide_with_fallback(
@@ -308,7 +308,20 @@ def _run_day(
             state, events = finish_pk_vote(state)
             event_log.append_all(events)
             _sync_runtime(state, state_sink, control_hook)
+            exiled_seat = _exiled_seat_from_events(events)
         event_log.append_all(phase_exit(state))
+
+    if exiled_seat is not None:
+        state = _run_last_words(
+            state,
+            config,
+            agents,
+            rng,
+            event_log,
+            (exiled_seat,),
+            state_sink=state_sink,
+            control_hook=control_hook,
+        )
 
     state, events = emit_win_check(state, phase=Phase.CHECK_WIN_DAY.value)
     event_log.append_all(events)
@@ -340,6 +353,49 @@ def _enter_phase(
     event_log.append_all(events)
     _sync_runtime(state, state_sink, control_hook)
     return state
+
+
+def _run_last_words(
+    state: GameState,
+    config: GameConfig,
+    agents: AgentMap,
+    rng: DeterministicRNG,
+    event_log: EventLog,
+    seats: tuple[Seat, ...],
+    *,
+    state_sink: StateSink | None,
+    control_hook: ControlHook | None,
+) -> GameState:
+    if not seats:
+        return state
+    state = _enter_phase(state, Phase.DAY_LAST_WORDS, event_log, state_sink, control_hook)
+    for seat in seats:
+        action = _decide_with_fallback(
+            state,
+            config,
+            agents[seat.number],
+            event_log,
+            seat,
+            lambda agent, view: agent.decide_last_words(view),
+            rng,
+        )
+        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
+    event_log.append_all(phase_exit(state))
+    return state
+
+
+def _exiled_seat_from_events(events: tuple[Event, ...]) -> Seat | None:
+    for event in events:
+        if event.type is not EventType.EXILE:
+            continue
+        seat = event.payload.get("seat")
+        if isinstance(seat, bool):
+            return None
+        if isinstance(seat, int):
+            return Seat(seat)
+        if isinstance(seat, str):
+            return Seat(int(seat))
+    return None
 
 
 def _apply_and_log(

@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { gameEffectAssetPath, type GameEffectAssetKey } from '../../lib/effectAssets';
+import {
+  activePotionEffects,
+  effectIdentity,
+  type EffectSeenAtMap,
+} from '../../lib/gameEffects';
 import type { SpectatorEffect } from '../../lib/gameApi';
 
 type GameEffectsLayerProps = {
   effects: SpectatorEffect[];
+  currentDay: number | null;
+  currentPhase: string | null;
+  nowMs: number;
+  seenAtByKey: EffectSeenAtMap;
 };
 
 type PotionFlight = {
@@ -24,18 +33,29 @@ type PotionBurst = {
   durationMs: number;
 };
 
-export function GameEffectsLayer({ effects }: GameEffectsLayerProps) {
+export function GameEffectsLayer({
+  effects,
+  currentDay,
+  currentPhase,
+  nowMs,
+  seenAtByKey,
+}: GameEffectsLayerProps) {
   const layerRef = useRef<HTMLDivElement | null>(null);
   const seenFlightIdsRef = useRef(new Set<string>());
   const [flights, setFlights] = useState<PotionFlight[]>([]);
   const [bursts, setBursts] = useState<PotionBurst[]>([]);
 
   useEffect(() => {
-    for (const effect of effects) {
-      if (effect.kind !== 'witch_potion' || effect.source_seat === null) {
+    const activeEffects = activePotionEffects(effects, currentPhase, {
+      currentDay,
+      nowMs,
+      seenAtByKey,
+    });
+    for (const effect of activeEffects) {
+      if (effect.kind !== 'witch_potion') {
         continue;
       }
-      const id = `${effect.seq}:${effect.source_seat}:${effect.target_seat}:${effect.asset_key}`;
+      const id = effectIdentity(effect);
       if (seenFlightIdsRef.current.has(id)) {
         continue;
       }
@@ -58,7 +78,7 @@ export function GameEffectsLayer({ effects }: GameEffectsLayerProps) {
         setFlights((current) => current.filter((item) => item.id !== id));
       }, flight.durationMs + 220);
     }
-  }, [effects]);
+  }, [currentDay, currentPhase, effects, nowMs, seenAtByKey]);
 
   return (
     <div ref={layerRef} className="game-effects-layer" aria-hidden="true">
@@ -67,7 +87,7 @@ export function GameEffectsLayer({ effects }: GameEffectsLayerProps) {
           key={flight.id}
           src={gameEffectAssetPath(flight.assetKey)}
           alt=""
-          className="game-effect-flight"
+          className={`game-effect-flight game-effect-flight--${flight.assetKey}`}
           style={{
             '--effect-from-x': `${flight.fromX}px`,
             '--effect-from-y': `${flight.fromY}px`,
@@ -82,7 +102,7 @@ export function GameEffectsLayer({ effects }: GameEffectsLayerProps) {
           key={burst.id}
           src={gameEffectAssetPath(burst.assetKey)}
           alt=""
-          className="game-effect-burst"
+          className={`game-effect-burst game-effect-burst--${burst.assetKey}`}
           style={{
             '--effect-burst-x': `${burst.x}px`,
             '--effect-burst-y': `${burst.y}px`,

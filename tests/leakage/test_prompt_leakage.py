@@ -66,7 +66,7 @@ MODEL_NAMES_AND_NICKNAMES = {
     "glm-5.1",
     "doubao-seed-2-0-pro-260215",
     "deepseek-v4-pro",
-    "hy3-preview",
+    "gemini-3.1-pro-preview",
     "claude-sonnet-4-6",
     "gpt-5.4",
     "minimax老师",
@@ -76,7 +76,7 @@ MODEL_NAMES_AND_NICKNAMES = {
     "学霸",
     "小豆包儿",
     "海瑟音",
-    "阿元替身版",
+    "Gemini",
     "克劳德",
     "GPT",
 }

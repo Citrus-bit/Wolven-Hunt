@@ -1843,7 +1843,7 @@ button {
 
 .game-seat-badge {
   position: absolute;
-  top: -6px;
+  top: 0;
   right: 6px;
   z-index: 3;
   display: flex;
@@ -1858,8 +1858,8 @@ button {
 }
 
 .game-seat--right .game-seat-badge {
-  right: 6px;
-  left: auto;
+  right: auto;
+  left: 6px;
 }
 
 .game-seat-badge--pass {
@@ -1891,7 +1891,7 @@ button {
 
 .game-seat-effect {
   position: absolute;
-  z-index: 4;
+  z-index: 8;
   display: block;
   pointer-events: none;
   user-select: none;
@@ -1901,7 +1901,7 @@ button {
   position: absolute;
   top: 50%;
   left: 50%;
-  z-index: 4;
+  z-index: 8;
   width: var(--seat-circle-size);
   height: var(--seat-circle-size);
   overflow: visible;
@@ -1912,57 +1912,66 @@ button {
 .game-seat-effect--guard {
   top: 50%;
   left: 50%;
-  width: 138%;
-  height: 138%;
+  width: 168%;
+  height: 168%;
   object-fit: contain;
   filter:
-    drop-shadow(0 0 12px rgba(121, 184, 255, 0.82))
-    drop-shadow(0 0 24px rgba(82, 126, 255, 0.52));
-  opacity: 0.92;
+    drop-shadow(0 0 14px rgba(169, 219, 255, 0.96))
+    drop-shadow(0 0 34px rgba(70, 126, 255, 0.76))
+    drop-shadow(0 0 54px rgba(31, 65, 180, 0.58));
+  opacity: 0.96;
   transform: translate(-50%, -50%);
   animation: game-effect-guard-pulse 1.8s ease-in-out infinite;
 }
 
 .game-seat-effect--wolf {
-  top: -24%;
-  right: -24%;
-  width: 70%;
-  height: 70%;
+  top: 50%;
+  left: 50%;
+  width: 126%;
+  height: 126%;
   object-fit: contain;
   filter:
-    drop-shadow(0 0 12px rgba(255, 45, 45, 0.9))
-    drop-shadow(0 0 22px rgba(126, 0, 0, 0.75));
-  animation: game-effect-wolf-strike 320ms cubic-bezier(0.18, 0.9, 0.22, 1);
+    drop-shadow(0 0 14px rgba(255, 82, 54, 0.98))
+    drop-shadow(0 0 28px rgba(199, 0, 0, 0.84))
+    drop-shadow(0 0 44px rgba(70, 0, 0, 0.76));
+  transform: translate(-50%, -50%);
+  animation:
+    game-effect-wolf-strike 540ms cubic-bezier(0.16, 0.94, 0.2, 1),
+    game-effect-wolf-hold 2.6s ease-out forwards;
 }
 
 .game-seat-effect--blocked {
   animation:
-    game-effect-wolf-strike 320ms cubic-bezier(0.18, 0.9, 0.22, 1),
+    game-effect-wolf-strike 540ms cubic-bezier(0.16, 0.94, 0.2, 1),
     game-effect-blocked-fade 3s ease-out forwards;
 }
 
 .game-seat-effect--seer {
   top: 50%;
   left: 50%;
-  width: 108%;
-  height: 108%;
+  width: 156%;
+  height: 156%;
   object-fit: contain;
   opacity: 0;
   filter:
-    drop-shadow(0 0 16px rgba(116, 203, 255, 0.92))
-    drop-shadow(0 0 30px rgba(64, 107, 255, 0.58));
+    drop-shadow(0 0 18px rgba(157, 225, 255, 1))
+    drop-shadow(0 0 38px rgba(67, 127, 255, 0.82))
+    drop-shadow(0 0 62px rgba(97, 46, 255, 0.6));
   transform: translate(-50%, -50%);
-  animation: game-effect-seer-flash 1.8s ease-out forwards;
+  animation: game-effect-seer-flash 2.2s ease-out forwards;
 }
 
 .game-seat-effect--out {
   top: 50%;
   left: 50%;
-  width: 86%;
+  width: 112%;
   height: auto;
   object-fit: contain;
-  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.7));
+  filter:
+    drop-shadow(0 8px 18px rgba(0, 0, 0, 0.78))
+    drop-shadow(0 0 18px rgba(255, 74, 42, 0.72));
   transform: translate(-50%, -50%) rotate(-10deg);
+  animation: game-effect-out-pop 520ms cubic-bezier(0.18, 0.92, 0.2, 1);
 }
 
 .game-effects-layer {
@@ -1975,30 +1984,48 @@ button {
 
 .game-effect-flight {
   position: absolute;
+  z-index: 8;
   top: 0;
   left: 0;
-  width: clamp(34px, 4.6vw, 58px);
-  height: clamp(34px, 4.6vw, 58px);
+  width: clamp(54px, 6.8vw, 92px);
+  height: clamp(54px, 6.8vw, 92px);
   object-fit: contain;
   filter:
-    drop-shadow(0 6px 12px rgba(0, 0, 0, 0.62))
-    drop-shadow(0 0 18px rgba(255, 240, 198, 0.55));
+    drop-shadow(0 8px 16px rgba(0, 0, 0, 0.72))
+    drop-shadow(0 0 24px rgba(255, 240, 198, 0.74));
   transform: translate(var(--effect-from-x), var(--effect-from-y)) translate(-50%, -50%);
   animation: game-effect-potion-flight var(--effect-duration) cubic-bezier(0.22, 0.88, 0.2, 1) forwards;
 }
 
 .game-effect-burst {
   position: absolute;
+  z-index: 8;
   top: 0;
   left: 0;
-  width: clamp(40px, 5vw, 66px);
-  height: clamp(40px, 5vw, 66px);
+  width: clamp(62px, 7.4vw, 104px);
+  height: clamp(62px, 7.4vw, 104px);
   object-fit: contain;
   filter:
-    drop-shadow(0 6px 12px rgba(0, 0, 0, 0.62))
-    drop-shadow(0 0 18px rgba(255, 240, 198, 0.55));
+    drop-shadow(0 8px 16px rgba(0, 0, 0, 0.72))
+    drop-shadow(0 0 28px rgba(255, 240, 198, 0.8));
   transform: translate(var(--effect-burst-x), var(--effect-burst-y)) translate(-50%, -50%);
   animation: game-effect-potion-burst var(--effect-duration) ease-out forwards;
+}
+
+.game-effect-flight--potion_antidote,
+.game-effect-burst--potion_antidote {
+  filter:
+    drop-shadow(0 8px 16px rgba(0, 0, 0, 0.72))
+    drop-shadow(0 0 26px rgba(80, 255, 210, 0.84))
+    drop-shadow(0 0 44px rgba(35, 147, 255, 0.56));
+}
+
+.game-effect-flight--potion_poison,
+.game-effect-burst--potion_poison {
+  filter:
+    drop-shadow(0 8px 16px rgba(0, 0, 0, 0.72))
+    drop-shadow(0 0 26px rgba(191, 82, 255, 0.9))
+    drop-shadow(0 0 44px rgba(54, 255, 104, 0.5));
 }
 
 @keyframes game-effect-guard-pulse {
@@ -2015,14 +2042,25 @@ button {
 }
 
 @keyframes game-effect-wolf-strike {
-  from {
+  0% {
     opacity: 0;
-    transform: translate(-12px, -10px) scale(0.76) rotate(-12deg);
+    transform: translate(-66%, -74%) scale(0.58) rotate(-18deg);
   }
 
-  to {
+  58% {
     opacity: 1;
-    transform: translate(0, 0) scale(1) rotate(0deg);
+    transform: translate(-50%, -50%) scale(1.14) rotate(4deg);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes game-effect-wolf-hold {
+  100% {
+    opacity: 0;
   }
 }
 
@@ -2034,7 +2072,10 @@ button {
 
   100% {
     opacity: 0;
-    transform: translate(0, 0) scale(0.78) rotate(8deg);
+    filter:
+      grayscale(1)
+      drop-shadow(0 0 16px rgba(142, 206, 255, 0.86))
+      drop-shadow(0 0 30px rgba(68, 125, 255, 0.72));
   }
 }
 
@@ -2046,12 +2087,34 @@ button {
 
   22% {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1.08);
+    transform: translate(-50%, -50%) scale(1.14);
+  }
+
+  62% {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(1.03);
   }
 
   100% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.2);
+    transform: translate(-50%, -50%) scale(1.26);
+  }
+}
+
+@keyframes game-effect-out-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.58) rotate(-18deg);
+  }
+
+  64% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.12) rotate(-10deg);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1) rotate(-10deg);
   }
 }
 
@@ -2700,8 +2763,13 @@ button {
   .game-seat-effect--wolf,
   .game-seat-effect--blocked,
   .game-seat-effect--seer,
+  .game-seat-effect--out,
   .game-effect-flight,
   .game-effect-burst {
     animation: none;
+  }
+
+  .game-seat-effect--seer {
+    opacity: 1;
   }
 }

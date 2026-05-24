@@ -33,7 +33,7 @@
 
 ## 3. Win Condition
 
-每次夜晚结算、投票放逐后立即执行胜负检查。
+每次夜晚结算后立即执行胜负检查；投票放逐后若有放逐者先执行其遗言，再执行胜负检查。
 
 狼人胜：
 
@@ -115,6 +115,8 @@
 
 首轮平票进入 `DAY_VOTE_PK`。平票玩家各一次 PK 发言后重投。PK 重投只能投 PK 台上的存活玩家，PK 台上玩家不参与重投。第二次仍平票则平安日，直接入夜。
 
+白天被正常投票或 PK 重投放逐的玩家在 `DAY_EXILE` 后进入 `DAY_LAST_WORDS`，遗言完成后再执行白天胜负检查。二次平票或无人可投导致的平安日不触发遗言。
+
 有遗言：
 
 - 白天被放逐者
@@ -154,6 +156,7 @@ GAME_START
     -> DAY_VOTE
     -> DAY_VOTE_PK?
     -> DAY_EXILE?
+    -> DAY_LAST_WORDS?
     -> CHECK_WIN
   -> loop NIGHT_START
 GAME_END
@@ -389,7 +392,7 @@ FastAPI 在 STEP-06 实现，所有读取接口默认返回 Referee 过滤后的
 - `POST /games/{id}/wolf_chat`
 - `POST /models/test`
 
-错误体统一为 `{code, message, details?}`。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。`POST /models/test` 只做临时连通性测试，请求允许携带 `thinking_enabled`，不写 EventLog、不落盘、不返回 API key；失败响应只返回脱敏后的短错误摘要。所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
+错误体统一为 `{code, message, details?}`。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。`POST /models/test` 只做临时连通性测试，请求允许携带 `thinking_enabled`，未携带时默认为 `false`；不写 EventLog、不落盘、不返回 API key；失败响应只返回脱敏后的短错误摘要。所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 
 SSE 线协议固定为 `event: game_event`、`id: <seq>`、`data: <spectator Event JSON>`；STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`，三类事件共享原始 EventLog `seq`。SSE cursor 按 raw EventLog seq 推进；每条 raw event 独立决定是否产生 filtered `game_event`、`narrative_row`、`spectator_effect`。每 30s 发送 `event: heartbeat`。`Last-Event-ID` 表示从 `seq + 1` 续推，不存在则返回 410。STEP-08 起前端默认同源相对路径；开发模式 Vite `7001` proxy 到 FastAPI `7002`，生产模式 FastAPI `7002` 服务 `dist/` 和 API。
 
@@ -493,7 +496,7 @@ STEP-08 目标是 10 个 AI 自动对局从前端开局后可无卡点观赛到�
 
 ### 18.3 静态资源命名与构建
 
-- 运行时资源放在 `public/assets/lobby/` 与 `public/assets/game/`，文件名 ASCII 小写蛇形：`lobby_pingpong.mp4`、`lobby_bgm.mp3`、`lobby_poster.jpg`、`btn_start.png`、`btn_history.png`、`btn_settings.png`、`settings_panel_bg.png`、`model_icon_minimax_laoshi.png`、`model_icon_wanwen.png`、`model_icon_guangzhimingmian.png`、`model_icon_dami.png`、`model_icon_xueba.png`、`model_icon_xiaodoubao.png`、`model_icon_haiseyin.png`、`model_icon_ayuan_tishenban.png`、`quick_assign_raccoon.png`（源自 `素材/小浣熊.png`）。
+- 运行时资源放在 `public/assets/lobby/` 与 `public/assets/game/`，文件名 ASCII 小写蛇形：`lobby_pingpong.mp4`、`lobby_bgm.mp3`、`lobby_poster.jpg`、`btn_start.png`、`btn_history.png`、`btn_settings.png`、`settings_panel_bg.png`、`model_icon_minimax_laoshi.png`、`model_icon_wanwen.png`、`model_icon_guangzhimingmian.png`、`model_icon_dami.png`、`model_icon_xueba.png`、`model_icon_xiaodoubao.png`、`model_icon_haiseyin.png`、`model_icon_gemini.png`（源自 `素材/Gemini.png`）、`quick_assign_raccoon.png`（源自 `素材/小浣熊.png`）。
 - 中文素材保留在 `素材/`，仅作为构建输入，不被运行时直接引用。
 - **中文昵称作为数据**由 TS 配置驱动（见 §18.10），不进文件名；运行时 UI 标签从 `MODEL_SLOTS` 读取。
 - ping-pong 视频以脚本可复现方式生成：`scripts/build-lobby-pingpong.mjs` 是跨平台 Node 脚本，通过 npm devDependency `ffmpeg-static` 提供的 ffmpeg 二进制把 `素材/大厅界面_动图.mp4` 正放 + 倒放拼接为 `public/assets/lobby/lobby_pingpong.mp4`。脚本不依赖系统 ffmpeg 与 bash；`ffmpeg-static` 已覆盖 Linux / macOS / Windows × x64 / arm64。
@@ -546,7 +549,7 @@ STEP-08 目标是 10 个 AI 自动对局从前端开局后可无卡点观赛到�
 
 - 系统设置弹窗内含 10 个模型 slot。每个 slot 由两部分组成：
   - **静态部分**（不进 `localStorage`）：`slot` 索引、中文 `nickname`、ASCII `iconPath`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_SLOTS` 常量数组。
-  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置；10 个默认 slot 的 `thinkingEnabled` 固定为 `true`。
+  - **默认模型输入部分**：`baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`，统一定义在 `src/lib/modelConfigs.ts` 的 `MODEL_CONFIG_DEFAULTS`，用于预填系统设置；10 个默认 slot 的 `thinkingEnabled` 固定为 `false`。
   - **用户覆盖部分**：用户在 UI 中修改的 `baseUrl` / `apiKey` / `modelName` / `thinkingEnabled`。
 - 用户覆盖输入持久化到 `localStorage`，命名空间 `wolven_hunt.lobby.model_config.{slot}`，value 为 JSON `{baseUrl, apiKey, modelName, thinkingEnabled}`；不存在 key 时使用仓库默认配置显示。
 - 读取旧版 `{baseUrl, apiKey, modelName}` 缓存时必须兼容：`thinkingEnabled` 缺失或不是 boolean 时回退对应 slot 的默认值。

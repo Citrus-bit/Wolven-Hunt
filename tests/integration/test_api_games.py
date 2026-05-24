@@ -137,6 +137,41 @@ def test_model_test_litellm_receives_thinking_extra_body(monkeypatch, tmp_path) 
     assert not any(tmp_path.iterdir())
 
 
+def test_model_test_litellm_defaults_thinking_off(monkeypatch, tmp_path) -> None:
+    from wolven_hunt.llm.provider import _litellm_module
+
+    litellm = _litellm_module()
+    captured: dict[str, object] = {}
+
+    def fake_completion(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "choices": [{"message": {"content": '{"ok": true}'}}],
+            "model": kwargs["model"],
+            "usage": {},
+        }
+
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/models/test",
+            json={
+                "provider": "litellm",
+                "model": "qwen3.6-plus",
+                "base_url": "https://example.test/v1",
+                "api_key": "test-secret",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "message": None}
+    assert "extra_body" not in captured
+    assert not any(tmp_path.iterdir())
+
+
 def test_model_test_litellm_failure_message_is_sanitized(monkeypatch, tmp_path) -> None:
     import litellm
 
