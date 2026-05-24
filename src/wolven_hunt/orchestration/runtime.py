@@ -483,8 +483,20 @@ class GameRegistry:
             )
             if provider_config is not None:
                 gateway = LLMGateway(
-                    provider=build_provider_from_config(provider_config),
-                    max_retries=self.settings.llm_max_retries,
+                    provider=build_provider_from_config(
+                        provider_config,
+                        phase_timeout_seconds=config.rule_set.fallback.phase_timeout_seconds,
+                    ),
+                    max_retries=config.rule_set.fallback.max_retries,
+                    phase_max_retries=config.rule_set.fallback.phase_max_retries,
+                    retry_backoff_base_seconds=(
+                        config.rule_set.fallback.retry_backoff_base_seconds
+                    ),
+                    retry_backoff_multiplier=config.rule_set.fallback.retry_backoff_multiplier,
+                    retry_backoff_max_seconds=(
+                        config.rule_set.fallback.retry_backoff_max_seconds
+                    ),
+                    retry_backoff_jitter=config.rule_set.fallback.retry_backoff_jitter,
                     cost_tracker=cost_tracker,
                     raw_response_sink=lambda row: _write_llm_rows(store, row),
                 )

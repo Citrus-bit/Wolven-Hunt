@@ -73,7 +73,11 @@ def replay_resimulate(
 
     llm_seats = {_int_value(row.get("seat")) for row in raw_rows if row.get("error") is None}
     provider = ReplayLLMProvider(raw_rows)
-    gateway = LLMGateway(provider=provider, max_retries=config.rule_set.fallback.max_retries)
+    gateway = LLMGateway(
+        provider=provider,
+        max_retries=config.rule_set.fallback.max_retries,
+        phase_max_retries=config.rule_set.fallback.phase_max_retries,
+    )
     renderer = PromptRenderer(config.prompt_pack_root, version="v1")
     rng = DeterministicRNG(seed)
     agents: dict[int, PlayerInterface] = {}

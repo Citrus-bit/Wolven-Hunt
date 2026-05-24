@@ -17,6 +17,7 @@ import { buildAgentSpecs } from '../../lib/agentSpecs';
 import { preloadGameEffectAssets } from '../../lib/effectAssets';
 import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
 import {
+  appendUniqueSpectatorEffects,
   buildSeatEffectMap,
   publicEliminatedSeats,
   seedExpiredEffectSeenAt,
@@ -167,12 +168,6 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   }, []);
 
   useEffect(() => {
-    const nowMs = Date.now();
-    seedEffectSeenAt(spectatorEffects, effectSeenAtRef.current, nowMs);
-    setEffectClockMs(nowMs);
-  }, [spectatorEffects]);
-
-  useEffect(() => {
     if (spectatorEffects.length === 0) {
       return undefined;
     }
@@ -301,11 +296,15 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           void getEffects(gameId, effectSeqRef.current)
             .then((effects) => {
               const nowMs = Date.now();
+              ingestLiveSpectatorEffects(
+                setSpectatorEffects,
+                effects,
+                effectSeenAtRef.current,
+                nowMs,
+              );
               effects.forEach((effect) => {
-                seedEffectSeenAt([effect], effectSeenAtRef.current, nowMs);
                 effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
                 streamCursorRef.current = Math.max(streamCursorRef.current, effect.seq);
-                appendSpectatorEffect(setSpectatorEffects, effect);
               });
               if (effects.length > 0) {
                 setEffectClockMs(nowMs);
@@ -333,11 +332,15 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         },
         (effect) => {
           const nowMs = Date.now();
-          seedEffectSeenAt([effect], effectSeenAtRef.current, nowMs);
+          ingestLiveSpectatorEffects(
+            setSpectatorEffects,
+            [effect],
+            effectSeenAtRef.current,
+            nowMs,
+          );
           setEffectClockMs(nowMs);
           effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
           streamCursorRef.current = Math.max(streamCursorRef.current, effect.seq);
-          appendSpectatorEffect(setSpectatorEffects, effect);
         },
         lastSeq,
       );
@@ -818,24 +821,17 @@ function appendNarrativeRow(
   });
 }
 
-function appendSpectatorEffect(
+function ingestLiveSpectatorEffects(
   setEffects: Dispatch<SetStateAction<SpectatorEffect[]>>,
-  effect: SpectatorEffect,
+  effects: SpectatorEffect[],
+  seenAtByKey: EffectSeenAtMap,
+  nowMs: number,
 ) {
-  setEffects((prev) => {
-    if (
-      prev.some(
-        (existing) =>
-          existing.seq === effect.seq &&
-          existing.kind === effect.kind &&
-          existing.target_seat === effect.target_seat &&
-          existing.asset_key === effect.asset_key,
-      )
-    ) {
-      return prev;
-    }
-    return [...prev, effect];
-  });
+  if (effects.length === 0) {
+    return;
+  }
+  seedEffectSeenAt(effects, seenAtByKey, nowMs);
+  setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
 }
 
 function deriveSeatRoles(events: GameEvent[]): Partial<Record<number, SeatRole>> {

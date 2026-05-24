@@ -19,6 +19,7 @@ export type AgentSpec =
       api_key?: string;
       api_key_env?: string;
       timeout_seconds?: number;
+      thinking_enabled?: boolean;
     };
 
 export type CreateGameResponse = {

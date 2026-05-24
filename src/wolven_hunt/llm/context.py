@@ -9,8 +9,11 @@ from wolven_hunt.core.events import Event
 DEFAULT_FORCE_KEEP_TYPES = frozenset(
     {
         "game_start",
+        "day_announce",
         "death_at_night",
         "exile",
+        "vote_result",
+        "vote_pk_enter",
         "witch_action",
         "seer_check_result",
     }
@@ -48,8 +51,11 @@ def build_prompt_visible_events(
     summary_threshold: int = 60,
     head_count: int = 10,
     recent_count: int = 30,
+    exclude_types: set[str] | frozenset[str] = frozenset(),
 ) -> tuple[dict[str, Any], ...]:
     """Build deterministic, JSON-serializable visible event context for prompts."""
+    if exclude_types:
+        events = tuple(event for event in events if _event_type(event) not in exclude_types)
     if len(events) <= summary_threshold:
         return tuple(
             _event_to_prompt_dict(event)
@@ -79,6 +85,7 @@ def build_speech_context(
     *,
     current_seat: int | None,
     current_day: int | None,
+    alive_seats: Iterable[int] = (),
     max_speeches: int = 20,
 ) -> dict[str, Any]:
     if max_speeches <= 0:
@@ -94,6 +101,11 @@ def build_speech_context(
             continue
         already_spoken_seats.append(event.actor)
         seen_seats.add(event.actor)
+    not_yet_spoken_seats = [
+        seat
+        for seat in alive_seats
+        if seat != current_seat and seat not in seen_seats
+    ]
 
     own_public_speeches = tuple(
         _speech_row(event) for event in speech_events if event.actor == current_seat
@@ -104,6 +116,7 @@ def build_speech_context(
     return {
         "current_seat": current_seat,
         "already_spoken_seats": already_spoken_seats,
+        "not_yet_spoken_seats": not_yet_spoken_seats,
         "own_public_speeches": own_public_speeches[-max_speeches:],
         "prior_public_speeches": prior_public_speeches[-max_speeches:],
     }

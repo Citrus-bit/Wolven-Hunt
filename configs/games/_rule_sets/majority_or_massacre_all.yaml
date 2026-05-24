@@ -57,13 +57,25 @@ last_words:
     - poison_death
 fallback:
   max_retries: 2
+  retry_backoff_base_seconds: 1
+  retry_backoff_multiplier: 2
+  retry_backoff_max_seconds: 8
+  retry_backoff_jitter: false
+  phase_timeout_seconds:
+    DAY_SPEECH: 45
+    DAY_VOTE: 20
+    DAY_VOTE_PK: 20
+  phase_max_retries:
+    DAY_SPEECH: 2
+    DAY_VOTE: 1
+    DAY_VOTE_PK: 1
   actions:
     NIGHT_GUARD: random_legal_target_excluding_previous_guard
     NIGHT_WOLF_CHAT: silence_message
     NIGHT_WOLF_VOTE: random_legal_target
     NIGHT_WITCH: skip
     NIGHT_SEER: random_non_self_player
-    DAY_SPEECH: default_no_more_information
+    DAY_SPEECH: contextual_public_speech
     DAY_VOTE: random_alive_player_allow_self
     DAY_VOTE_PK: random_pk_alive_player_by_non_pk_voter_or_peaceful_day
     DAY_LAST_WORDS: default_no_last_words

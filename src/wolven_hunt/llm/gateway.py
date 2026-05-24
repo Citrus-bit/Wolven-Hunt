@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import TypeVar
@@ -66,6 +67,7 @@ class LLMFallbackRequired(RuntimeError):
 
 
 RawResponseSink = Callable[[dict[str, object]], None]
+SleepFn = Callable[[float], None]
 
 
 class LLMGateway:
@@ -74,12 +76,31 @@ class LLMGateway:
         *,
         provider: LLMProvider,
         max_retries: int,
+        phase_max_retries: Mapping[str, int] | None = None,
+        retry_backoff_base_seconds: float = 0.0,
+        retry_backoff_multiplier: float = 2.0,
+        retry_backoff_max_seconds: float = 0.0,
+        retry_backoff_jitter: bool = False,
+        sleep_fn: SleepFn | None = None,
         prompt_version: str = "v1",
         cost_tracker: CostTracker | None = None,
         raw_response_sink: RawResponseSink | None = None,
     ) -> None:
+        if retry_backoff_base_seconds < 0:
+            raise ValueError("retry_backoff_base_seconds must be non-negative")
+        if retry_backoff_multiplier < 1:
+            raise ValueError("retry_backoff_multiplier must be at least 1")
+        if retry_backoff_max_seconds < 0:
+            raise ValueError("retry_backoff_max_seconds must be non-negative")
+        if retry_backoff_jitter:
+            raise ValueError("retry_backoff_jitter must be false for deterministic retries")
         self.provider = provider
         self.max_retries = max_retries
+        self.phase_max_retries = dict(phase_max_retries or {})
+        self.retry_backoff_base_seconds = retry_backoff_base_seconds
+        self.retry_backoff_multiplier = retry_backoff_multiplier
+        self.retry_backoff_max_seconds = retry_backoff_max_seconds
+        self.sleep_fn = time.sleep if sleep_fn is None else sleep_fn
         self.prompt_version = prompt_version
         self.cost_tracker = cost_tracker
         self.raw_response_sink = raw_response_sink
@@ -96,7 +117,8 @@ class LLMGateway:
     ) -> LLMCallResult:
         last_result: LLMCallResult | None = None
         current_prompt = prompt
-        for attempt in range(self.max_retries + 1):
+        max_retries = self.phase_max_retries.get(phase, self.max_retries)
+        for attempt in range(max_retries + 1):
             self._counter += 1
             storage_ref = f"llm/{seat.number}/{phase}/{self._counter:06d}"
             prompt_hash = _sha256(current_prompt)
@@ -147,13 +169,22 @@ class LLMGateway:
             )
             warning = self._record(last_result, seat=seat, phase=phase, attempt=attempt)
             last_result = replace(last_result, budget_warning=warning)
-            if attempt < self.max_retries:
+            if attempt < max_retries:
                 current_prompt = (
                     f"{prompt}\n\n上一次输出未被接受: {error.type}: "
                     f"{error.message}。请只返回符合 schema 的 JSON。"
                 )
+                delay = self._retry_delay(attempt)
+                if delay > 0:
+                    self.sleep_fn(delay)
         assert last_result is not None
         return last_result
+
+    def _retry_delay(self, attempt: int) -> float:
+        if self.retry_backoff_base_seconds <= 0 or self.retry_backoff_max_seconds <= 0:
+            return 0.0
+        delay = self.retry_backoff_base_seconds * (self.retry_backoff_multiplier**attempt)
+        return min(delay, self.retry_backoff_max_seconds)
 
     def _record(
         self,

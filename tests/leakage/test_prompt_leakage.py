@@ -144,6 +144,7 @@ def test_prompt_payload_uses_only_referee_filtered_view(
     assert set(speech_context) == {
         "current_seat",
         "already_spoken_seats",
+        "not_yet_spoken_seats",
         "own_public_speeches",
         "prior_public_speeches",
     }
@@ -151,6 +152,7 @@ def test_prompt_payload_uses_only_referee_filtered_view(
 
     assert payload["seat"] == seat.number
     assert payload["role"] == role.value
+    assert payload["rule_set_summary"]["vote_sheriff"] is False
     assert speech_context["current_seat"] == seat.number
     assert "role_assignment" not in visible_events_json
     assert "role_assignment" not in speech_context_json
@@ -233,9 +235,21 @@ def test_prompt_warns_day_speech_is_sequential(game_config: GameConfig) -> None:
     prompt, _ = _render_prompt(game_config, role=Role.VILLAGER, phase="DAY_SPEECH")
 
     assert "白天发言是顺序进行的" in prompt
-    assert "不要因为后续座位暂未发言就指控其沉默或划水" in prompt
+    assert "未轮到不等于不活跃" in prompt
+    assert "不要因为后续座位暂未发言就指控其沉默、划水、不活跃、发言少或藏身份" in prompt
+    assert "not_yet_spoken_seats" in prompt
     assert "不要把其他座位发言当成自己说过" in prompt
     assert "speech_context" in prompt
+
+
+@pytest.mark.leakage
+def test_prompt_declares_no_sheriff_rule(game_config: GameConfig) -> None:
+    prompt, _ = _render_prompt(game_config, role=Role.VILLAGER, phase="DAY_VOTE")
+    payload = _extract_payload(prompt)
+
+    assert payload["rule_set_summary"]["vote_sheriff"] is False
+    assert "本局无警长" in prompt
+    assert "警长归票" in prompt
 
 
 def _render_prompt(

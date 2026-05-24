@@ -34,17 +34,24 @@ class PromptRenderer:
     ) -> str:
         role_name = "villager" if view.self_role is None else view.self_role.value
         current_seat = None if view.seat_or_none is None else view.seat_or_none.number
+        exclude_event_types = frozenset({"speech"}) if phase == "DAY_SPEECH" else frozenset()
         payload = {
             "seat": current_seat,
             "role": role_name,
             "phase": phase,
             "rule_set_summary": view.rule_set_summary,
             "teammates": [seat.number for seat in view.teammates],
-            "visible_events": build_prompt_visible_events(view.visible_events, max_count=40),
+            "visible_events": build_prompt_visible_events(
+                view.visible_events,
+                max_count=40,
+                exclude_types=exclude_event_types,
+            ),
             "speech_context": build_speech_context(
                 view.visible_events,
                 current_seat=current_seat,
                 current_day=_int_or_none(view.rule_set_summary.get("day")),
+                alive_seats=_int_tuple(view.rule_set_summary.get("alive_seats")),
+                max_speeches=12,
             ),
             "output_schema": schema_json,
         }
@@ -84,3 +91,18 @@ def _int_or_none(value: object) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _int_tuple(value: object) -> tuple[int, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    result: list[int] = []
+    for item in value:
+        if isinstance(item, int):
+            result.append(item)
+        elif isinstance(item, str):
+            try:
+                result.append(int(item))
+            except ValueError:
+                continue
+    return tuple(result)

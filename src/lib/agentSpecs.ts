@@ -24,6 +24,7 @@ export function buildAgentSpecs(
       base_url: config.baseUrl,
       api_key: config.apiKey,
       timeout_seconds: LIVE_LLM_TIMEOUT_SECONDS,
+      thinking_enabled: config.thinkingEnabled,
     };
   });
   return agents;

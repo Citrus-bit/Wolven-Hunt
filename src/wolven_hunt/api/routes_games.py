@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from starlette.responses import StreamingResponse
@@ -27,6 +26,7 @@ from wolven_hunt.api.sse import sse_response
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.seat import Seat
 from wolven_hunt.llm.provider import LiteLLMProvider, MockLLMProvider
+from wolven_hunt.llm.thinking import thinking_extra_body
 from wolven_hunt.orchestration.runtime import GameRegistry, GameSession
 from wolven_hunt.referee.reveal import build_role_reveal_payload
 from wolven_hunt.referee.visibility import filter_spectator_events
@@ -271,10 +271,7 @@ def test_model(request: ModelTestRequest) -> ModelTestResponse:
                 api_key=request.api_key,
                 base_url=request.base_url,
                 timeout_seconds=request.timeout_seconds,
-                extra_body=_model_test_extra_body(
-                    request.model,
-                    enabled=request.thinking_enabled,
-                ),
+                extra_body=thinking_extra_body(request.model, enabled=request.thinking_enabled),
             )
             if request.provider == "litellm"
             else MockLLMProvider(model=request.model)
@@ -291,26 +288,6 @@ def test_model(request: ModelTestRequest) -> ModelTestResponse:
             message=_sanitize_model_test_error(exc, api_key=request.api_key),
         )
     return ModelTestResponse(ok=True)
-
-
-def _model_test_extra_body(model: str, *, enabled: bool) -> dict[str, Any]:
-    if not enabled:
-        return {}
-    normalized = model.strip().lower()
-    if normalized.startswith("qwen"):
-        return {"enable_thinking": True}
-    if normalized.startswith(("kimi", "mimo", "deepseek", "glm", "doubao")):
-        return {"thinking": {"type": "enabled"}}
-    if normalized.startswith("hy3"):
-        return {
-            "chat_template_kwargs": {
-                "thinking": True,
-                "reasoning_effort": "medium",
-            }
-        }
-    if normalized.startswith("minimax"):
-        return {"reasoning_effort": "medium"}
-    return {}
 
 
 def _sanitize_model_test_error(exc: Exception, *, api_key: str) -> str:

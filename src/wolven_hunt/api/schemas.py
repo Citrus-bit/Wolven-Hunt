@@ -21,6 +21,7 @@ class AgentSpecLLM(BaseModel):
     api_key: str = ""
     api_key_env: str = ""
     timeout_seconds: float | None = Field(default=None, gt=0)
+    thinking_enabled: bool = False
 
 
 AgentSpec = Annotated[AgentSpecMock | AgentSpecLLM, Field(discriminator="kind")]

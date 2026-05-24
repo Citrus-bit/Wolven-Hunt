@@ -13,6 +13,13 @@ export type SeatEffectState = {
 
 export type SeatEffectMap = Record<number, SeatEffectState>;
 export type EffectSeenAtMap = Record<string, number>;
+export type EffectAnnouncement = {
+  id: string;
+  kind: SpectatorEffect['kind'];
+  assetKey: string;
+  text: string;
+  targetSeat: number;
+};
 
 type BuildSeatEffectOptions = {
   currentDay?: number | null;
@@ -20,10 +27,11 @@ type BuildSeatEffectOptions = {
   seenAtByKey?: EffectSeenAtMap;
 };
 
-const GUARD_SETTLE_GRACE_MS = 900;
-const WOLF_ATTACK_MS = 2600;
-const SEER_VISION_MS = 2200;
-const POTION_EFFECT_MS = 1800;
+const GUARD_SETTLE_GRACE_MS = 3000;
+const WOLF_ATTACK_MS = 4000;
+const SEER_VISION_MS = 3500;
+const POTION_EFFECT_MS = 3000;
+const EFFECT_ANNOUNCEMENT_MS = 5000;
 
 const PHASE_ORDER: Record<string, number> = {
   GAME_START: 0,
@@ -60,21 +68,39 @@ export function buildSeatEffectMap(
       seatState.outBadge = true;
       seatState.outBadgeSeq = Math.max(seatState.outBadgeSeq ?? 0, effect.seq);
     } else if (effect.kind === 'guard_shield') {
-      if (isGuardShieldActive(effect, currentPhase, currentDay, ageMs)) {
+      if (isGuardShieldActive(effect, currentPhase, currentDay, ageMs, options.seenAtByKey)) {
         seatState.guardShield = true;
         seatState.guardShieldSeq = effect.seq;
       }
     } else if (effect.kind === 'wolf_attack') {
       const blocked = effect.meta.blocked_by_guard === true;
-      const durationMs = Math.max(1200, effect.duration_ms || WOLF_ATTACK_MS);
-      if (isShortEffectActive(effect, currentPhase, currentDay, ageMs, durationMs)) {
+      const durationMs = effectDisplayDurationMs(effect);
+      if (
+        isShortEffectActive(
+          effect,
+          currentPhase,
+          currentDay,
+          ageMs,
+          durationMs,
+          options.seenAtByKey,
+        )
+      ) {
         seatState.wolfAttack = true;
         seatState.wolfAttackSeq = effect.seq;
         seatState.wolfAttackBlocked = blocked;
       }
     } else if (effect.kind === 'seer_vision') {
-      const durationMs = Math.max(1200, effect.duration_ms || SEER_VISION_MS);
-      if (isShortEffectActive(effect, currentPhase, currentDay, ageMs, durationMs)) {
+      const durationMs = effectDisplayDurationMs(effect);
+      if (
+        isShortEffectActive(
+          effect,
+          currentPhase,
+          currentDay,
+          ageMs,
+          durationMs,
+          options.seenAtByKey,
+        )
+      ) {
         seatState.seerVisionSeq = effect.seq;
       }
     }
@@ -94,9 +120,51 @@ export function activePotionEffects(
       return false;
     }
     const ageMs = effectAgeMs(effect, options.seenAtByKey, nowMs);
-    const durationMs = Math.max(900, effect.duration_ms || POTION_EFFECT_MS);
-    return isShortEffectActive(effect, currentPhase, currentDay, ageMs, durationMs);
+    const durationMs = effectDisplayDurationMs(effect);
+    return isShortEffectActive(
+      effect,
+      currentPhase,
+      currentDay,
+      ageMs,
+      durationMs,
+      options.seenAtByKey,
+    );
   });
+}
+
+export function activeEffectAnnouncements(
+  effects: SpectatorEffect[],
+  currentPhase: string | null,
+  options: BuildSeatEffectOptions = {},
+): EffectAnnouncement[] {
+  const currentDay = options.currentDay ?? latestEffectDay(effects);
+  const nowMs = options.nowMs ?? Number.POSITIVE_INFINITY;
+  const announcements: EffectAnnouncement[] = [];
+  for (const effect of effects) {
+    const label = effectAnnouncementText(effect);
+    if (!label) {
+      continue;
+    }
+    const ageMs = effectAgeMs(effect, options.seenAtByKey, nowMs);
+    const active = isEffectAnnouncementActive(
+      effect,
+      currentPhase,
+      currentDay,
+      ageMs,
+      options.seenAtByKey,
+    );
+    if (!active) {
+      continue;
+    }
+    announcements.push({
+      id: effectIdentity(effect),
+      kind: effect.kind,
+      assetKey: effect.asset_key,
+      text: label,
+      targetSeat: effect.target_seat,
+    });
+  }
+  return announcements;
 }
 
 export function seedExpiredEffectSeenAt(
@@ -110,9 +178,32 @@ export function seedExpiredEffectSeenAt(
     }
     const key = effectIdentity(effect);
     if (!(key in seenAtByKey)) {
-      seenAtByKey[key] = nowMs - effectDisplayDurationMs(effect) - 1;
+      seenAtByKey[key] =
+        nowMs -
+        Math.max(effectDisplayDurationMs(effect), effectAnnouncementDurationMs(effect)) -
+        1;
     }
   }
+}
+
+export function appendUniqueSpectatorEffects(
+  current: SpectatorEffect[],
+  incoming: SpectatorEffect[],
+) {
+  if (incoming.length === 0) {
+    return current;
+  }
+  const seen = new Set(current.map(effectIdentity));
+  const next = [...current];
+  for (const effect of incoming) {
+    const key = effectIdentity(effect);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    next.push(effect);
+  }
+  return next.length === current.length ? current : next;
 }
 
 export function effectIdentity(effect: SpectatorEffect) {
@@ -198,19 +289,27 @@ function isGuardShieldActive(
   currentPhase: string | null,
   currentDay: number | null,
   ageMs: number,
+  seenAtByKey?: EffectSeenAtMap,
 ) {
   if (!isSameDay(effect, currentDay)) {
-    return false;
-  }
-  if (within(ageMs, GUARD_SETTLE_GRACE_MS)) {
-    return true;
+    return hasEffectSeenAt(effect, seenAtByKey)
+      ? within(ageMs, effectDisplayDurationMs(effect))
+      : false;
   }
   const currentOrder = phaseOrder(currentPhase);
   if (currentOrder === null) {
-    return false;
+    return hasEffectSeenAt(effect, seenAtByKey)
+      ? within(ageMs, effectDisplayDurationMs(effect))
+      : false;
   }
   const effectOrder = phaseOrder(effect.phase) ?? PHASE_ORDER.NIGHT_GUARD;
-  return currentOrder >= effectOrder && currentOrder <= PHASE_ORDER.NIGHT_RESOLVE;
+  if (currentOrder >= effectOrder && currentOrder <= PHASE_ORDER.NIGHT_RESOLVE) {
+    return true;
+  }
+  if (hasEffectSeenAt(effect, seenAtByKey)) {
+    return within(ageMs, effectDisplayDurationMs(effect));
+  }
+  return false;
 }
 
 function isShortEffectActive(
@@ -219,8 +318,15 @@ function isShortEffectActive(
   currentDay: number | null,
   ageMs: number,
   durationMs: number,
+  seenAtByKey?: EffectSeenAtMap,
 ) {
-  if (!isSameDay(effect, currentDay) || !within(ageMs, durationMs)) {
+  if (!within(ageMs, durationMs)) {
+    return false;
+  }
+  if (hasEffectSeenAt(effect, seenAtByKey)) {
+    return true;
+  }
+  if (!isSameDay(effect, currentDay)) {
     return false;
   }
   const currentOrder = phaseOrder(currentPhase);
@@ -231,20 +337,79 @@ function isShortEffectActive(
   return currentOrder >= effectOrder;
 }
 
-function effectDisplayDurationMs(effect: SpectatorEffect) {
+export function effectDisplayDurationMs(effect: SpectatorEffect) {
   if (effect.kind === 'guard_shield') {
-    return GUARD_SETTLE_GRACE_MS;
+    return Math.max(GUARD_SETTLE_GRACE_MS, effect.duration_ms || 0);
   }
   if (effect.kind === 'wolf_attack') {
-    return Math.max(1200, effect.duration_ms || WOLF_ATTACK_MS);
+    return Math.max(WOLF_ATTACK_MS, effect.duration_ms || 0);
   }
   if (effect.kind === 'seer_vision') {
-    return Math.max(1200, effect.duration_ms || SEER_VISION_MS);
+    return Math.max(SEER_VISION_MS, effect.duration_ms || 0);
   }
   if (effect.kind === 'witch_potion') {
-    return Math.max(900, effect.duration_ms || POTION_EFFECT_MS);
+    return Math.max(POTION_EFFECT_MS, effect.duration_ms || 0);
   }
   return 0;
+}
+
+export function effectAnnouncementDurationMs(effect: SpectatorEffect) {
+  if (effect.kind === 'death_reveal') {
+    return 0;
+  }
+  return Math.max(EFFECT_ANNOUNCEMENT_MS, effectDisplayDurationMs(effect));
+}
+
+function isEffectAnnouncementActive(
+  effect: SpectatorEffect,
+  currentPhase: string | null,
+  currentDay: number | null,
+  ageMs: number,
+  seenAtByKey?: EffectSeenAtMap,
+) {
+  if (effect.kind === 'death_reveal') {
+    return false;
+  }
+  const durationMs = effectAnnouncementDurationMs(effect);
+  if (hasEffectSeenAt(effect, seenAtByKey)) {
+    return within(ageMs, durationMs);
+  }
+  if (effect.kind === 'guard_shield') {
+    return isGuardShieldActive(effect, currentPhase, currentDay, ageMs, seenAtByKey);
+  }
+  return isShortEffectActive(
+    effect,
+    currentPhase,
+    currentDay,
+    ageMs,
+    durationMs,
+    seenAtByKey,
+  );
+}
+
+function effectAnnouncementText(effect: SpectatorEffect) {
+  if (effect.kind === 'guard_shield') {
+    return `守卫护盾：${effect.target_seat}号`;
+  }
+  if (effect.kind === 'wolf_attack') {
+    return `狼人袭击：${effect.target_seat}号`;
+  }
+  if (effect.kind === 'seer_vision') {
+    return `预言查验：${effect.target_seat}号`;
+  }
+  if (effect.kind === 'witch_potion') {
+    return effect.meta.action === 'save'
+      ? `女巫解药：${effect.target_seat}号`
+      : `女巫毒药：${effect.target_seat}号`;
+  }
+  return '';
+}
+
+function hasEffectSeenAt(
+  effect: SpectatorEffect,
+  seenAtByKey: EffectSeenAtMap | undefined,
+) {
+  return seenAtByKey !== undefined && effectIdentity(effect) in seenAtByKey;
 }
 
 function isSameDay(effect: SpectatorEffect, currentDay: number | null) {

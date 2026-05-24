@@ -29,7 +29,7 @@ def test_phase_output_models_cover_step_06_contract() -> None:
         ("NIGHT_WOLF_VOTE", {"target": 2}),
         ("NIGHT_WITCH", {"action": "skip", "target": None}),
         ("NIGHT_SEER", {"target": 3}),
-        ("DAY_SPEECH", {"text": "我没有更多信息"}),
+        ("DAY_SPEECH", {"text": "我先基于公开信息观察发言和票型。"}),
         ("DAY_VOTE", {"target": 4}),
         ("DAY_VOTE_PK", {"target": 5}),
         ("DAY_LAST_WORDS", {"text": "我没有遗言"}),

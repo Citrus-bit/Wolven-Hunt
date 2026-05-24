@@ -79,6 +79,52 @@ def test_api_accepts_new_agent_specs_without_timeout(monkeypatch, tmp_path) -> N
         _wait_until_finished(client, created.json()["game_id"])
 
 
+def test_api_game_agent_spec_passes_thinking_enabled_to_provider(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import wolven_hunt.orchestration.runtime as runtime_module
+    from wolven_hunt.llm.provider import MockLLMProvider
+
+    captured: list[object] = []
+
+    def fake_build_provider(config, *, phase_timeout_seconds=None):
+        del phase_timeout_seconds
+        captured.append(config)
+        return MockLLMProvider(model="mock/deterministic")
+
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setattr(runtime_module, "build_provider_from_config", fake_build_provider)
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-thinking-enabled",
+                "agents": {
+                    "1": {
+                        "kind": "llm",
+                        "provider": "litellm",
+                        "model": "qwen3.6-plus",
+                        "api_key": "test-secret",
+                        "thinking_enabled": True,
+                    }
+                },
+                "pacing": "off",
+            },
+        )
+        assert created.status_code == 200
+
+    assert any(
+        getattr(config, "model", "") == "qwen3.6-plus"
+        and getattr(config, "thinking_enabled", False) is True
+        for config in captured
+    )
+
+
 def test_api_persists_spectator_safe_seat_presentation(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     monkeypatch.setenv("WH_LLM_PROVIDER", "mock")

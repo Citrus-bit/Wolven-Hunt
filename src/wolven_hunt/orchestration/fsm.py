@@ -440,12 +440,12 @@ def _decide_with_fallback(
     except LLMFallbackRequired as exc:
         _record_llm_call_if_present(state, agent, event_log, seat)
         _record_llm_error(state, seat, event_log, exc)
-        action = _fallback_for_phase(state, seat, rng)
+        action = _fallback_for_phase(state, seat, rng, view)
         _record_fallback(state, seat, event_log, f"llm:{exc.error.type}", action)
         return action
     except Exception:
         _record_llm_call_if_present(state, agent, event_log, seat)
-        action = _fallback_for_phase(state, seat, rng)
+        action = _fallback_for_phase(state, seat, rng, view)
         _record_fallback(state, seat, event_log, "exception", action)
         return action
     rejection = validate_action(state, action, config.rule_set)
@@ -463,7 +463,7 @@ def _decide_with_fallback(
         )
     )
     reason = f"validation_failed:{rejection.rule_id}"
-    action = _fallback_for_phase(state, seat, rng)
+    action = _fallback_for_phase(state, seat, rng, view)
     _record_fallback(state, seat, event_log, reason, action)
     return action
 
@@ -573,7 +573,12 @@ def _selected_from_action(action: Action) -> int | str | None:
         return action.text
 
 
-def _fallback_for_phase(state: GameState, seat: Seat, rng: DeterministicRNG) -> Action:
+def _fallback_for_phase(
+    state: GameState,
+    seat: Seat,
+    rng: DeterministicRNG,
+    view: PlayerView,
+) -> Action:
     stream = f"fallback:{state.phase}:seat{seat.number}:retry0"
     if state.phase == Phase.NIGHT_GUARD.value:
         candidates = tuple(
@@ -593,11 +598,39 @@ def _fallback_for_phase(state: GameState, seat: Seat, rng: DeterministicRNG) -> 
         candidates = tuple(player.seat for player in state.players if player.seat != seat)
         return SeerCheck(actor=seat, target=rng.choice(stream, candidates))
     if state.phase == Phase.DAY_SPEECH.value:
-        return Speech(actor=seat, text="我没有更多信息")
+        return Speech(actor=seat, text=_contextual_public_speech(seat, view))
     if state.phase == Phase.DAY_VOTE.value:
         return Vote(actor=seat, target=rng.choice(stream, state.alive_seats()))
     if state.phase == Phase.DAY_VOTE_PK.value:
         return PkVote(actor=seat, target=rng.choice(stream, state.pk_seats))
     if state.phase == Phase.DAY_LAST_WORDS.value:
         return LastWords(actor=seat, text="我没有遗言")
-    return Speech(actor=seat, text="我没有更多信息")
+    return Speech(actor=seat, text=_contextual_public_speech(seat, view))
+
+
+def _contextual_public_speech(seat: Seat, view: PlayerView) -> str:
+    current_day = view.rule_set_summary.get("day")
+    speakers: list[int] = []
+    seen: set[int] = set()
+    for event in view.visible_events:
+        if event.type is not EventType.SPEECH:
+            continue
+        if event.phase != Phase.DAY_SPEECH.value or event.day != current_day:
+            continue
+        if event.actor is None or event.actor == seat.number or event.actor in seen:
+            continue
+        speakers.append(event.actor)
+        seen.add(event.actor)
+    if not speakers:
+        return (
+            f"我是{seat.number}号。现在公开信息还少,我先关注夜晚公示和后续发言里的逻辑矛盾,"
+            "投票会优先选择解释不清或强行带票的位置。"
+        )
+    focused = speakers[-2:]
+    speaker_text = (
+        f"{focused[0]}号" if len(focused) == 1 else f"{focused[0]}号和{focused[1]}号"
+    )
+    return (
+        f"我是{seat.number}号。前面{speaker_text}的发言我会重点对照票型看,"
+        "当前不报未公开信息,投票前优先找发言矛盾、跟票摇摆和解释不清的位置。"
+    )

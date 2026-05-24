@@ -12,6 +12,7 @@ from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.seat import Seat
 from wolven_hunt.llm.cost import TokenUsage
 from wolven_hunt.llm.provider_map import ProviderConfig, ProviderMap
+from wolven_hunt.llm.thinking import thinking_extra_body
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +54,12 @@ class MockLLMProvider:
             "NIGHT_WOLF_VOTE": {"target": cycled_target},
             "NIGHT_WITCH": {"action": "skip", "target": None},
             "NIGHT_SEER": {"target": cycled_target},
-            "DAY_SPEECH": {"text": f"我是 {seat.number} 号, 我没有更多信息"},
+            "DAY_SPEECH": {
+                "text": (
+                    f"我是 {seat.number} 号。我先关注公开发言里的逻辑矛盾,"
+                    "投票会优先选择解释不清的位置。"
+                )
+            },
             "DAY_VOTE": {"target": cycled_target},
             "DAY_VOTE_PK": {"target": 1},
             "DAY_LAST_WORDS": {"text": "我没有遗言"},
@@ -65,7 +71,11 @@ class MockLLMProvider:
         )
         return ProviderResponse(
             content=json.dumps(
-                content_by_phase.get(phase, {"text": "我没有更多信息"}), ensure_ascii=False
+                content_by_phase.get(
+                    phase,
+                    {"text": "我先基于公开信息观察发言和票型。"},
+                ),
+                ensure_ascii=False,
             ),
             model=self.model,
             usage=usage,
@@ -81,12 +91,14 @@ class LiteLLMProvider:
         base_url: str = "",
         timeout_seconds: float = 30.0,
         extra_body: dict[str, Any] | None = None,
+        phase_timeout_seconds: dict[str, float] | None = None,
     ) -> None:
         self.model = normalize_litellm_model(model=model, base_url=base_url)
         self.api_key = api_key
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
         self.extra_body = dict(extra_body or {})
+        self.phase_timeout_seconds = dict(phase_timeout_seconds or {})
 
     def complete(
         self,
@@ -96,13 +108,14 @@ class LiteLLMProvider:
         prompt: str,
         rng: DeterministicRNG,
     ) -> ProviderResponse:
-        del seat, phase, rng
+        del seat, rng
         litellm = _litellm_module()
+        timeout_seconds = self.phase_timeout_seconds.get(phase, self.timeout_seconds)
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "api_key": self.api_key,
-            "timeout": self.timeout_seconds,
+            "timeout": timeout_seconds,
             "response_format": {"type": "json_object"},
         }
         if self.base_url:
@@ -193,13 +206,19 @@ class ReplayLLMProvider:
         )
 
 
-def build_provider_from_config(config: ProviderConfig) -> LLMProvider:
+def build_provider_from_config(
+    config: ProviderConfig,
+    *,
+    phase_timeout_seconds: dict[str, float] | None = None,
+) -> LLMProvider:
     if config.provider == "litellm":
         return LiteLLMProvider(
             model=config.model,
             api_key=config.api_key,
             base_url=config.base_url,
             timeout_seconds=config.timeout_seconds,
+            extra_body=thinking_extra_body(config.model, enabled=config.thinking_enabled),
+            phase_timeout_seconds=phase_timeout_seconds,
         )
     return MockLLMProvider(model=config.model)
 

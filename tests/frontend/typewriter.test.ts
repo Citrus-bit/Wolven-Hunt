@@ -32,7 +32,7 @@ describe('typewriter helpers', () => {
   });
 
   it('returns full text when disabled or reduced motion is requested', () => {
-    const text = '7号：我没有更多信息';
+    const text = '7号：我先关注公开发言';
 
     expect(typewriterVisibleText(text, { elapsedMs: 0, enabled: false })).toBe(text);
     expect(

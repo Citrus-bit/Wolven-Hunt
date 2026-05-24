@@ -252,13 +252,13 @@ Referee 是唯一权限边界。核心规则和 Agent 不得自行拼接越权�
 
 三类异常：
 
-- 超时：单次调用超过 `llm.timeout_seconds`。
+- 超时：单次调用超过 `llm.timeout_seconds`；若 RuleSet 配置 `fallback.phase_timeout_seconds[phase]`，该阶段使用覆盖值。
 - 非法 JSON 或 schema 校验失败。
 - 合法性校验失败：结构合法但违反规则。
 
 错误子类映射到外显事件：`timeout` / `rate_limit` / `network` 归为 `agent_timeout`；`invalid_json` / `schema_violation` / `illegal_action` 归为 `agent_invalid_action`。
 
-每阶段每 Agent 最多重试 `llm.max_retries` 次，默认 2 次。重试 prompt 末尾追加：`上一次输出未被接受：{error_type}: {message}。请只返回符合 schema 的 JSON。` 重试仍失败则触发 fallback，并记录 `agent_fallback_triggered`。
+每阶段每 Agent 最多重试 `fallback.max_retries` 次，默认 2 次；若 RuleSet 配置 `fallback.phase_max_retries[phase]`，该阶段使用覆盖值。运行时必须优先使用 RuleSet 中的 retry 配置，环境变量只能作为 provider/default 配置来源，不能覆盖已加载 RuleSet 的阶段重试契约。重试 prompt 末尾追加：`上一次输出未被接受：{error_type}: {message}。请只返回符合 schema 的 JSON。` 失败后若仍有重试预算，按 RuleSet 中的指数退避参数等待：`delay = min(retry_backoff_base_seconds * retry_backoff_multiplier ** attempt, retry_backoff_max_seconds)`，其中首次失败后的 `attempt=0`。当前默认 `retry_backoff_jitter: false`，不得引入未记录或不可复现的随机 jitter。重试仍失败则触发 fallback，并记录 `agent_fallback_triggered`。
 
 默认 fallback：
 
@@ -269,12 +269,12 @@ Referee 是唯一权限边界。核心规则和 Agent 不得自行拼接越权�
 | `NIGHT_WOLF_VOTE` | 随机选一个合法目标 |
 | `NIGHT_WITCH` | 默认跳过，不消耗药品 |
 | `NIGHT_SEER` | 随机选一个非自己玩家 |
-| `DAY_SPEECH` | 默认模板 `我没有更多信息` |
+| `DAY_SPEECH` | 基于 Referee 过滤后 PlayerView 的确定性公开发言模板 `contextual_public_speech` |
 | `DAY_VOTE` | 随机选一个存活玩家，允许自己 |
 | `DAY_VOTE_PK` | 台下玩家随机投一个 PK 台上存活玩家；如无台下玩家可投，直接平安日 |
 | `DAY_LAST_WORDS` | 默认模板 `我没有遗言` |
 
-所有 fallback 行为写入 RuleSet。所有 fallback 随机使用 deterministic RNG，并记录候选集、选中值与 fallback 原因。
+所有 fallback 行为写入 RuleSet。所有 fallback 随机使用 deterministic RNG，并记录候选集、选中值与 fallback 原因。`contextual_public_speech` 只能读取当前 seat 的 PlayerView、公开/本人可见事件与 rule summary；不得读取 raw response、provider 配置、spectator-only 投影或任何未授权私有事件。默认指数退避配置为：`retry_backoff_base_seconds: 1`、`retry_backoff_multiplier: 2`、`retry_backoff_max_seconds: 8`、`retry_backoff_jitter: false`。默认阶段覆盖为：`DAY_SPEECH` 使用 45 秒超时、2 次重试；`DAY_VOTE` 与 `DAY_VOTE_PK` 使用 20 秒超时、1 次重试；其他阶段沿用 provider timeout 与默认 `fallback.max_retries`。
 
 ## 12. Replay
 
@@ -312,7 +312,7 @@ configs/prompts/zh/seer/night_action.v3.md
 [system.v1.md] + [role/phase.v1.md] + [JSON payload] + [retry_error?]
 ```
 
-`system.v1.md` 是全员统一系统提示词，包含规则摘要、信息边界和 JSON-only 输出契约。角色/phase 模板来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context 和 output_schema。`speech_context` 用于 DAY_SPEECH 的发言归属约束，固定包含 `current_seat`、`already_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。LLM 重试时只在末尾追加结构化错误说明。
+`system.v1.md` 是全员统一系统提示词，包含规则摘要、信息边界和 JSON-only 输出契约。角色/phase 模板来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context 和 output_schema。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff`，当前固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制。`speech_context` 用于 DAY_SPEECH 的发言归属约束，固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。LLM 重试时只在末尾追加结构化错误说明。
 
 输入侧：
 
@@ -350,7 +350,7 @@ Prompt 存储：
 - `src/wolven_hunt/referee`：PlayerView、visibility filter、validate_action。
 - `src/wolven_hunt/orchestration`：纯 Python FSM；后续 LangGraph adapter 只作为边界层。
 - `src/wolven_hunt/agents`：PlayerInterface、LLMPlayer、HumanPlayer stub。
-- `src/wolven_hunt/llm`：LiteLLM 网关、structured output、重试、fallback、成本记录。
+- `src/wolven_hunt/llm`：LiteLLM 网关、structured output、阶段级重试/超时、fallback、成本记录。
 - `src/wolven_hunt/storage`：事件日志、快照、两种 replay 模式。
 - `src/wolven_hunt/api`：FastAPI 控制接口，STEP-06 实现。
 
@@ -392,7 +392,7 @@ FastAPI 在 STEP-06 实现，所有读取接口默认返回 Referee 过滤后的
 - `POST /games/{id}/wolf_chat`
 - `POST /models/test`
 
-错误体统一为 `{code, message, details?}`。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。`POST /models/test` 只做临时连通性测试，请求允许携带 `thinking_enabled`，未携带时默认为 `false`；不写 EventLog、不落盘、不返回 API key；失败响应只返回脱敏后的短错误摘要。所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
+错误体统一为 `{code, message, details?}`。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。`POST /models/test` 只做临时连通性测试，请求允许携带 `thinking_enabled`，未携带时默认为 `false`；正式游戏的 `AgentSpecLLM` 同样允许携带 `thinking_enabled`，仅用于 provider 调用参数，不进入 EventLog、PlayerView、narrative、spectator API 或 SSE。不写 EventLog、不落盘、不返回 API key；失败响应只返回脱敏后的短错误摘要。所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 
 SSE 线协议固定为 `event: game_event`、`id: <seq>`、`data: <spectator Event JSON>`；STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`，三类事件共享原始 EventLog `seq`。SSE cursor 按 raw EventLog seq 推进；每条 raw event 独立决定是否产生 filtered `game_event`、`narrative_row`、`spectator_effect`。每 30s 发送 `event: heartbeat`。`Last-Event-ID` 表示从 `seq + 1` 续推，不存在则返回 410。STEP-08 起前端默认同源相对路径；开发模式 Vite `7001` proxy 到 FastAPI `7002`，生产模式 FastAPI `7002` 服务 `dist/` 和 API。
 

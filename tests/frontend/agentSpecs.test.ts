@@ -17,6 +17,7 @@ describe('buildAgentSpecs', () => {
         base_url: 'https://example.test/0',
         api_key: 'key-0',
         timeout_seconds: LIVE_LLM_TIMEOUT_SECONDS,
+        thinking_enabled: true,
       },
       2: {
         kind: 'llm',
@@ -25,6 +26,7 @@ describe('buildAgentSpecs', () => {
         base_url: 'https://example.test/1',
         api_key: 'key-1',
         timeout_seconds: LIVE_LLM_TIMEOUT_SECONDS,
+        thinking_enabled: true,
       },
     });
   });

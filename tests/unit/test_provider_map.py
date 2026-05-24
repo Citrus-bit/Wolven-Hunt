@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from wolven_hunt.config.settings import Settings
+from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.seat import Seat
-from wolven_hunt.llm.provider import normalize_litellm_model
+from wolven_hunt.llm.provider import (
+    LiteLLMProvider,
+    build_provider_from_config,
+    normalize_litellm_model,
+)
 from wolven_hunt.llm.provider_map import (
     ProviderConfig,
     load_provider_map,
@@ -93,6 +99,20 @@ def test_merge_provider_config_none_timeout_uses_fallback() -> None:
     assert config.timeout_seconds == 22
 
 
+def test_merge_provider_config_reads_thinking_enabled() -> None:
+    config = merge_provider_config(
+        ProviderConfig(provider="litellm", model="fallback-model"),
+        {
+            "kind": "llm",
+            "provider": "litellm",
+            "model": "qwen3.6-plus",
+            "thinking_enabled": True,
+        },
+    )
+
+    assert config.thinking_enabled is True
+
+
 def test_litellm_model_with_base_url_uses_custom_openai_prefix() -> None:
     assert (
         normalize_litellm_model(model="qwen3.6-plus", base_url="https://example.test/v1")
@@ -105,6 +125,66 @@ def test_litellm_model_with_base_url_uses_custom_openai_prefix() -> None:
         )
         == "custom_openai/qwen3.6-plus"
     )
+
+
+def test_litellm_provider_uses_phase_timeout_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_completion(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": '{"target":1}'}}], "model": "m", "usage": {}}
+
+    monkeypatch.setattr(
+        "wolven_hunt.llm.provider._litellm_module",
+        lambda: SimpleNamespace(completion=fake_completion),
+    )
+    provider = LiteLLMProvider(
+        model="qwen3.6-plus",
+        api_key="test-key",
+        timeout_seconds=30,
+        phase_timeout_seconds={"DAY_SPEECH": 20},
+    )
+
+    provider.complete(
+        seat=Seat(1),
+        phase="DAY_SPEECH",
+        prompt="{}",
+        rng=DeterministicRNG("phase-timeout"),
+    )
+
+    assert captured["timeout"] == 20
+
+
+def test_build_provider_from_config_applies_thinking_extra_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_completion(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": '{"target":1}'}}], "model": "m", "usage": {}}
+
+    monkeypatch.setattr(
+        "wolven_hunt.llm.provider._litellm_module",
+        lambda: SimpleNamespace(completion=fake_completion),
+    )
+    provider = build_provider_from_config(
+        ProviderConfig(
+            provider="litellm",
+            model="qwen3.6-plus",
+            api_key="test-key",
+            thinking_enabled=True,
+        )
+    )
+
+    provider.complete(
+        seat=Seat(1),
+        phase="NIGHT_GUARD",
+        prompt="{}",
+        rng=DeterministicRNG("thinking-provider"),
+    )
+
+    assert captured["extra_body"] == {"enable_thinking": True}
 
 
 def test_provider_api_key_is_not_written_to_manifest(tmp_path: Path) -> None:

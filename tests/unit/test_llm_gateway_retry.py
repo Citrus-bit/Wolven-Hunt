@@ -42,6 +42,26 @@ class TimeoutProvider:
         raise TimeoutError("too slow")
 
 
+class TimeoutThenSuccessProvider:
+    def __init__(self, *, failures: int) -> None:
+        self.failures = failures
+        self.calls = 0
+
+    def complete(
+        self,
+        *,
+        seat: Seat,
+        phase: str,
+        prompt: str,
+        rng: DeterministicRNG,
+    ) -> ProviderResponse:
+        del seat, phase, prompt, rng
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise TimeoutError("too slow")
+        return ProviderResponse(content='{"target":1}', model="mock/recovered")
+
+
 @pytest.mark.llm
 def test_gateway_retries_invalid_json_then_parses() -> None:
     rows: list[dict[str, object]] = []
@@ -65,6 +85,57 @@ def test_gateway_retries_invalid_json_then_parses() -> None:
 
 
 @pytest.mark.llm
+def test_gateway_phase_retry_override_can_disable_retries() -> None:
+    provider = FlakyProvider()
+    gateway = LLMGateway(
+        provider=provider,
+        max_retries=1,
+        phase_max_retries={"DAY_SPEECH": 0},
+    )
+
+    result = gateway.call(
+        seat=Seat(1),
+        phase="DAY_SPEECH",
+        prompt="{}",
+        output_model=GuardOutput,
+        rng=DeterministicRNG("gateway-phase-retry"),
+    )
+
+    assert provider.calls == 1
+    assert result.error is not None
+    assert result.error.type is LLMErrorType.INVALID_JSON
+
+
+@pytest.mark.llm
+def test_gateway_exponential_backoff_before_success() -> None:
+    rows: list[dict[str, object]] = []
+    delays: list[float] = []
+    provider = TimeoutThenSuccessProvider(failures=2)
+    gateway = LLMGateway(
+        provider=provider,
+        max_retries=2,
+        retry_backoff_base_seconds=1,
+        retry_backoff_multiplier=2,
+        retry_backoff_max_seconds=8,
+        sleep_fn=delays.append,
+        raw_response_sink=rows.append,
+    )
+
+    result = gateway.call(
+        seat=Seat(1),
+        phase="DAY_SPEECH",
+        prompt="{}",
+        output_model=GuardOutput,
+        rng=DeterministicRNG("gateway-backoff-success"),
+    )
+
+    assert isinstance(result.parsed, GuardOutput)
+    assert provider.calls == 3
+    assert delays == [1, 2]
+    assert [row["error"] for row in rows] == ["timeout", "timeout", None]
+
+
+@pytest.mark.llm
 def test_gateway_maps_timeout_error() -> None:
     gateway = LLMGateway(provider=TimeoutProvider(), max_retries=0)
 
@@ -78,3 +149,32 @@ def test_gateway_maps_timeout_error() -> None:
 
     assert result.error is not None
     assert result.error.type is LLMErrorType.TIMEOUT
+
+
+@pytest.mark.llm
+def test_gateway_records_each_attempt_when_retries_exhausted() -> None:
+    rows: list[dict[str, object]] = []
+    delays: list[float] = []
+    gateway = LLMGateway(
+        provider=TimeoutProvider(),
+        max_retries=2,
+        retry_backoff_base_seconds=1,
+        retry_backoff_multiplier=2,
+        retry_backoff_max_seconds=8,
+        sleep_fn=delays.append,
+        raw_response_sink=rows.append,
+    )
+
+    result = gateway.call(
+        seat=Seat(1),
+        phase="DAY_SPEECH",
+        prompt="{}",
+        output_model=GuardOutput,
+        rng=DeterministicRNG("gateway-backoff-exhausted"),
+    )
+
+    assert result.error is not None
+    assert result.error.type is LLMErrorType.TIMEOUT
+    assert delays == [1, 2]
+    assert [row["attempt"] for row in rows] == [0, 1, 2]
+    assert [row["error"] for row in rows] == ["timeout", "timeout", "timeout"]

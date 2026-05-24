@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { gameEffectAssetPath, type GameEffectAssetKey } from '../../lib/effectAssets';
 import {
+  activeEffectAnnouncements,
   activePotionEffects,
+  effectDisplayDurationMs,
   effectIdentity,
   type EffectSeenAtMap,
 } from '../../lib/gameEffects';
@@ -44,6 +46,11 @@ export function GameEffectsLayer({
   const seenFlightIdsRef = useRef(new Set<string>());
   const [flights, setFlights] = useState<PotionFlight[]>([]);
   const [bursts, setBursts] = useState<PotionBurst[]>([]);
+  const announcements = activeEffectAnnouncements(effects, currentPhase, {
+    currentDay,
+    nowMs,
+    seenAtByKey,
+  }).slice(-4);
 
   useEffect(() => {
     const activeEffects = activePotionEffects(effects, currentPhase, {
@@ -110,6 +117,25 @@ export function GameEffectsLayer({
           } as CSSProperties}
         />
       ))}
+      {announcements.length > 0 && (
+        <div className="game-effect-announcements">
+          {announcements.map((announcement) => (
+            <span
+              key={announcement.id}
+              className={`game-effect-announcement game-effect-announcement--${announcement.kind}`}
+            >
+              {isEffectAssetKey(announcement.assetKey) && (
+                <img
+                  src={gameEffectAssetPath(announcement.assetKey)}
+                  alt=""
+                  className="game-effect-announcement-icon"
+                />
+              )}
+              <span>{announcement.text}</span>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -134,7 +160,7 @@ function buildPotionFlight(
     fromY: from.y,
     toX: to.x,
     toY: to.y,
-    durationMs: Math.max(300, effect.duration_ms || 1200),
+    durationMs: effectDisplayDurationMs(effect),
   };
 }
 
@@ -155,7 +181,7 @@ function buildPotionBurst(
     assetKey: effect.asset_key,
     x: target.x,
     y: target.y,
-    durationMs: Math.max(300, Math.min(1600, effect.duration_ms || 900)),
+    durationMs: effectDisplayDurationMs(effect),
   };
 }
 

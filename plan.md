@@ -222,7 +222,7 @@ GAME_END
 
 ### 4.1 三类异常
 
-1. **超时**：单次调用 > `llm.timeout_seconds`。
+1. **超时**：单次调用 > `llm.timeout_seconds`，若 RuleSet 配置了 `fallback.phase_timeout_seconds[phase]` 则以该阶段值为准。
 2. **非法 JSON / schema 校验失败**：Pydantic 解析失败。
 3. **合法性校验失败**：通过 schema 但违反规则（如刀狼队友、连守同一人）。
 
@@ -235,8 +235,9 @@ GAME_END
 
 ### 4.2 重试策略
 
-- 每阶段每 Agent 最多重试 `llm.max_retries` 次（默认 2 次，可配置）。
+- 每阶段每 Agent 最多重试 `fallback.max_retries` 次（默认 2 次，可配置）；若 RuleSet 配置了 `fallback.phase_max_retries[phase]` 则该阶段覆盖默认值。运行时必须优先使用 RuleSet 中的 retry 配置，环境变量只能作为 provider/default 配置来源，不能覆盖已加载 RuleSet 的阶段重试契约。
 - 重试时在 prompt 末尾附加错误说明（仅本人可见），格式固定为：`上一次输出未被接受：{error_type}: {message}。请只返回符合 schema 的 JSON。`
+- 失败后若仍有重试预算，按 RuleSet 中的指数退避参数等待：`delay = min(retry_backoff_base_seconds * retry_backoff_multiplier ** attempt, retry_backoff_max_seconds)`，其中首次失败后的 `attempt=0`。当前默认 `retry_backoff_jitter: false`，不得引入未记录或不可复现的随机 jitter。
 - 重试仍失败 → 触发 fallback 并记录 `agent_fallback_triggered` 事件。
 
 ### 4.3 各阶段 Fallback 行为（默认）
@@ -248,18 +249,22 @@ GAME_END
 | `NIGHT_WOLF_VOTE` | 随机选一个合法目标 |
 | `NIGHT_WITCH` | 默认跳过，不消耗药品 |
 | `NIGHT_SEER` | 随机选一个非自己玩家 |
-| `DAY_SPEECH` | 默认模板「我没有更多信息」 |
+| `DAY_SPEECH` | 基于 Referee 过滤后 PlayerView 的确定性公开发言模板 `contextual_public_speech` |
 | `DAY_VOTE` | 随机选一个存活玩家（允许自己） |
 | `DAY_VOTE_PK` | 台下玩家随机投一个 PK 台上存活玩家；如无台下玩家可投，直接平安日 |
 | `DAY_LAST_WORDS` | 默认模板「我没有遗言」 |
 
 - 所有 fallback 行为均**写入 RuleSet**，黄金测试必须覆盖。
 - 所有 fallback 随机均使用 deterministic RNG，并在对应事件 payload 中记录候选集、选中值与 fallback 原因。
+- `contextual_public_speech` 只能读取当前 seat 的 PlayerView、公开/本人可见事件与 rule summary；不得读取 raw response、provider 配置、spectator-only 投影或任何未授权私有事件。
+- 默认指数退避配置：`retry_backoff_base_seconds: 1`、`retry_backoff_multiplier: 2`、`retry_backoff_max_seconds: 8`、`retry_backoff_jitter: false`。
+- 默认阶段覆盖：`DAY_SPEECH` 使用 45 秒超时、2 次重试；`DAY_VOTE` 与 `DAY_VOTE_PK` 使用 20 秒超时、1 次重试；其他阶段沿用 provider timeout 与默认 `fallback.max_retries`。
 
 ### 4.4 上下文管理策略
 
 - Prompt 上下文只从 Referee 过滤后的 `PlayerView.visible_events` 构造，不读取未授权事件。
-- 默认事件窗口为最近 40 条，并强制保留 `game_start`、`death_at_night`、`exile`、`witch_action`、`seer_check_result` 等关键事件。
+- 默认事件窗口为最近 40 条，并强制保留 `game_start`、`day_announce`、`death_at_night`、`exile`、`vote_result`、`vote_pk_enter`、`witch_action`、`seer_check_result` 等关键事件。
+- `DAY_SPEECH` prompt 中公开发言集中进入 `speech_context`，默认只保留最近 12 条公开发言；`visible_events` 不重复携带大量 `speech` 事件，避免长局发言 prompt 膨胀。
 - 当可见事件超过 60 条时，payload 使用确定性长局摘要：首 10 条事件 + 中间摘要 + 最近 30 条事件。
 - 摘要格式固定为 `{type, day, phase, actor, summary_text}`，其中 `type` 为 `summary`，摘要由事件日志纯函数生成，不调用 LLM。
 - 上下文选择和摘要不得改变 EventLog、replay hash、PlayerView 权限边界或行动合法性。
@@ -336,7 +341,7 @@ final_reveal.json
 [system.v1.md] + [role/phase.v1.md] + [JSON payload] + [retry_error?]
 ```
 
-`system.v1.md` 是全员统一系统提示词，角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context 和 output_schema。`speech_context` 用于 DAY_SPEECH 的发言归属约束，固定包含 `current_seat`、`already_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须使用一致版本解释日志。
+`system.v1.md` 是全员统一系统提示词，角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context 和 output_schema。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff`，当前固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制。`speech_context` 用于 DAY_SPEECH 的发言归属约束，固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须使用一致版本解释日志。
 
 ### 6.3 PlayerView 大小控制
 
@@ -634,7 +639,7 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 - 本阶段范围固定为「10 个 AI 自动对局 + spectator 观赛」，不实现真人入座、多人房间或玩家私有视角。
 - 默认开发端口为前端 Vite `7001`、后端 FastAPI `7002`。前端运行时 API base 默认空字符串，即同源相对路径；开发模式通过 Vite proxy 转发 `/games`、`/models`、`/healthz`。
 - 生产模式由 `wolven-hunt serve-prod` 设置 `WH_SERVE_STATIC=true`，FastAPI 在 API 路由之后挂载 `dist/`，单端口 `7002` 同时服务前端和 API。
-- 前端模型连通性测试必须走后端 `POST /models/test`。浏览器不得再直接向第三方模型 base URL 发请求；连通性测试失败不能永久阻止开局，用户可选择继续开局，运行期失败由 LLM 重试与 fallback 兜底。请求允许携带 `thinking_enabled`，未携带时默认为 `false`；仅为 `true` 时后端按模型名追加 provider 兼容的 thinking 参数。
+- 前端模型连通性测试必须走后端 `POST /models/test`。浏览器不得再直接向第三方模型 base URL 发请求；连通性测试失败不能永久阻止开局，用户可选择继续开局，运行期失败由 LLM 重试与 fallback 兜底。测试请求与正式游戏 `AgentSpecLLM` 均允许携带 `thinking_enabled`，未携带时默认为 `false`；仅为 `true` 时后端按模型名追加 provider 兼容的 thinking 参数。正式游戏中的 `thinking_enabled` 只影响 provider 调用参数，不进入 EventLog、PlayerView、narrative、spectator API 或 SSE。
 - `POST /models/test` 只做临时 provider 调用，不写入 `runs/`、EventLog、raw response、cost 或 narrative，不返回或记录 API key；失败响应只返回脱敏后的短错误摘要，供前端展示诊断信息。
 - 所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 - 历史复盘只消费 Referee 过滤后的 spectator 上帝视角。`GET /games` 从 `runs/` 汇总 manifest；`GET /games/{id}/events` 在线时返回 session spectator events，离线历史从 `events.jsonl` 读取并按 spectator 过滤，不读取 `raw_responses.jsonl`。

@@ -70,10 +70,22 @@ def test_build_prompt_visible_events_summarizes_long_context_deterministically()
     assert [row["seq"] for row in first[-30:]] == list(range(46, 76))
 
 
+def test_build_prompt_visible_events_can_exclude_speech_rows() -> None:
+    events = (
+        _speech_event(1, actor=1, text="我先发言。"),
+        _event(2, EventType.DAY_ANNOUNCE),
+        _speech_event(3, actor=2, text="我回应1号。"),
+    )
+
+    rows = build_prompt_visible_events(events, exclude_types=frozenset({"speech"}))
+
+    assert [row["type"] for row in rows] == ["day_announce"]
+
+
 def test_build_speech_context_keeps_other_speakers_out_of_own_history() -> None:
     events = (
         _speech_event(1, actor=3, text="我关注4号和6号。"),
-        _speech_event(2, actor=4, text="3号点了我4号，我要回应。"),
+        _speech_event(2, actor=4, text="3号点了我4号,我要回应。"),
     )
 
     context = build_speech_context(events, current_seat=5, current_day=1)
@@ -83,8 +95,30 @@ def test_build_speech_context_keeps_other_speakers_out_of_own_history() -> None:
     assert context["own_public_speeches"] == ()
     assert context["prior_public_speeches"] == (
         {"seq": 1, "actor": 3, "text": "我关注4号和6号。"},
-        {"seq": 2, "actor": 4, "text": "3号点了我4号，我要回应。"},
+        {"seq": 2, "actor": 4, "text": "3号点了我4号,我要回应。"},
     )
+
+
+def test_build_speech_context_marks_later_seats_as_not_yet_spoken() -> None:
+    context = build_speech_context(
+        (),
+        current_seat=1,
+        current_day=1,
+        alive_seats=tuple(range(1, 9)),
+    )
+
+    assert context["already_spoken_seats"] == []
+    assert context["not_yet_spoken_seats"] == [2, 3, 4, 5, 6, 7, 8]
+    assert 7 in context["not_yet_spoken_seats"]
+    assert 8 in context["not_yet_spoken_seats"]
+
+
+def test_build_speech_context_keeps_recent_speeches() -> None:
+    events = tuple(_speech_event(seq, actor=seq, text=f"{seq}号发言") for seq in range(1, 15))
+
+    context = build_speech_context(events, current_seat=15, current_day=1, max_speeches=12)
+
+    assert [row["actor"] for row in context["prior_public_speeches"]] == list(range(3, 15))
 
 
 def _event(seq: int, event_type: EventType) -> Event:

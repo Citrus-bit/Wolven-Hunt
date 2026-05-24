@@ -19,6 +19,7 @@ class ProviderConfig:
     base_url: str = ""
     api_key: str = ""
     timeout_seconds: float = 30.0
+    thinking_enabled: bool = False
 
 
 class ProviderMap:
@@ -98,6 +99,7 @@ def _config_from_mapping(
     timeout = data.get("timeout_seconds", fallback.timeout_seconds)
     if timeout is None:
         timeout = fallback.timeout_seconds
+    thinking_enabled = data.get("thinking_enabled", fallback.thinking_enabled)
     return replace(
         fallback,
         provider=cast(Literal["mock", "litellm"], provider),
@@ -105,4 +107,13 @@ def _config_from_mapping(
         base_url=str(data.get("base_url", fallback.base_url)),
         api_key=api_key,
         timeout_seconds=float(timeout),
+        thinking_enabled=_bool_value(thinking_enabled),
     )
+
+
+def _bool_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
