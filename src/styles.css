@@ -2942,7 +2942,22 @@ button {
     animation: none;
   }
 
-  .game-seat-effect--seer {
+  .game-seat-effect--guard,
+  .game-seat-effect--wolf,
+  .game-seat-effect--blocked,
+  .game-seat-effect--seer,
+  .game-seat-effect--out,
+  .game-effect-flight,
+  .game-effect-burst,
+  .game-effect-announcement {
     opacity: 1;
+  }
+
+  .game-effect-flight {
+    transform: translate(var(--effect-to-x), var(--effect-to-y)) translate(-50%, -50%);
+  }
+
+  .game-effect-burst {
+    transform: translate(var(--effect-burst-x), var(--effect-burst-y)) translate(-50%, -50%) scale(1);
   }
 }

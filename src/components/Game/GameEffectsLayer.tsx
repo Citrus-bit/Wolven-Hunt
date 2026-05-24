@@ -83,7 +83,6 @@ export function GameEffectsLayer({
       if (seenFlightIdsRef.current.has(id)) {
         continue;
       }
-      seenFlightIdsRef.current.add(id);
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       const flight = reduceMotion ? null : buildPotionFlight(id, effect, layerRef.current);
       if (!flight) {
@@ -91,12 +90,14 @@ export function GameEffectsLayer({
         if (!burst) {
           continue;
         }
+        seenFlightIdsRef.current.add(id);
         setBursts((current) => [...current, burst]);
         window.setTimeout(() => {
           setBursts((current) => current.filter((item) => item.id !== id));
         }, burst.durationMs + 220);
         continue;
       }
+      seenFlightIdsRef.current.add(id);
       setFlights((current) => [...current, flight]);
       window.setTimeout(() => {
         setFlights((current) => current.filter((item) => item.id !== id));
@@ -203,7 +204,8 @@ function buildPotionBurst(
 }
 
 function seatCenter(seat: number, layer: HTMLDivElement) {
-  const circle = document.querySelector(
+  const scope: ParentNode = layer.parentElement ?? document;
+  const circle = scope.querySelector(
     `[data-seat-index="${seat - 1}"] .game-seat-circle`,
   );
   if (!(circle instanceof HTMLElement)) {

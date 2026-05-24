@@ -60,6 +60,7 @@ import {
 const SEAT_COUNT = 10;
 const MIN_TESTING_MS = 800;
 const MAX_RECONNECT_ATTEMPTS = 5;
+const AUDIO_ACK_TIMEOUT_MS = 6000;
 const leftSeats = [0, 1, 2, 3, 4];
 const rightSeats = [5, 6, 7, 8, 9];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
@@ -923,40 +924,67 @@ async function handleAudioTrigger(
     return;
   }
   const phase = String(event.payload.phase ?? event.phase);
-  try {
-    if (phase === 'NIGHT_START') {
-      await gameAudio.playSequence(['wolf_howl', 'night_guard'], 1000);
-      await sendAck(gameId, phase, 'night_intro_done');
-    } else if (phase === 'NIGHT_WOLF_CHAT') {
-      await gameAudio.playSequence(['night_wolves'], 1000);
-      await sendAck(gameId, phase, 'night_wolves_done');
-    } else if (phase === 'NIGHT_WITCH') {
-      await gameAudio.playSequence(['night_witch'], 1000);
-      await sendAck(gameId, phase, 'night_witch_done');
-    } else if (phase === 'NIGHT_SEER') {
-      await gameAudio.playSequence(['night_seer'], 1000);
-      await sendAck(gameId, phase, 'night_seer_done');
-    } else if (phase === 'DAY_ANNOUNCE') {
-      const hasDeath = eventsRef.current.some(
-        (item) => item.day === event.day && item.type === 'death_at_night',
-      );
-      await gameAudio.playSequence(
-        ['day_rooster', 'day_dawn', hasDeath ? 'day_death' : 'day_peaceful'],
-        250,
-      );
-      await sendAck(gameId, phase, 'day_intro_done');
-    }
-  } catch {
-    if (phase === 'NIGHT_START') {
-      await sendAck(gameId, phase, 'night_intro_done').catch(() => undefined);
-    } else if (phase === 'NIGHT_WOLF_CHAT') {
-      await sendAck(gameId, phase, 'night_wolves_done').catch(() => undefined);
-    } else if (phase === 'NIGHT_WITCH') {
-      await sendAck(gameId, phase, 'night_witch_done').catch(() => undefined);
-    } else if (phase === 'NIGHT_SEER') {
-      await sendAck(gameId, phase, 'night_seer_done').catch(() => undefined);
-    } else if (phase === 'DAY_ANNOUNCE') {
-      await sendAck(gameId, phase, 'day_intro_done').catch(() => undefined);
-    }
+  if (phase === 'NIGHT_START') {
+    await playSequenceThenAck(gameId, phase, 'night_intro_done', [
+      'wolf_howl',
+      'night_guard',
+    ], 1000);
+  } else if (phase === 'NIGHT_WOLF_CHAT') {
+    await playSequenceThenAck(gameId, phase, 'night_wolves_done', [
+      'night_wolves',
+    ], 1000);
+  } else if (phase === 'NIGHT_WITCH') {
+    await playSequenceThenAck(gameId, phase, 'night_witch_done', [
+      'night_witch',
+    ], 1000);
+  } else if (phase === 'NIGHT_SEER') {
+    await playSequenceThenAck(gameId, phase, 'night_seer_done', [
+      'night_seer',
+    ], 1000);
+  } else if (phase === 'DAY_ANNOUNCE') {
+    const hasDeath = eventsRef.current.some(
+      (item) => item.day === event.day && item.type === 'death_at_night',
+    );
+    await playSequenceThenAck(gameId, phase, 'day_intro_done', [
+      'day_rooster',
+      'day_dawn',
+      hasDeath ? 'day_death' : 'day_peaceful',
+    ], 250);
   }
+}
+
+async function playSequenceThenAck(
+  gameId: string,
+  phase: string,
+  ackEvent: string,
+  sequence: Parameters<typeof gameAudio.playSequence>[0],
+  gapMs: number,
+) {
+  try {
+    await withTimeout(
+      gameAudio.playSequence(sequence, gapMs),
+      AUDIO_ACK_TIMEOUT_MS,
+    );
+  } catch {
+    // Audio playback is best-effort; pacing must keep moving even if autoplay hangs.
+  }
+  await sendAck(gameId, phase, ackEvent).catch(() => undefined);
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      reject(new Error('audio_timeout'));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
