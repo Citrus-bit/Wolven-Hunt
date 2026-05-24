@@ -38,6 +38,7 @@ router = APIRouter()
 REGISTRY_DEP = Depends(get_registry)
 LAST_EVENT_ID_HEADER = Header(default=None, alias="Last-Event-ID")
 LAST_EVENT_ID_QUERY = Query(default=None, alias="last_event_id")
+LOCAL_LOBBY_ASSET_RE = re.compile(r"^/assets/lobby/[A-Za-z0-9_.-]+$")
 
 
 @router.post("/games", response_model=CreateGameResponse)
@@ -50,6 +51,10 @@ async def create_game(
         seed=request.seed,
         agent_specs=request.agents,
         pacing=request.pacing,
+        seat_presentation={
+            seat: presentation.model_dump(mode="json")
+            for seat, presentation in request.seat_presentation.items()
+        },
     )
     return CreateGameResponse(game_id=session.game_id)
 
@@ -81,8 +86,10 @@ def get_game(
     game_id: str,
     registry: GameRegistry = REGISTRY_DEP,
 ) -> GameSummaryResponse:
-    session = _require_session(registry, game_id)
-    return _summary(session)
+    session = registry.get(game_id)
+    if session is not None:
+        return _summary(session)
+    return _summary_from_manifest(registry, game_id)
 
 
 @router.get("/games/{game_id}/events")
@@ -135,7 +142,9 @@ def get_reveal(
     game_id: str,
     registry: GameRegistry = REGISTRY_DEP,
 ) -> dict[str, object]:
-    session = _require_session(registry, game_id)
+    session = registry.get(game_id)
+    if session is None:
+        return _reveal_from_disk(registry, game_id)
     if session.state.winner is None:
         raise HTTPException(
             status_code=404,
@@ -339,6 +348,35 @@ def _summary(session: GameSession) -> GameSummaryResponse:
         phase=session.state.phase,
         event_count=len(session.event_log.events),
         timings=session.config.rule_set.timings.model_dump(mode="json"),
+        seat_presentation=session.seat_presentation,
+    )
+
+
+def _summary_from_manifest(
+    registry: GameRegistry,
+    game_id: str,
+) -> GameSummaryResponse:
+    root = registry.settings.runs_dir / game_id
+    manifest_path = root / "manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "game_not_found", "message": game_id},
+        )
+    manifest = _read_manifest(manifest_path)
+    events_path = root / "events.jsonl"
+    events = read_events_jsonl(events_path) if events_path.exists() else ()
+    last_event = events[-1] if events else None
+    ended_at = _string_or_none(manifest.get("ended_at"))
+    return GameSummaryResponse(
+        game_id=game_id,
+        status="finished" if ended_at else "unknown",
+        winner=_string_or_none(manifest.get("winner")),
+        day=last_event.day if last_event is not None else 0,
+        phase=last_event.phase if last_event is not None else "UNKNOWN",
+        event_count=len(events),
+        timings={},
+        seat_presentation=_manifest_seat_presentation(manifest),
     )
 
 
@@ -356,12 +394,7 @@ def _list_item_from_session(session: GameSession) -> GameListItem:
 
 
 def _list_item_from_manifest(game_id: str, manifest_path: Path) -> GameListItem:
-    try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            data = {}
-    except (OSError, json.JSONDecodeError):
-        data = {}
+    data = _read_json_object(manifest_path)
     event_count = 0
     events_path = manifest_path.with_name("events.jsonl")
     if events_path.exists():
@@ -379,13 +412,67 @@ def _list_item_from_manifest(game_id: str, manifest_path: Path) -> GameListItem:
     )
 
 
-def _manifest_value(path: Path, key: str) -> str | None:
+def _reveal_from_disk(registry: GameRegistry, game_id: str) -> dict[str, object]:
+    root = registry.settings.runs_dir / game_id
+    if not root.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "game_not_found", "message": game_id},
+        )
+    final_reveal_path = root / "final_reveal.json"
+    if final_reveal_path.exists():
+        data = _read_json_object(final_reveal_path)
+        if data:
+            return data
+    events_path = root / "events.jsonl"
+    if events_path.exists():
+        for event in reversed(read_events_jsonl(events_path)):
+            if event.type.value == "role_reveal":
+                return dict(event.payload)
+    raise HTTPException(
+        status_code=404,
+        detail={"code": "game_not_finished", "message": "game is not finished"},
+    )
+
+
+def _read_manifest(path: Path) -> dict[str, object]:
+    return _read_json_object(path)
+
+
+def _read_json_object(path: Path) -> dict[str, object]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(data, dict):
-        return None
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _manifest_seat_presentation(data: dict[str, object]) -> dict[int, dict[str, str]]:
+    raw = data.get("seat_presentation")
+    if not isinstance(raw, dict):
+        return {}
+    presentation: dict[int, dict[str, str]] = {}
+    for seat_key, value in raw.items():
+        if not isinstance(value, dict):
+            continue
+        try:
+            seat = int(seat_key)
+        except (TypeError, ValueError):
+            continue
+        nickname = value.get("nickname")
+        icon_path = value.get("icon_path")
+        if (
+            isinstance(nickname, str)
+            and 0 < len(nickname) <= 32
+            and isinstance(icon_path, str)
+            and LOCAL_LOBBY_ASSET_RE.fullmatch(icon_path)
+        ):
+            presentation[seat] = {"nickname": nickname, "icon_path": icon_path}
+    return presentation
+
+
+def _manifest_value(path: Path, key: str) -> str | None:
+    data = _read_json_object(path)
     return _string_or_none(data.get(key))
 
 

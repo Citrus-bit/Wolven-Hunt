@@ -14,7 +14,7 @@
 - 女巫 1 人
 - 守卫 1 人
 
-当前阶段为 STEP-07 / P3 观赛 MVP：允许在 STEP-06 外部接入基础上实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与结局浮层。
+当前阶段为 STEP-07 / P3 观赛 MVP：允许在 STEP-06 外部接入基础上实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与终局定格态。
 
 ## 2. Rule Contract
 
@@ -354,7 +354,7 @@ Prompt 存储：
 - `src/wolven_hunt/storage`：事件日志、快照、两种 replay 模式。
 - `src/wolven_hunt/api`：FastAPI 控制接口，STEP-06 实现。
 
-落盘目录固定为 `runs/{game_id}/events.jsonl`、`raw_responses.jsonl`、`manifest.json`、`cost.jsonl`、`narrative.jsonl`、`final_reveal.json`。写入使用 tmp + fsync + atomic rename 或行级 fsync，文件权限为 `0600`。
+落盘目录固定为 `runs/{game_id}/events.jsonl`、`raw_responses.jsonl`、`manifest.json`、`cost.jsonl`、`narrative.jsonl`、`final_reveal.json`。`manifest.json` 可记录 spectator-safe 的 `seat_presentation` 展示快照，仅包含本地 UI 昵称与 `/assets/lobby/` 头像路径，不得包含 provider、model name、base URL、API key、raw response、prompt 或私有行动结果；该字段不写入 EventLog，不影响 replay hash 或 resimulate。写入使用 tmp + fsync + atomic rename 或行级 fsync，文件权限为 `0600`。
 
 调用链固定：
 
@@ -374,9 +374,9 @@ FSM
 
 FastAPI 在 STEP-06 实现，所有读取接口默认返回 Referee 过滤后的 spectator 视角。STEP-07 spectator 为观众上帝视角：可包含完整身份表、狼人夜聊和 spectator-only effects，但不包含 raw response、provider 配置、守卫/预言家/女巫私有事件原文或狼刀投票/决定事件原文。
 
-- `POST /games`
+- `POST /games`，可选 `seat_presentation: Record<seat, {nickname, icon_path}>`，仅写入 manifest 作为 spectator-safe UI 展示快照
 - `GET /games`
-- `GET /games/{id}`
+- `GET /games/{id}`，返回 `seat_presentation`；旧 run 没有该字段时返回空对象
 - `GET /games/{id}/events`
 - `POST /games/{id}/run`
 - `POST /games/{id}/pause`
@@ -469,7 +469,9 @@ STEP-07 新增观赛特效投影 `SpectatorEffect`，它从完整 EventLog 派�
 STEP-08 目标是 10 个 AI 自动对局从前端开局后可无卡点观赛到终局，不实现真人入座或多人房间。
 
 - 部署拓扑：dev 使用 Vite `7001` + proxy，prod 使用 FastAPI `7002` 挂载 `dist/` 静态文件；前端 API base 默认空字符串，即同源相对路径。
-- 历史复盘：`GET /games` 从 `runs/` 读取 manifest 汇总；`GET /games/{id}/events` 在线返回 session spectator events，离线从 `events.jsonl` 读取并按 spectator 过滤。不得读取或暴露 `raw_responses.jsonl`，但可保留身份表和狼人夜聊供观众复盘。
+- 历史复盘：`GET /games` 从 `runs/` 读取 manifest 汇总；`GET /games/{id}/events` 在线返回 session spectator events，离线从 `events.jsonl` 读取并按 spectator 过滤。不得读取或暴露 `raw_responses.jsonl`，但可保留身份表、狼人夜聊和 `seat_presentation` 供观众复盘。
+- `seat_presentation` 是纯 UI 展示元数据，只用于历史复盘恢复游玩时头像和昵称；它不改变身份来源、胜负判定、行动合法性、ack、EventLog、replay hash、resimulate 或 LLM 输入。
+- 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。
 - replay 恢复：STEP-08 起 manifest 必须写入 `config_path`；`replay_resimulate` 在未显式传入 config 时从同目录 manifest 恢复配置，兼容旧 run 回退 classic_8；新 run 默认使用 classic_10。
 - 前端健壮性：SSE 客户端必须使用 `Last-Event-ID` 断点续传，最多 5 次带 jitter 重连；失败后显示错误状态。倒计时归零后显示等待状态，避免误判为卡死。
 - 模型测试：前端只调用后端 `POST /models/test`；测试失败不能永久阻止开始游戏，用户可继续开局，运行期由 LLM 重试和 fallback 保证收敛。

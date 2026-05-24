@@ -27,6 +27,13 @@ AgentSpec = Annotated[AgentSpecMock | AgentSpecLLM, Field(discriminator="kind")]
 AgentSpecInput = AgentSpec | str
 
 
+class SeatPresentation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nickname: str = Field(min_length=1, max_length=32)
+    icon_path: str = Field(pattern=r"^/assets/lobby/[A-Za-z0-9_.-]+$")
+
+
 class CreateGameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -34,6 +41,7 @@ class CreateGameRequest(BaseModel):
     seed: str = "api-dev-seed"
     agents: dict[int, AgentSpecInput] = Field(default_factory=dict)
     pacing: Literal["live", "fast", "off"] | None = None
+    seat_presentation: dict[int, SeatPresentation] = Field(default_factory=dict)
 
 
 class CreateGameResponse(BaseModel):
@@ -57,6 +65,7 @@ class GameSummaryResponse(BaseModel):
     phase: str
     event_count: int
     timings: dict[str, int]
+    seat_presentation: dict[int, SeatPresentation] = Field(default_factory=dict)
 
 
 class ReplayRequest(BaseModel):

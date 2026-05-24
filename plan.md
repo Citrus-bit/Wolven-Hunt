@@ -12,7 +12,7 @@
 - 投票只能投存活玩家，允许投自己；PK 重投只能投 PK 台上玩家，且 PK 台上玩家不参与重投。
 - 编排核心采用**纯 Python FSM 优先**；裁判层（Referee）负责视角隔离与合法性校验；**事件日志是单一事实源**。
 - 规则、角色、模型、提示词全部**配置驱动**，核心代码不随板子变化。
-- 当前阶段：**STEP-07 / P3 观赛 MVP**。在 STEP-06 外部接入基础上允许实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与结局浮层。
+- 当前阶段：**STEP-07 / P3 观赛 MVP**。在 STEP-06 外部接入基础上允许实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与终局定格态。
 - STEP-07 增加 **spectator-only 观赛特效流**：观众上帝视角可以看到护盾、狼袭、预言、女巫药瓶与死亡揭晓动画；普通 PlayerView、prompt、玩家 SSE、narrative 仍不得暴露守卫/预言家/女巫私有结果、狼刀投票细节、provider 配置或 raw response。
 
 ---
@@ -294,7 +294,7 @@ narrative.jsonl
 final_reveal.json
 ```
 
-`events.jsonl` 与 EventLog 一一对应；`narrative.jsonl` 每行记录 spectator-safe 中文叙事；`final_reveal.json` 记录终局身份揭晓。`raw_responses.jsonl` 每行记录 `{storage_ref, seat, phase, day, seq, model, prompt_hash, raw_response_hash, raw_response, prompt_tokens, completion_tokens, cost_usd, prompt_version}`。`raw_responses.jsonl` 不保存 prompt 原文，只保存 `prompt_hash` 与 `prompt_version`；prompt 内容正确性通过测试捕获 provider 入参验证。所有文件权限为 `0600`。JSON/JSONL 写入必须采用 tmp + fsync + atomic rename 或行级 fsync；恢复时若末行损坏，截断到最后一条可解析完整 JSONL。
+`events.jsonl` 与 EventLog 一一对应；`narrative.jsonl` 每行记录 spectator-safe 中文叙事；`final_reveal.json` 记录终局身份揭晓。`manifest.json` 可记录 spectator-safe 的 `seat_presentation` 展示快照，仅允许包含 `{seat, nickname, icon_path}` 这类本地 UI 展示信息，不得包含 provider、model name、base URL、API key、raw response、prompt 或任何私有行动结果；该字段不进入 EventLog，不参与 replay hash 或 resimulate。`raw_responses.jsonl` 每行记录 `{storage_ref, seat, phase, day, seq, model, prompt_hash, raw_response_hash, raw_response, prompt_tokens, completion_tokens, cost_usd, prompt_version}`。`raw_responses.jsonl` 不保存 prompt 原文，只保存 `prompt_hash` 与 `prompt_version`；prompt 内容正确性通过测试捕获 provider 入参验证。所有文件权限为 `0600`。JSON/JSONL 写入必须采用 tmp + fsync + atomic rename 或行级 fsync；恢复时若末行损坏，截断到最后一条可解析完整 JSONL。
 
 ### 5.3 Prompt 模板版本号
 
@@ -497,8 +497,8 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 
 ### 9.2 FastAPI 接口（STEP-06 实现）
 
-- `POST /games`：创建一局
-- `GET /games/{id}`：当前状态（Referee 过滤后的 spectator 视角）
+- `POST /games`：创建一局；可选 `seat_presentation: Record<seat, {nickname, icon_path}>` 仅作为 spectator-safe UI 展示快照写入 manifest，不写 EventLog
+- `GET /games/{id}`：当前状态（Referee 过滤后的 spectator 视角），返回 `seat_presentation`；旧 run 没有该字段时返回空对象
 - `GET /games/{id}/events`：事件日志（spectator 上帝视角；包含身份表和狼聊，不含 raw response / provider 配置 / 守卫和预言家私有事件 / 狼刀细节）
 - `GET /games`：STEP-08 历史对局列表，从 `runs/{game_id}/manifest.json` 汇总，不能包含 API key 或 raw response
 - `POST /games/{id}/run` / `pause` / `resume`：流程控制
@@ -599,7 +599,7 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 | P2 | LLM 网关（LiteLLM + 重试 + fallback + 成本记录） | 接入真模型 |
 | P2 | Replay 两种模式 + Prompt 版本号 | 长期可维护 |
 | P2 | FastAPI + SSE | 外部接入；第一阶段只在 architecture.md 定义接口边界 |
-| P3 | STEP-07 观赛 MVP：per-seat provider、pacing/ack、narrative、role reveal、前端音视频与结局浮层 | 可从前端完整观看一局 AI 狼人杀 |
+| P3 | STEP-07 观赛 MVP：per-seat provider、pacing/ack、narrative、role reveal、前端音视频与终局定格态 | 可从前端完整观看一局 AI 狼人杀 |
 | P3+ | Property test、公平性回归、Token 预算测试 | 工程化体验 |
 
 ---
@@ -616,7 +616,7 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 8. **PK 重投只投 PK 台上玩家**，PK 台上玩家不参与重投；二次平票平安日入夜。
 9. **死亡 Agent 仍接收公开事件**，便于回放完整性。
 10. **Referee 不审查发言内容**：发言里的虚假信息属合法策略。
-11. **STEP-07 / P3 阶段开始实现观赛 MVP**：per-seat provider map、pacing/ack、narrative/reveal API、前端音视频、倒计时和结局浮层可以落地；CI 默认仍使用 mock provider。
+11. **STEP-07 / P3 阶段开始实现观赛 MVP**：per-seat provider map、pacing/ack、narrative/reveal API、前端音视频、倒计时和终局定格态可以落地；CI 默认仍使用 mock provider。
 12. **STEP-08 / P3 生产可玩阶段**：目标是 10 个 AI 自动对局可从前端无卡点观赛到终局。允许实现同源部署、单命令启动、后端模型连通性测试代理、SSE 自动重连、pacing 模式切换、历史复盘 UI、生产静态文件服务和 CI。默认测试仍使用 mock provider；真实 LLM smoke 必须由环境变量显式开启。
 
 ## 13. 项目系统提示词与变更纪律
@@ -638,6 +638,8 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 - `POST /models/test` 只做临时 provider 调用，不写入 `runs/`、EventLog、raw response、cost 或 narrative，不返回或记录 API key；失败响应只返回脱敏后的短错误摘要，供前端展示诊断信息。
 - 所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 - 历史复盘只消费 Referee 过滤后的 spectator 上帝视角。`GET /games` 从 `runs/` 汇总 manifest；`GET /games/{id}/events` 在线时返回 session spectator events，离线历史从 `events.jsonl` 读取并按 spectator 过滤，不读取 `raw_responses.jsonl`。
+- `seat_presentation` 是历史复盘恢复游玩时头像和昵称的展示快照，必须只包含本地 `/assets/lobby/` 头像路径和有限长度昵称；它不改变身份来源、胜负判定、行动合法性、ack、EventLog、replay hash 或 LLM 输入。
+- 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。
 - `manifest.json` 从 STEP-08 起必须包含 `config_path`，用于 `replay_resimulate(config_path=None)` 恢复原配置。缺失时只能回退 classic_8，并需保持旧 run 兼容；新 run 默认使用 classic_10。
 - 前端 SSE 必须支持断线重连、`Last-Event-ID` 续传、最多 5 次带 jitter 的重试；超过上限显示可操作错误，不静默停住。
 - ack 仍只控制现场 pacing，不写 EventLog，不影响 replay hash。localStorage key `wolven_hunt.pacing_mode` 仅影响新建对局传入的 pacing profile。游戏内阶段语音使用独立于大厅 BGM 的本地状态与右上角开关，不能复用 `wolven_hunt.lobby.muted` 导致观赛语音被静音。

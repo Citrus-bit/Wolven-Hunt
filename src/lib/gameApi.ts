@@ -1,3 +1,5 @@
+import type { SeatPresentationMap } from './seatPresentation';
+
 export type GameEvent = {
   seq: number;
   day: number;
@@ -42,6 +44,7 @@ export type GameSummary = {
   phase: string;
   event_count: number;
   timings: GameTimings;
+  seat_presentation: SeatPresentationMap;
 };
 
 export type NarrativeRow = {
@@ -90,6 +93,7 @@ export async function createGame(opts: {
   seed?: string;
   agents?: Record<number, AgentSpec>;
   pacing?: 'live' | 'fast' | 'off';
+  seatPresentation?: SeatPresentationMap;
 } = {}): Promise<CreateGameResponse> {
   const res = await fetch(`${API_BASE}/games`, {
     method: 'POST',
@@ -99,6 +103,7 @@ export async function createGame(opts: {
       seed: opts.seed ?? `web-${Date.now()}`,
       agents: opts.agents ?? {},
       pacing: opts.pacing,
+      seat_presentation: opts.seatPresentation ?? {},
     }),
   });
   return parseJsonResponse<CreateGameResponse>(res);

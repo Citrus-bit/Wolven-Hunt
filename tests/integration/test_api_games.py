@@ -79,6 +79,67 @@ def test_api_accepts_new_agent_specs_without_timeout(monkeypatch, tmp_path) -> N
         _wait_until_finished(client, created.json()["game_id"])
 
 
+def test_api_persists_spectator_safe_seat_presentation(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-seat-presentation-001",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+                "pacing": "off",
+                "seat_presentation": {
+                    "1": {
+                        "nickname": "GPT",
+                        "icon_path": "/assets/lobby/model_icon_gpt.png",
+                    }
+                },
+            },
+        )
+        assert created.status_code == 200
+        game_id = created.json()["game_id"]
+
+        summary = client.get(f"/games/{game_id}").json()
+
+    manifest_text = (tmp_path / game_id / "manifest.json").read_text(encoding="utf-8")
+    assert summary["seat_presentation"]["1"] == {
+        "nickname": "GPT",
+        "icon_path": "/assets/lobby/model_icon_gpt.png",
+    }
+    assert "seat_presentation" in manifest_text
+    assert "api_key" not in manifest_text
+    assert "base_url" not in manifest_text
+    assert "mock/deterministic" not in manifest_text
+
+
+def test_api_rejects_remote_seat_presentation_icons(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-seat-presentation-bad",
+                "seat_presentation": {
+                    "1": {
+                        "nickname": "remote",
+                        "icon_path": "https://example.test/avatar.png",
+                    }
+                },
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    assert not any(tmp_path.iterdir())
+
+
 def test_model_test_mock_does_not_write_run_files(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     get_settings.cache_clear()

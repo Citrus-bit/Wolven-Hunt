@@ -56,6 +56,7 @@ MANUAL_ACTION_WAIT_SECONDS = 0.05
 
 TextAction = Speech | WolfChatMessage
 AgentSpecValue = object
+SeatPresentationValue = Mapping[int, Mapping[str, str]]
 
 
 class RuntimeControl:
@@ -182,6 +183,7 @@ class GameSession:
     pending: PendingTextActions
     pacing: PacingController
     started_at: str
+    seat_presentation: dict[int, dict[str, str]]
     task: asyncio.Task[None] | None = None
     error: str | None = None
     final_reveal: dict[str, object] | None = None
@@ -299,22 +301,24 @@ class GameRegistry:
         seed: str,
         agent_specs: Mapping[int, AgentSpecValue],
         pacing: PacingName | None = None,
+        seat_presentation: SeatPresentationValue | None = None,
     ) -> GameSession:
         config = load_game_config(config_path)
         initial_state, _ = build_initial_state(config, seed)
         game_id = str(initial_state.game_id)
         store = GameRunStore(runs_dir=self.settings.runs_dir, game_id=game_id)
         started_at = _now()
+        normalized_presentation = _normalize_seat_presentation(seat_presentation)
         store.write_manifest(
-            {
-                "config_hash": config.config_hash,
-                "config_path": str(config.path),
-                "seed": seed,
-                "prompt_pack_version": "v1",
-                "started_at": started_at,
-                "ended_at": None,
-                "winner": None,
-            }
+            _manifest_payload(
+                config_hash=config.config_hash,
+                config_path=str(config.path),
+                seed=seed,
+                started_at=started_at,
+                ended_at=None,
+                winner=None,
+                seat_presentation=normalized_presentation,
+            )
         )
         session_ref: dict[str, GameSession] = {}
 
@@ -335,6 +339,7 @@ class GameRegistry:
             pending=PendingTextActions(),
             pacing=PacingController(profile_from_settings(self.settings, override=pacing)),
             started_at=started_at,
+            seat_presentation=normalized_presentation,
         )
         session_ref["session"] = session
         agents = self._build_agents(
@@ -436,15 +441,15 @@ class GameRegistry:
                     session.final_reveal = dict(stamped_reveal.payload)
                     session.store.write_final_reveal(dict(stamped_reveal.payload))
             session.store.write_manifest(
-                {
-                    "config_hash": session.config.config_hash,
-                    "config_path": str(session.config.path),
-                    "seed": session.seed,
-                    "prompt_pack_version": "v1",
-                    "started_at": session.started_at,
-                    "ended_at": _now(),
-                    "winner": None if state.winner is None else state.winner.value,
-                }
+                _manifest_payload(
+                    config_hash=session.config.config_hash,
+                    config_path=str(session.config.path),
+                    seed=session.seed,
+                    started_at=session.started_at,
+                    ended_at=_now(),
+                    winner=None if state.winner is None else state.winner.value,
+                    seat_presentation=session.seat_presentation,
+                )
             )
             session.set_status("finished")
         except Exception as exc:  # pragma: no cover - preserved in session for API debugging.
@@ -564,6 +569,42 @@ def _row_seq(row: dict[str, object]) -> int:
 
 def _has_role_reveal(events: tuple[Event, ...]) -> bool:
     return any(event.type.value == "role_reveal" for event in events)
+
+
+def _normalize_seat_presentation(
+    seat_presentation: SeatPresentationValue | None,
+) -> dict[int, dict[str, str]]:
+    if not seat_presentation:
+        return {}
+    normalized: dict[int, dict[str, str]] = {}
+    for seat, presentation in seat_presentation.items():
+        normalized[int(seat)] = {
+            "nickname": str(presentation.get("nickname", "")),
+            "icon_path": str(presentation.get("icon_path", "")),
+        }
+    return normalized
+
+
+def _manifest_payload(
+    *,
+    config_hash: str,
+    config_path: str,
+    seed: str,
+    started_at: str,
+    ended_at: str | None,
+    winner: str | None,
+    seat_presentation: dict[int, dict[str, str]],
+) -> dict[str, object]:
+    return {
+        "config_hash": config_hash,
+        "config_path": config_path,
+        "seed": seed,
+        "prompt_pack_version": "v1",
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "winner": winner,
+        "seat_presentation": seat_presentation,
+    }
 
 
 def _now() -> str:

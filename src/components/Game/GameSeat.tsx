@@ -3,6 +3,7 @@ import { gameEffectAssetPath } from '../../lib/effectAssets';
 import type { SeatEffectState } from '../../lib/gameEffects';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import type { ModelTestStatus } from '../../lib/modelTest';
+import type { SeatPresentation } from '../../lib/seatPresentation';
 
 export type SeatRole = 'wolf' | 'villager' | 'seer' | 'witch' | 'guard';
 
@@ -10,6 +11,7 @@ type GameSeatProps = {
   seatIndex: number;
   side: 'left' | 'right';
   assignment: number | null;
+  presentation?: SeatPresentation | null;
   role?: SeatRole | null;
   testStatus?: ModelTestStatus;
   showTestBadge?: boolean;
@@ -24,6 +26,7 @@ export function GameSeat({
   seatIndex,
   side,
   assignment,
+  presentation = null,
   role = null,
   testStatus,
   showTestBadge = true,
@@ -33,14 +36,22 @@ export function GameSeat({
   disabled = false,
   onClickSeat,
 }: GameSeatProps) {
-  const isEmpty = assignment === null;
-  const slot = isEmpty ? null : MODEL_SLOTS[assignment];
+  const slot = assignment === null ? null : MODEL_SLOTS[assignment];
+  const display = slot
+    ? { nickname: slot.nickname, iconPath: slot.iconPath }
+    : presentation
+      ? { nickname: presentation.nickname, iconPath: presentation.icon_path }
+      : disabled
+        ? { nickname: `${seatIndex + 1}号`, iconPath: '' }
+        : null;
   const isTesting = testStatus === 'testing';
   const showBadge =
     showTestBadge && (testStatus === 'pass' || testStatus === 'fail');
   const resultLabel = testStatus === 'pass' ? '测试通过' : '测试失败';
-  const label = slot
-    ? `更换 ${slot.nickname}`
+  const label = display
+    ? disabled
+      ? `${seatIndex + 1}号席位 ${display.nickname}`
+      : `更换 ${display.nickname}`
     : `添加第 ${seatIndex + 1} 号席位的模型`;
   const showOutBadge = dead || effects?.outBadge;
   const outBadgeKey = effects?.outBadgeSeq ?? (showOutBadge ? 'eliminated' : undefined);
@@ -65,8 +76,12 @@ export function GameSeat({
           onClick={() => onClickSeat(seatIndex)}
           disabled={isTesting || disabled}
         >
-          {slot ? (
-            <img src={slot.iconPath} alt="" className="game-seat-avatar" />
+          {display?.iconPath ? (
+            <img src={display.iconPath} alt="" className="game-seat-avatar" />
+          ) : disabled ? (
+            <span className="game-seat-placeholder-avatar" aria-hidden="true">
+              {seatIndex + 1}号
+            </span>
           ) : (
             <Plus aria-hidden="true" size={36} strokeWidth={2.5} />
           )}
@@ -138,7 +153,7 @@ export function GameSeat({
           </span>
         )}
       </span>
-      <span className="game-seat-nickname">{slot?.nickname ?? ''}</span>
+      <span className="game-seat-nickname">{display?.nickname ?? ''}</span>
     </div>
   );
 }

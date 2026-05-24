@@ -22,6 +22,11 @@ import {
   seedEffectSeenAt,
   type EffectSeenAtMap,
 } from '../../lib/gameEffects';
+import {
+  deriveLastPlayablePhase,
+  deriveStageFromEvents,
+  isGameFinished,
+} from '../../lib/gameSnapshot';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import {
   missingModelConfigResult,
@@ -30,7 +35,7 @@ import {
   type ModelTestResult,
 } from '../../lib/modelTest';
 import { ExitConfirmModal } from './ExitConfirmModal';
-import { FinalRevealOverlay } from './FinalRevealOverlay';
+import { FinalFreezeChrome } from './FinalFreezeChrome';
 import { GameBottomActions } from './GameBottomActions';
 import { GameChat } from './GameChat';
 import { GameEffectsLayer } from './GameEffectsLayer';
@@ -42,6 +47,10 @@ import { RulesModal } from './RulesModal';
 import { StageIndicator } from './StageIndicator';
 import { toNarrative } from '../../lib/narrative';
 import { deriveDaySpeechProgress } from '../../lib/speechProgress';
+import {
+  buildSeatPresentation,
+  type SeatPresentationMap,
+} from '../../lib/seatPresentation';
 
 const SEAT_COUNT = 10;
 const MIN_TESTING_MS = 800;
@@ -85,6 +94,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const [assignments, setAssignments] = useState<(number | null)[]>(() =>
     Array.from({ length: SEAT_COUNT }, () => null),
   );
+  const [seatPresentation, setSeatPresentation] = useState<SeatPresentationMap>({});
   const [pickerSeat, setPickerSeat] = useState<number | null>(null);
   const [stage, setStage] = useState<GameStage>(INITIAL_STAGE);
   const [bgPhase, setBgPhase] = useState<BgPhase>('idle');
@@ -136,10 +146,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const bgSrc =
     stage.phase === 'day' ? '/assets/game/day_bg.png' : '/assets/game/night_bg.png';
   const gameStarted = gameId !== null;
-  const speechProgress = deriveDaySpeechProgress(events, currentPhase);
-  const currentSpeakerSeat = speechProgress.nextSpeakerSeat;
+  const finished = isGameFinished(events);
+  const freezePhase = deriveLastPlayablePhase(events);
+  const renderPhase = finished ? freezePhase : currentPhase;
+  const effectPhase = finished ? 'GAME_END' : currentPhase;
+  const speechProgress = deriveDaySpeechProgress(events, renderPhase);
+  const currentSpeakerSeat = finished ? null : speechProgress.nextSpeakerSeat;
   const currentDay = deriveCurrentDay(events, stage.dayNumber);
-  const seatEffects = buildSeatEffectMap(spectatorEffects, currentPhase, {
+  const seatEffects = buildSeatEffectMap(spectatorEffects, effectPhase, {
     currentDay,
     nowMs: effectClockMs,
     seenAtByKey: effectSeenAtRef.current,
@@ -185,12 +199,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     }
     let cancelled = false;
     setStreamStatus('connecting');
-    Promise.all([getEvents(replayGameId), getEffects(replayGameId)])
-      .then(([loadedEvents, loadedEffects]) => {
+    Promise.all([getGame(replayGameId), getEvents(replayGameId), getEffects(replayGameId)])
+      .then(([summary, loadedEvents, loadedEffects]) => {
         if (cancelled) {
           return;
         }
         setGameId(replayGameId);
+        setSeatPresentation(summary.seat_presentation ?? {});
+        setTimings(summary.timings);
         setEvents(loadedEvents);
         eventsRef.current = loadedEvents;
         setSpectatorEffects(loadedEffects);
@@ -207,16 +223,10 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             .map(toNarrative)
             .filter((row): row is NarrativeRow => row !== null),
         );
-        const lastPhaseEnter = [...loadedEvents]
-          .reverse()
-          .find((event) => event.type === 'phase_enter');
-        if (lastPhaseEnter) {
-          const phase = String(lastPhaseEnter.payload.phase ?? lastPhaseEnter.phase);
-          setCurrentPhase(phase);
-          setStage({
-            dayNumber: lastPhaseEnter.day,
-            phase: phase.startsWith('NIGHT') ? 'night' : 'day',
-          });
+        const playablePhase = deriveLastPlayablePhase(loadedEvents);
+        if (playablePhase) {
+          setCurrentPhase(playablePhase);
+          setStage(deriveStageFromEvents(loadedEvents, INITIAL_STAGE));
         }
         setStreamStatus('open');
       })
@@ -354,6 +364,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         if (!cancelled) {
           setCurrentPhase(summary.phase);
           setTimings(summary.timings);
+          if (Object.keys(summary.seat_presentation ?? {}).length > 0) {
+            setSeatPresentation(summary.seat_presentation);
+          }
         }
       } catch {
         if (!cancelled) {
@@ -369,16 +382,12 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   }, [gameId, isReplay]);
 
   useEffect(() => {
-    const lastPhaseEnter = [...events]
-      .reverse()
-      .find((event) => event.type === 'phase_enter');
-    if (!lastPhaseEnter || bgPhase !== 'idle') {
+    if (events.length === 0 || bgPhase !== 'idle') {
       return;
     }
-    const phase = String(lastPhaseEnter.payload.phase ?? lastPhaseEnter.phase);
-    const nextPhase = phase.startsWith('NIGHT') ? 'night' : 'day';
-    if (stage.dayNumber !== lastPhaseEnter.day || stage.phase !== nextPhase) {
-      transitionToStage({ dayNumber: lastPhaseEnter.day, phase: nextPhase });
+    const nextStage = deriveStageFromEvents(events, stage);
+    if (stage.dayNumber !== nextStage.dayNumber || stage.phase !== nextStage.phase) {
+      transitionToStage(nextStage);
     }
   }, [bgPhase, events, stage.dayNumber, stage.phase]);
 
@@ -596,7 +605,13 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     try {
       void gameAudioControls.unlock();
       const agents = buildAgentSpecs(assignments);
-      const created = await createGame({ agents, pacing: pacingMode });
+      const presentation = buildSeatPresentation(assignments);
+      setSeatPresentation(presentation);
+      const created = await createGame({
+        agents,
+        pacing: pacingMode,
+        seatPresentation: presentation,
+      });
       setGameId(created.game_id);
       transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
     } catch (caught) {
@@ -633,7 +648,10 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   };
 
   return (
-    <main className="game-page" aria-label="Wolven Hunt 游戏">
+    <main
+      className={['game-page', finished ? 'game-page--final-freeze' : ''].join(' ')}
+      aria-label="Wolven Hunt 游戏"
+    >
       <img
         key={bgSrc}
         src={bgSrc}
@@ -662,10 +680,10 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       <StageIndicator stage={stage} />
       {gameStarted && (
         <GamePhaseHeader
-          phase={currentPhase}
+          phase={renderPhase}
           timings={timings}
           speakerSeat={currentSpeakerSeat}
-          speechComplete={speechProgress.complete}
+          speechComplete={finished || speechProgress.complete}
         />
       )}
       <GameChat
@@ -704,6 +722,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 seatIndex={seatIndex}
                 side="left"
                 assignment={assignment}
+                presentation={seatPresentation[seatIndex + 1] ?? null}
                 role={seatRoles[seatIndex + 1] ?? null}
                 testStatus={
                   assignment !== null
@@ -730,6 +749,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 seatIndex={seatIndex}
                 side="right"
                 assignment={assignment}
+                presentation={seatPresentation[seatIndex + 1] ?? null}
                 role={seatRoles[seatIndex + 1] ?? null}
                 testStatus={
                   assignment !== null
@@ -784,10 +804,12 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         onSwap={handleSwapModel}
       />
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
-      <FinalRevealOverlay
+      <FinalFreezeChrome
         gameId={gameId}
         events={events}
         assignments={assignments}
+        seatPresentation={seatPresentation}
+        isReplay={isReplay}
         onExitGame={handleConfirmExit}
       />
       <ExitConfirmModal
