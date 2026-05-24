@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -50,7 +51,7 @@ class MockLLMProvider:
         cycled_target = _cycle_target(seat, seat_numbers)
         content_by_phase: dict[str, dict[str, object]] = {
             "NIGHT_GUARD": {"target": seat.number},
-            "NIGHT_WOLF_CHAT": {"text": "[沉默]"},
+            "NIGHT_WOLF_CHAT": {"text": f"{seat.number}号建议统一刀口,避免狼队分票。"},
             "NIGHT_WOLF_VOTE": {"target": cycled_target},
             "NIGHT_WITCH": {"action": "skip", "target": None},
             "NIGHT_SEER": {"target": cycled_target},
@@ -66,7 +67,7 @@ class MockLLMProvider:
         }
         stream = f"mock_llm_tokens:{phase}:seat{seat.number}"
         usage = TokenUsage(
-            prompt_tokens=20 + rng.stream(stream).randint(0, 5),
+            prompt_tokens=20 + rng.randint(stream, 0, 5),
             completion_tokens=5,
         )
         return ProviderResponse(
@@ -181,6 +182,7 @@ def normalize_litellm_model(*, model: str, base_url: str = "") -> str:
 
 class ReplayLLMProvider:
     def __init__(self, raw_responses: tuple[dict[str, object], ...]) -> None:
+        self._lock = threading.Lock()
         self._responses = [
             row
             for row in raw_responses
@@ -203,13 +205,14 @@ class ReplayLLMProvider:
         rng: DeterministicRNG,
     ) -> ProviderResponse:
         del prompt, rng
-        bucket = self._responses_by_key.get((seat.number, phase))
-        if bucket:
-            row = bucket.pop(0)
-        elif self._responses:
-            row = self._responses.pop(0)
-        else:
-            raise RuntimeError("replay raw response exhausted")
+        with self._lock:
+            bucket = self._responses_by_key.get((seat.number, phase))
+            if bucket:
+                row = bucket.pop(0)
+            elif self._responses:
+                row = self._responses.pop(0)
+            else:
+                raise RuntimeError("replay raw response exhausted")
         return ProviderResponse(
             content=str(row.get("raw_response", "")),
             model=str(row.get("model", "replay/raw")),

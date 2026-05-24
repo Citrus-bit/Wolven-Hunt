@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -105,6 +106,7 @@ class LLMGateway:
         self.cost_tracker = cost_tracker
         self.raw_response_sink = raw_response_sink
         self._counter = 0
+        self._counter_lock = threading.Lock()
 
     def call(
         self,
@@ -119,8 +121,7 @@ class LLMGateway:
         current_prompt = prompt
         max_retries = self.phase_max_retries.get(phase, self.max_retries)
         for attempt in range(max_retries + 1):
-            self._counter += 1
-            storage_ref = f"llm/{seat.number}/{phase}/{self._counter:06d}"
+            storage_ref = self._next_storage_ref(seat=seat, phase=phase)
             prompt_hash = _sha256(current_prompt)
             response = ProviderResponse(content="", model="unknown")
             try:
@@ -185,6 +186,12 @@ class LLMGateway:
             return 0.0
         delay = self.retry_backoff_base_seconds * (self.retry_backoff_multiplier**attempt)
         return min(delay, self.retry_backoff_max_seconds)
+
+    def _next_storage_ref(self, *, seat: Seat, phase: str) -> str:
+        with self._counter_lock:
+            self._counter += 1
+            counter = self._counter
+        return f"llm/{seat.number}/{phase}/{counter:06d}"
 
     def _record(
         self,

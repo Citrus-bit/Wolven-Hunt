@@ -50,4 +50,19 @@ describe('GameSeat', () => {
     expect(html).toContain('game-seat-effect--out');
     expect(html).toContain('/assets/game/effects/out_badge.png');
   });
+
+  it('marks seats that have thinking mode enabled', () => {
+    const html = renderToStaticMarkup(
+      <GameSeat
+        seatIndex={4}
+        side="left"
+        assignment={0}
+        thinkingEnabled={true}
+        onClickSeat={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('game-seat-thinking-badge');
+    expect(html).toContain('思考模式开启，响应更慢');
+  });
 });

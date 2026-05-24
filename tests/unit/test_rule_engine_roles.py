@@ -83,6 +83,16 @@ def test_wolf_tie_random_event(game_config: GameConfig, initial_state: GameState
     assert {"rng_stream", "candidates", "selected", "reason"} <= set(payload)
 
 
+def test_wolf_can_kill_self(game_config: GameConfig, initial_state: GameState) -> None:
+    wolf = initial_state.wolf_seats(alive_only=True)[0]
+    rejection = validate_action(
+        initial_state.with_phase("NIGHT_WOLF_VOTE"),
+        WolfKillVote(actor=wolf, target=wolf),
+        game_config.rule_set,
+    )
+    assert rejection is None
+
+
 def test_wolf_cannot_kill_teammate(game_config: GameConfig, initial_state: GameState) -> None:
     wolf = initial_state.wolf_seats(alive_only=True)[0]
     teammate = initial_state.wolf_seats(alive_only=True)[1]
@@ -91,6 +101,19 @@ def test_wolf_cannot_kill_teammate(game_config: GameConfig, initial_state: GameS
     )
     assert rejection is not None
     assert rejection.rule_id == "wolf.target_teammate"
+
+
+def test_wolf_self_kill_resolves_as_night_death(
+    game_config: GameConfig, initial_state: GameState
+) -> None:
+    wolf = initial_state.wolf_seats(alive_only=True)[0]
+    state = replace(initial_state.with_phase("NIGHT_WITCH"), night_wolf_target=wolf)
+
+    state, events = resolve_night(state)
+
+    assert [event.type for event in events] == [EventType.DEATH_AT_NIGHT]
+    assert events[0].payload["seat"] == wolf.number
+    assert not state.player(wolf).alive
 
 
 def test_witch_save_blocks_wolf_kill(game_config: GameConfig, initial_state: GameState) -> None:

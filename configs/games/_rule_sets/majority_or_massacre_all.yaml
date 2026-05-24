@@ -28,6 +28,7 @@ wolves:
   kill_decision: majority
   tie_break: deterministic_random_among_voted_targets
   can_no_kill: false
+  can_kill_self: true
   can_kill_wolf_teammate: false
 witch:
   antidote_uses_per_game: 1

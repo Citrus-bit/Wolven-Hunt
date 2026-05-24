@@ -34,6 +34,16 @@ def test_simulation_invariants(game_config: GameConfig, seed_text: str) -> None:
                 event.payload["alive_wolves"] + event.payload["alive_good"]
                 == event.payload["alive_total"]
             )
+    guard_targets: dict[int, tuple[int, int]] = {}
+    for event in events:
+        if event.type is not EventType.GUARD_PROTECT or event.actor is None:
+            continue
+        target = event.payload["target"]
+        assert isinstance(target, int)
+        previous = guard_targets.get(event.actor)
+        if previous is not None and previous[0] + 1 == event.day:
+            assert previous[1] != target
+        guard_targets[event.actor] = (event.day, target)
     spectator = build_view(state, events, rule_set=game_config.rule_set, seat=None)
     assert all(
         event.visibility.public or event.type in SPECTATOR_VISIBLE_PRIVATE_EVENT_TYPES

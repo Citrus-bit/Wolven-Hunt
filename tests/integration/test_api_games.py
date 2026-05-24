@@ -247,7 +247,7 @@ def test_model_test_litellm_receives_thinking_extra_body(monkeypatch, tmp_path) 
     assert not any(tmp_path.iterdir())
 
 
-def test_model_test_litellm_defaults_thinking_off(monkeypatch, tmp_path) -> None:
+def test_model_test_litellm_defaults_qwen_thinking_off(monkeypatch, tmp_path) -> None:
     from wolven_hunt.llm.provider import _litellm_module
 
     litellm = _litellm_module()
@@ -278,7 +278,7 @@ def test_model_test_litellm_defaults_thinking_off(monkeypatch, tmp_path) -> None
 
     assert response.status_code == 200
     assert response.json() == {"ok": True, "message": None}
-    assert "extra_body" not in captured
+    assert captured["extra_body"] == {"enable_thinking": False}
     assert not any(tmp_path.iterdir())
 
 

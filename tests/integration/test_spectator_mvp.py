@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from time import sleep
+from time import monotonic, sleep
 
 from fastapi.testclient import TestClient
 
 from wolven_hunt.api.app import create_app
 from wolven_hunt.api.deps import get_registry, get_settings
+from wolven_hunt.orchestration.pacing import spectator_effect_ack_event
 
 CONFIG_PATH = "configs/games/classic_10.yaml"
 SEATS = range(1, 11)
@@ -44,7 +45,10 @@ def test_spectator_mvp_stream_narrative_and_reveal(monkeypatch, tmp_path) -> Non
 
         effects = client.get(f"/games/{game_id}/effects").json()
         assert any(effect["kind"] == "guard_shield" for effect in effects)
-        assert client.get(f"/games/{game_id}/effects?after={effects[0]['seq']}").status_code == 200
+        assert (
+            client.get(f"/games/{game_id}/effects?after={effects[0]['seq']}").status_code
+            == 200
+        )
 
         reveal = client.get(f"/games/{game_id}/reveal")
         assert reveal.status_code == 200
@@ -58,6 +62,58 @@ def test_spectator_mvp_stream_narrative_and_reveal(monkeypatch, tmp_path) -> Non
         assert "role_reveal" in body
 
 
+def test_live_spectator_effects_gate_night_progression(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_PACING_PROFILE", "live")
+    monkeypatch.setenv("WH_PACING_PHASE_MS", "0")
+    monkeypatch.setenv("WH_PACING_NIGHT_MS", "0")
+    monkeypatch.setenv("WH_PACING_SPEECH_MS", "0")
+    monkeypatch.setenv("WH_PACING_ACK_TIMEOUT_MS", "1000")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "spectator-live-effects",
+                "pacing": "live",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+            },
+        )
+        assert created.status_code == 200
+        game_id = created.json()["game_id"]
+        expected = {"guard_shield", "wolf_attack", "seer_vision"}
+        seen: dict[str, dict[str, object]] = {}
+        acked_effects: set[int] = set()
+        deadline = monotonic() + 8
+
+        while expected - set(seen) and monotonic() < deadline:
+            summary = client.get(f"/games/{game_id}").json()
+            _ack_phase_audio(client, game_id, str(summary["phase"]))
+            for effect in client.get(f"/games/{game_id}/effects").json():
+                seq = int(effect["seq"])
+                kind = str(effect["kind"])
+                if kind in expected and kind not in seen:
+                    gated_summary = client.get(f"/games/{game_id}").json()
+                    assert gated_summary["phase"] == effect["phase"]
+                    seen[kind] = effect
+                if kind != "death_reveal" and seq not in acked_effects:
+                    acked_effects.add(seq)
+                    client.post(
+                        f"/games/{game_id}/ack",
+                        json={
+                            "phase": effect["phase"],
+                            "event": spectator_effect_ack_event(seq),
+                        },
+                    )
+            sleep(0.01)
+
+        assert expected <= set(seen)
+        _drive_live_game_until_finished(client, game_id, acked_effects)
+
+
 def _wait_until_finished(client: TestClient, game_id: str) -> None:
     for _ in range(150):
         summary = client.get(f"/games/{game_id}").json()
@@ -65,3 +121,43 @@ def _wait_until_finished(client: TestClient, game_id: str) -> None:
             return
         sleep(0.02)
     raise AssertionError("game did not finish")
+
+
+def _drive_live_game_until_finished(
+    client: TestClient,
+    game_id: str,
+    acked_effects: set[int],
+) -> None:
+    deadline = monotonic() + 8
+    while monotonic() < deadline:
+        summary = client.get(f"/games/{game_id}").json()
+        if summary["status"] == "finished":
+            return
+        _ack_phase_audio(client, game_id, str(summary["phase"]))
+        for effect in client.get(f"/games/{game_id}/effects").json():
+            seq = int(effect["seq"])
+            if effect["kind"] == "death_reveal" or seq in acked_effects:
+                continue
+            acked_effects.add(seq)
+            client.post(
+                f"/games/{game_id}/ack",
+                json={
+                    "phase": effect["phase"],
+                    "event": spectator_effect_ack_event(seq),
+                },
+            )
+        sleep(0.01)
+    raise AssertionError("live game did not finish")
+
+
+def _ack_phase_audio(client: TestClient, game_id: str, phase: str) -> None:
+    ack_event = {
+        "NIGHT_START": "night_intro_done",
+        "NIGHT_WOLF_CHAT": "night_wolves_done",
+        "NIGHT_WITCH": "night_witch_done",
+        "NIGHT_SEER": "night_seer_done",
+        "DAY_ANNOUNCE": "day_intro_done",
+    }.get(phase)
+    if ack_event is None:
+        return
+    client.post(f"/games/{game_id}/ack", json={"phase": phase, "event": ack_event})

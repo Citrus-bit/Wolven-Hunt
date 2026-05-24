@@ -31,6 +31,9 @@ WOLF_DAY_ISOLATED_PHASES = frozenset(
     {"DAY_SPEECH", "DAY_VOTE", "DAY_VOTE_PK", "DAY_LAST_WORDS"}
 )
 WOLF_NIGHT_PRIVATE_PHASES = frozenset({"NIGHT_WOLF_CHAT", "NIGHT_WOLF_VOTE"})
+SPEECH_COMPRESSED_PHASES = frozenset(
+    {"DAY_SPEECH", "DAY_VOTE", "DAY_VOTE_PK", "NIGHT_WOLF_CHAT", "NIGHT_WOLF_VOTE"}
+)
 
 
 class PromptRenderer:
@@ -49,7 +52,7 @@ class PromptRenderer:
         role_name = "villager" if view.self_role is None else view.self_role.value
         current_seat = None if view.seat_or_none is None else view.seat_or_none.number
         exclude_event_types: frozenset[str] = (
-            frozenset({"speech"}) if phase == "DAY_SPEECH" else frozenset()
+            frozenset({"speech"}) if phase in SPEECH_COMPRESSED_PHASES else frozenset()
         )
         wolf_private_context: tuple[dict[str, object], ...] | None = None
         if view.self_role is Role.WOLF and phase in WOLF_DAY_ISOLATED_PHASES:
@@ -79,7 +82,7 @@ class PromptRenderer:
             "speech_context": build_speech_context(
                 view.visible_events,
                 current_seat=current_seat,
-                current_day=_int_or_none(view.rule_set_summary.get("day")),
+                current_day=_speech_context_day(view, phase),
                 alive_seats=_int_tuple(view.rule_set_summary.get("alive_seats")),
                 max_speeches=12,
             ),
@@ -123,6 +126,12 @@ def _int_or_none(value: object) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _speech_context_day(view: PlayerView, phase: str) -> int | None:
+    if phase in WOLF_NIGHT_PRIVATE_PHASES:
+        return None
+    return _int_or_none(view.rule_set_summary.get("day"))
 
 
 def _int_tuple(value: object) -> tuple[int, ...]:

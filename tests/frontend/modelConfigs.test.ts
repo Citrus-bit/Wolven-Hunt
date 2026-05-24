@@ -21,4 +21,20 @@ describe('modelConfigs', () => {
       'qwen3.6-flash',
     );
   });
+
+  it('uses glm-4.5-air for the Zhipu model slot', () => {
+    const slot = MODEL_SLOTS.find((candidate) => candidate.nickname === '学霸');
+    expect(slot).toBeDefined();
+    expect(MODEL_CONFIG_DEFAULTS[slot?.slot ?? -1]?.modelName).toBe('glm-4.5-air');
+  });
+
+  it('uses deepseek-v4-flash for the DeepSeek model slot', () => {
+    const slot = MODEL_SLOTS.find(
+      (candidate) => candidate.nickname === '海瑟音',
+    );
+    expect(slot).toBeDefined();
+    expect(MODEL_CONFIG_DEFAULTS[slot?.slot ?? -1]?.modelName).toBe(
+      'deepseek-v4-flash',
+    );
+  });
 });

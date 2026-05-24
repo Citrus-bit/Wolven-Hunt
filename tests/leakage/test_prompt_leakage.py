@@ -64,9 +64,9 @@ MODEL_NAMES_AND_NICKNAMES = {
     "qwen3.6-flash",
     "kimi-k2.5",
     "mimo-v2.5-pro",
-    "glm-5.1",
+    "glm-4.5-air",
     "doubao-seed-2-0-pro-260215",
-    "deepseek-v4-pro",
+    "deepseek-v4-flash",
     "gemini-3.1-pro-preview",
     "claude-sonnet-4-6",
     "gpt-5.4",
@@ -155,6 +155,9 @@ def test_prompt_payload_uses_only_referee_filtered_view(
     assert payload["role"] == role.value
     assert payload["rule_set_summary"]["vote_sheriff"] is False
     assert payload["rule_set_summary"]["can_abstain"] is True
+    assert payload["rule_set_summary"]["wolf_can_kill_self"] is True
+    assert payload["rule_set_summary"]["wolf_can_kill_teammate"] is False
+    assert payload["rule_set_summary"]["wolf_can_no_kill"] is False
     assert speech_context["current_seat"] == seat.number
     assert "role_assignment" not in visible_events_json
     assert "role_assignment" not in speech_context_json
@@ -253,6 +256,14 @@ def test_prompt_declares_no_sheriff_rule(game_config: GameConfig) -> None:
     assert payload["rule_set_summary"]["can_abstain"] is True
     assert "本局无警长" in prompt
     assert "警长归票" in prompt
+
+
+@pytest.mark.leakage
+def test_wolf_night_prompt_declares_self_kill_rule(game_config: GameConfig) -> None:
+    prompt, _ = _render_prompt(game_config, role=Role.WOLF, phase="NIGHT_WOLF_VOTE")
+
+    assert "允许自刀" in prompt
+    assert "不允许刀其他狼人同伴" in prompt
 
 
 @pytest.mark.leakage
@@ -362,6 +373,46 @@ def test_non_wolf_prompt_payload_never_includes_wolf_private_context(
     payload = _extract_payload(prompt)
 
     assert "wolf_private_context" not in payload
+
+
+@pytest.mark.leakage
+@pytest.mark.parametrize(
+    ("role", "phase"),
+    [
+        (Role.VILLAGER, "DAY_VOTE"),
+        (Role.VILLAGER, "DAY_VOTE_PK"),
+        (Role.WOLF, "NIGHT_WOLF_CHAT"),
+        (Role.WOLF, "NIGHT_WOLF_VOTE"),
+    ],
+)
+def test_compressed_prompt_phases_move_public_speech_out_of_visible_events(
+    game_config: GameConfig,
+    role: Role,
+    phase: str,
+) -> None:
+    state, event_log = simulate(game_config, f"prompt-compressed-speech-{role.value}-{phase}")
+    seat = next(player.seat for player in state.players if player.role is role)
+    state = replace(state, phase=phase)
+    renderer = PromptRenderer(game_config.prompt_pack_root, version=DEFAULT_PROMPT_VERSION)
+
+    prompt = renderer.render(
+        view=build_view(state, event_log.events, rule_set=game_config.rule_set, seat=seat),
+        phase=phase,
+        schema_json=PHASE_SCHEMAS[phase].model_json_schema(),
+    )
+    payload = _extract_payload(prompt)
+    visible_events_json = json.dumps(payload["visible_events"], ensure_ascii=False)
+    speech_context_json = json.dumps(payload["speech_context"], ensure_ascii=False)
+    last_public_speech = next(
+        event
+        for event in reversed(event_log.events)
+        if event.type is EventType.SPEECH and event.visibility.public
+    )
+    last_public_speech_text = str(last_public_speech.payload["text"])
+
+    assert all(event["type"] != EventType.SPEECH.value for event in payload["visible_events"])
+    assert last_public_speech_text not in visible_events_json
+    assert last_public_speech_text in speech_context_json
 
 
 def _render_prompt(

@@ -3,6 +3,7 @@ import {
   activeEffectAnnouncements,
   activePotionEffects,
   activeRecentEffectAnnouncements,
+  activeRecentTransientEffects,
   appendRecentSpectatorEffects,
   appendUniqueSpectatorEffects,
   buildSeatEffectMap,
@@ -13,6 +14,7 @@ import {
   publicEliminatedSeats,
   seedExpiredEffectSeenAt,
   seedEffectSeenAt,
+  seedLiveEffectSeenAt,
 } from '../../src/lib/gameEffects';
 import type { GameEvent, SpectatorEffect } from '../../src/lib/gameApi';
 
@@ -365,6 +367,27 @@ describe('gameEffects', () => {
     expect(expired).toEqual([]);
   });
 
+  it('builds live recent transient overlays for the seat layer only during display windows', () => {
+    const effects = [
+      effect(1, 'guard_shield', 8, 'guard_shield', {}, 0, 'NIGHT_GUARD'),
+      effect(2, 'wolf_attack', 9, 'wolf_attack', {}, 0, 'NIGHT_WOLF_VOTE'),
+      effect(3, 'seer_vision', 5, 'seer_vision', {}, 1800, 'NIGHT_SEER'),
+      effect(4, 'witch_potion', 6, 'potion_antidote', { action: 'save' }, 1200, 'NIGHT_WITCH', 3),
+    ];
+    const recent = appendRecentSpectatorEffects([], effects, 1000);
+
+    expect(activeRecentTransientEffects(recent, 2500).map((item) => item.effect.kind)).toEqual([
+      'guard_shield',
+      'wolf_attack',
+      'seer_vision',
+      'witch_potion',
+    ]);
+    expect(activeRecentTransientEffects(recent, 4600).map((item) => item.effect.kind)).toEqual([
+      'wolf_attack',
+    ]);
+    expect(activeRecentTransientEffects(recent, 4600, { terminal: true })).toEqual([]);
+  });
+
   it('does not create a recent announcement for witch skip payloads', () => {
     const skip = effect(
       4,
@@ -401,6 +424,26 @@ describe('gameEffects', () => {
 
     expect(appendUniqueSpectatorEffects([wolf], [duplicate])).toEqual([wolf]);
     expect(seenAtByKey).toEqual({ [effectIdentity(wolf)]: 1000 });
+  });
+
+  it('refreshes expired REST history when the same effect arrives live by SSE', () => {
+    const wolf = effect(2, 'wolf_attack', 4, 'wolf_attack', {}, 0, 'NIGHT_WOLF_VOTE');
+    const seenAtByKey = {};
+
+    seedExpiredEffectSeenAt([wolf], seenAtByKey, 10000);
+    expect(buildSeatEffectMap([wolf], 'DAY_SPEECH', {
+      currentDay: 1,
+      nowMs: 10000,
+      seenAtByKey,
+    })[4].wolfAttack).toBeUndefined();
+
+    seedLiveEffectSeenAt([wolf], seenAtByKey, 11000);
+
+    expect(buildSeatEffectMap([wolf], 'DAY_SPEECH', {
+      currentDay: 1,
+      nowMs: 11000,
+      seenAtByKey,
+    })[4].wolfAttack).toBe(true);
   });
 
   it('builds recent effect announcements without private result details', () => {

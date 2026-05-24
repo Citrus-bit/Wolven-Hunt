@@ -94,10 +94,12 @@ def _validate_wolf_vote(
         return Reject("wolf.actor_alive", "dead wolf cannot vote")
     if not target.alive:
         return Reject("wolf.target_alive", "wolf kill target must be alive")
+    if action.actor == action.target:
+        if not rule_set.wolves.can_kill_self:
+            return Reject("wolf.self", "wolf cannot kill self")
+        return None
     if target.role is Role.WOLF and not rule_set.wolves.can_kill_wolf_teammate:
         return Reject("wolf.target_teammate", "wolf cannot kill wolf teammate")
-    if action.actor == action.target:
-        return Reject("wolf.self", "wolf cannot kill self")
     return None
 
 

@@ -81,7 +81,6 @@ function ModelConfigRow({ slot }: { slot: ModelConfigSlot }) {
       <label className="lobby-sr-only" htmlFor={`${inputId}-api-key`}>
         {slot.nickname} apikey
       </label>
-      <span className="lobby-model-hint">留空则使用作者预填的轮换 key</span>
       <input
         id={`${inputId}-api-key`}
         className="lobby-model-input lobby-model-input--api"
@@ -114,7 +113,10 @@ function ModelConfigRow({ slot }: { slot: ModelConfigSlot }) {
             update({ thinkingEnabled: event.target.checked })
           }
         />
-        <span>思考模式</span>
+        <span className="lobby-model-thinking-label">思考模式</span>
+        {config.thinkingEnabled && (
+          <span className="lobby-model-thinking-hint">响应会更慢</span>
+        )}
       </label>
     </div>
   );

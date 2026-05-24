@@ -68,7 +68,7 @@ describe('modelTest', () => {
       testModelConnection({
         baseUrl: 'https://example.test/v1',
         apiKey: 'secret',
-        modelName: 'glm-5.1',
+        modelName: 'glm-4.5-air',
         thinkingEnabled: true,
       }),
     ).resolves.toEqual({
@@ -92,7 +92,7 @@ describe('modelTest', () => {
       testModelConnection({
         baseUrl: 'https://example.test/v1',
         apiKey: 'secret',
-        modelName: 'glm-5.1',
+        modelName: 'glm-4.5-air',
         thinkingEnabled: true,
       }),
     ).resolves.toEqual({

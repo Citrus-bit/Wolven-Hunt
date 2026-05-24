@@ -1,5 +1,12 @@
 import type { GameTimings } from './gameApi';
 
+const MODEL_WAITING_PHASES = new Set(['DAY_SPEECH', 'NIGHT_WOLF_CHAT']);
+const VOTE_WAITING_PHASES = new Set([
+  'DAY_VOTE',
+  'DAY_VOTE_PK',
+  'NIGHT_WOLF_VOTE',
+]);
+
 export function phaseStatusText(
   phase: string | null,
   speakerSeat?: number | null,
@@ -73,4 +80,29 @@ export function phaseCountdownText(
     return phase === 'DAY_SPEECH' && opts.speakerSeat ? '等待响应' : '等待中...';
   }
   return `${Math.ceil(remainingMs / 1000)}s`;
+}
+
+export function phaseWaitingText(
+  phase: string | null,
+  elapsedMs: number,
+  opts: { speechComplete?: boolean } = {},
+) {
+  if (!phase || opts.speechComplete) {
+    return null;
+  }
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (MODEL_WAITING_PHASES.has(phase)) {
+    return `模型响应中 · 已等待 ${elapsedSeconds}s`;
+  }
+  if (VOTE_WAITING_PHASES.has(phase)) {
+    return `收集投票中 · 已等待 ${elapsedSeconds}s`;
+  }
+  return null;
+}
+
+export function phaseShowsWaitingFeedback(phase: string | null) {
+  return (
+    phase !== null &&
+    (MODEL_WAITING_PHASES.has(phase) || VOTE_WAITING_PHASES.has(phase))
+  );
 }

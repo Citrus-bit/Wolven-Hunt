@@ -275,6 +275,22 @@ export function pruneRecentSpectatorEffects(
   );
 }
 
+export function activeRecentTransientEffects(
+  recentEffects: RecentSpectatorEffect[],
+  nowMs: number,
+  options: { terminal?: boolean } = {},
+): RecentSpectatorEffect[] {
+  if (options.terminal) {
+    return [];
+  }
+  return recentEffects.filter((item) => {
+    if (!effectAnnouncementText(item.effect)) {
+      return false;
+    }
+    return within(nowMs - item.seenAtMs, effectDisplayDurationMs(item.effect));
+  });
+}
+
 export function activeRecentEffectAnnouncements(
   recentEffects: RecentSpectatorEffect[],
   nowMs: number,
@@ -322,6 +338,26 @@ export function seedEffectSeenAt(
   for (const effect of effects) {
     const key = effectIdentity(effect);
     if (!(key in seenAtByKey)) {
+      seenAtByKey[key] = nowMs;
+    }
+  }
+}
+
+export function seedLiveEffectSeenAt(
+  effects: SpectatorEffect[],
+  seenAtByKey: EffectSeenAtMap,
+  nowMs: number,
+) {
+  for (const effect of effects) {
+    if (effect.kind === 'death_reveal') {
+      continue;
+    }
+    const key = effectIdentity(effect);
+    const seenAt = seenAtByKey[key];
+    if (
+      seenAt === undefined ||
+      !within(nowMs - seenAt, effectAnnouncementDurationMs(effect))
+    ) {
       seenAtByKey[key] = nowMs;
     }
   }

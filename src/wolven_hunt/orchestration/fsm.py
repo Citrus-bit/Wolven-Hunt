@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 
 from wolven_hunt.agents.interface import PlayerInterface
 from wolven_hunt.config.schema import GameConfig, RuleSet
@@ -40,13 +42,21 @@ from wolven_hunt.core.seat import Role, Seat
 from wolven_hunt.core.state import GameState
 from wolven_hunt.llm.gateway import LLMErrorType, LLMFallbackRequired
 from wolven_hunt.orchestration.phases import Phase
-from wolven_hunt.referee.validate import validate_action
+from wolven_hunt.referee.text_validate import validate_text_consistency
+from wolven_hunt.referee.validate import Reject, validate_action
 from wolven_hunt.referee.view import PlayerView, build_view
 from wolven_hunt.storage.event_log import EventLog
 
 AgentMap = Mapping[int, PlayerInterface]
 StateSink = Callable[[GameState], None]
 ControlHook = Callable[[GameState], None]
+
+
+@dataclass(frozen=True, slots=True)
+class FallbackDecision:
+    action: Action
+    candidates: tuple[int | str | None, ...]
+    rng_stream: str
 
 
 def run_game(
@@ -140,17 +150,23 @@ def _run_night(
             state_sink,
             control_hook,
         )
-        for wolf in wolf_seats:
-            action = _decide_with_fallback(
+        state = _apply_collected_actions(
+            state,
+            _collect_actions_from_snapshot(
                 state,
                 config,
-                agents[wolf.number],
-                event_log,
-                wolf,
+                agents,
+                event_log.events,
+                wolf_seats,
                 lambda agent, view: agent.decide_wolf_chat(view),
                 rng,
-            )
-            state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
+            ),
+            config,
+            rng,
+            event_log,
+            state_sink,
+            control_hook,
+        )
         event_log.append_all(phase_exit(state))
 
         state = _enter_phase(
@@ -160,19 +176,24 @@ def _run_night(
             state_sink,
             control_hook,
         )
-        for wolf in wolf_seats:
-            if not state.player(wolf).alive:
-                continue
-            action = _decide_with_fallback(
+        wolf_voters = tuple(wolf for wolf in wolf_seats if state.player(wolf).alive)
+        state = _apply_collected_actions(
+            state,
+            _collect_actions_from_snapshot(
                 state,
                 config,
-                agents[wolf.number],
-                event_log,
-                wolf,
+                agents,
+                event_log.events,
+                wolf_voters,
                 lambda agent, view: agent.decide_wolf_vote(view),
                 rng,
-            )
-            state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
+            ),
+            config,
+            rng,
+            event_log,
+            state_sink,
+            control_hook,
+        )
         event_log.append_all(phase_exit(state))
 
     witch_seats = state.seats_by_role(Role.WITCH, alive_only=True)
@@ -419,8 +440,11 @@ def _collect_actions_from_snapshot(
 ) -> tuple[tuple[Seat, Action, tuple[Event, ...]], ...]:
     snapshot_state = state
     snapshot_events = events
-    collected: list[tuple[Seat, Action, tuple[Event, ...]]] = []
-    for seat in sorted(seats, key=lambda item: item.number):
+    sorted_seats = tuple(sorted(seats, key=lambda item: item.number))
+    if not sorted_seats:
+        return ()
+    if len(sorted_seats) == 1:
+        seat = sorted_seats[0]
         action, support_events = _resolve_action(
             snapshot_state,
             config,
@@ -430,8 +454,23 @@ def _collect_actions_from_snapshot(
             decide,
             rng,
         )
-        collected.append((seat, action, support_events))
-    return tuple(collected)
+        return ((seat, action, support_events),)
+
+    with ThreadPoolExecutor(max_workers=len(sorted_seats)) as executor:
+        futures = {
+            seat: executor.submit(
+                _resolve_action,
+                snapshot_state,
+                config,
+                agents[seat.number],
+                snapshot_events,
+                seat,
+                decide,
+                rng,
+            )
+            for seat in sorted_seats
+        }
+        return tuple((seat, *futures[seat].result()) for seat in sorted_seats)
 
 
 def _apply_collected_actions(
@@ -458,6 +497,12 @@ def _apply_and_log(
     state_sink: StateSink | None,
     control_hook: ControlHook | None,
 ) -> GameState:
+    rejection = _validate_action_output(state, action, config, event_log.events)
+    if rejection is not None:
+        raise RuntimeError(
+            f"referee hard gate rejected {action.__class__.__name__}: "
+            f"{rejection.rule_id}: {rejection.message}"
+        )
     state, events = apply_action(state, action, config, rng)
     event_log.append_all(events)
     _sync_runtime(state, state_sink, control_hook)
@@ -507,39 +552,99 @@ def _resolve_action(
     rng: DeterministicRNG,
 ) -> tuple[Action, tuple[Event, ...]]:
     support_events: list[Event] = []
-    view = build_view(state, events, rule_set=config.rule_set, seat=seat)
-    try:
-        action = decide(agent, view)
-        support_events.extend(_consume_llm_call_events_if_present(state, agent, seat))
-    except LLMFallbackRequired as exc:
-        support_events.extend(_consume_llm_call_events_if_present(state, agent, seat))
-        support_events.append(_llm_error_event(state, seat, exc))
-        action = _fallback_for_phase(state, seat, rng, view)
-        support_events.append(_fallback_event(state, seat, f"llm:{exc.error.type}", action))
-        return action, tuple(support_events)
-    except Exception:
-        support_events.extend(_consume_llm_call_events_if_present(state, agent, seat))
-        action = _fallback_for_phase(state, seat, rng, view)
-        support_events.append(_fallback_event(state, seat, "exception", action))
-        return action, tuple(support_events)
-    rejection = validate_action(state, action, config.rule_set)
-    if rejection is None:
-        return action, tuple(support_events)
-    support_events.append(
-        draft_event(
-            game_id=state.game_id,
-            phase=state.phase,
-            day=state.day,
-            event_type=EventType.AGENT_INVALID_ACTION,
-            actor=seat.number,
-            visibility=hidden_visibility(),
-            payload={"rule_id": rejection.rule_id, "message": rejection.message},
-        )
+    max_retries = config.rule_set.fallback.phase_max_retries.get(
+        state.phase, config.rule_set.fallback.max_retries
     )
-    reason = f"validation_failed:{rejection.rule_id}"
-    action = _fallback_for_phase(state, seat, rng, view)
-    support_events.append(_fallback_event(state, seat, reason, action))
-    return action, tuple(support_events)
+    last_reason = "unknown"
+    for attempt in range(max_retries + 1):
+        view = build_view(state, events, rule_set=config.rule_set, seat=seat)
+        try:
+            action = decide(agent, view)
+            support_events.extend(_consume_llm_call_events_if_present(state, agent, seat))
+        except LLMFallbackRequired as exc:
+            support_events.extend(_consume_llm_call_events_if_present(state, agent, seat))
+            support_events.append(_llm_error_event(state, seat, exc))
+            decision = _validated_fallback_decision(
+                state,
+                config,
+                seat,
+                rng,
+                view,
+                events,
+                f"llm:{exc.error.type}",
+            )
+            support_events.append(_fallback_event(state, seat, f"llm:{exc.error.type}", decision))
+            return decision.action, tuple(support_events)
+        except Exception:
+            support_events.extend(_consume_llm_call_events_if_present(state, agent, seat))
+            decision = _validated_fallback_decision(
+                state,
+                config,
+                seat,
+                rng,
+                view,
+                events,
+                "exception",
+            )
+            support_events.append(_fallback_event(state, seat, "exception", decision))
+            return decision.action, tuple(support_events)
+
+        rejection = _validate_action_output(state, action, config, events)
+        if rejection is None:
+            return action, tuple(support_events)
+
+        support_events.append(_invalid_action_event(state, seat, rejection))
+        last_reason = f"validation_failed:{rejection.rule_id}"
+        if attempt < max_retries:
+            _set_retry_feedback(agent, "illegal_action", f"{rejection.rule_id}: {rejection.message}")
+            continue
+
+    view = build_view(state, events, rule_set=config.rule_set, seat=seat)
+    decision = _validated_fallback_decision(
+        state,
+        config,
+        seat,
+        rng,
+        view,
+        events,
+        last_reason,
+    )
+    support_events.append(_fallback_event(state, seat, last_reason, decision))
+    return decision.action, tuple(support_events)
+
+
+def _validate_action_output(
+    state: GameState,
+    action: Action,
+    config: GameConfig,
+    events: tuple[Event, ...],
+) -> Reject | None:
+    rejection = validate_action(state, action, config.rule_set)
+    if rejection is not None:
+        return rejection
+    return validate_text_consistency(state, action, config.rule_set, events)
+
+
+def _invalid_action_event(state: GameState, seat: Seat, rejection: Reject) -> Event:
+    return draft_event(
+        game_id=state.game_id,
+        phase=state.phase,
+        day=state.day,
+        event_type=EventType.AGENT_INVALID_ACTION,
+        actor=seat.number,
+        visibility=hidden_visibility(),
+        payload={
+            "error_type": "illegal_action",
+            "rule_id": rejection.rule_id,
+            "message": rejection.message,
+        },
+    )
+
+
+def _set_retry_feedback(agent: PlayerInterface, error_type: str, message: str) -> None:
+    setter = getattr(agent, "set_retry_feedback", None)
+    if callable(setter):
+        setter(error_type, message)
 
 
 def _record_llm_call_if_present(
@@ -630,16 +735,21 @@ def _record_fallback(
     reason: str,
     action: Action,
 ) -> None:
-    event_log.append(_fallback_event(state, seat, reason, action))
+    decision = FallbackDecision(
+        action=action,
+        candidates=(),
+        rng_stream=f"fallback:{state.phase}:seat{seat.number}:retry0",
+    )
+    event_log.append(_fallback_event(state, seat, reason, decision))
 
 
 def _fallback_event(
     state: GameState,
     seat: Seat,
     reason: str,
-    action: Action,
+    decision: FallbackDecision,
 ) -> Event:
-    selected = _selected_from_action(action)
+    selected = _selected_from_action(decision.action)
     return draft_event(
         game_id=state.game_id,
         phase=state.phase,
@@ -651,9 +761,9 @@ def _fallback_event(
             "phase": state.phase,
             "seat": seat.number,
             "reason": reason,
-            "fallback_action": action.__class__.__name__,
-            "rng_stream": f"fallback:{state.phase}:seat{seat.number}:retry0",
-            "candidates": [],
+            "fallback_action": decision.action.__class__.__name__,
+            "rng_stream": decision.rng_stream,
+            "candidates": list(decision.candidates),
             "selected": selected,
         },
     )
@@ -671,39 +781,137 @@ def _selected_from_action(action: Action) -> int | str | None:
         return action.text
 
 
+def _validated_fallback_decision(
+    state: GameState,
+    config: GameConfig,
+    seat: Seat,
+    rng: DeterministicRNG,
+    view: PlayerView,
+    events: tuple[Event, ...],
+    reason: str,
+) -> FallbackDecision:
+    try:
+        decision = _fallback_decision_for_phase(state, seat, rng, view)
+    except Exception as exc:
+        raise RuntimeError(f"fallback failed for {state.phase}: {reason}: {exc}") from exc
+    rejection = _validate_action_output(state, decision.action, config, events)
+    if rejection is not None:
+        raise RuntimeError(
+            f"fallback rejected for {state.phase}: {reason}: "
+            f"{rejection.rule_id}: {rejection.message}"
+        )
+    return decision
+
+
+def _fallback_decision_for_phase(
+    state: GameState,
+    seat: Seat,
+    rng: DeterministicRNG,
+    view: PlayerView,
+) -> FallbackDecision:
+    stream = f"fallback:{state.phase}:seat{seat.number}:retry0"
+    if state.phase == Phase.NIGHT_GUARD.value:
+        candidates = tuple(
+            candidate for candidate in state.alive_seats() if candidate != state.last_guard_target
+        )
+        target = rng.choice(stream, candidates)
+        return FallbackDecision(
+            action=GuardProtect(actor=seat, target=target),
+            candidates=_candidate_payload(candidates),
+            rng_stream=stream,
+        )
+    if state.phase == Phase.NIGHT_WOLF_CHAT.value:
+        return FallbackDecision(
+            action=WolfChatMessage(actor=seat, text="[沉默]"),
+            candidates=("[沉默]",),
+            rng_stream=stream,
+        )
+    if state.phase == Phase.NIGHT_WOLF_VOTE.value:
+        candidates = _wolf_fallback_kill_candidates(state, seat, view)
+        target = rng.choice(stream, candidates)
+        return FallbackDecision(
+            action=WolfKillVote(actor=seat, target=target),
+            candidates=_candidate_payload(candidates),
+            rng_stream=stream,
+        )
+    if state.phase == Phase.NIGHT_WITCH.value:
+        return FallbackDecision(
+            action=WitchAction(actor=seat, action="skip", target=None),
+            candidates=("skip:None",),
+            rng_stream=stream,
+        )
+    if state.phase == Phase.NIGHT_SEER.value:
+        candidates = tuple(player.seat for player in state.players if player.seat != seat)
+        target = rng.choice(stream, candidates)
+        return FallbackDecision(
+            action=SeerCheck(actor=seat, target=target),
+            candidates=_candidate_payload(candidates),
+            rng_stream=stream,
+        )
+    if state.phase == Phase.DAY_SPEECH.value:
+        text = _contextual_public_speech(seat, view)
+        return FallbackDecision(
+            action=Speech(actor=seat, text=text),
+            candidates=(text,),
+            rng_stream=stream,
+        )
+    if state.phase == Phase.DAY_VOTE.value:
+        candidates = state.alive_seats()
+        target = rng.choice(stream, candidates)
+        return FallbackDecision(
+            action=Vote(actor=seat, target=target),
+            candidates=_candidate_payload(candidates),
+            rng_stream=stream,
+        )
+    if state.phase == Phase.DAY_VOTE_PK.value:
+        candidates = state.pk_seats
+        target = rng.choice(stream, candidates)
+        return FallbackDecision(
+            action=PkVote(actor=seat, target=target),
+            candidates=_candidate_payload(candidates),
+            rng_stream=stream,
+        )
+    if state.phase == Phase.DAY_LAST_WORDS.value:
+        return FallbackDecision(
+            action=LastWords(actor=seat, text="我没有遗言"),
+            candidates=("我没有遗言",),
+            rng_stream=stream,
+        )
+    text = _contextual_public_speech(seat, view)
+    return FallbackDecision(
+        action=Speech(actor=seat, text=text),
+        candidates=(text,),
+        rng_stream=stream,
+    )
+
+
 def _fallback_for_phase(
     state: GameState,
     seat: Seat,
     rng: DeterministicRNG,
     view: PlayerView,
 ) -> Action:
-    stream = f"fallback:{state.phase}:seat{seat.number}:retry0"
-    if state.phase == Phase.NIGHT_GUARD.value:
-        candidates = tuple(
-            candidate for candidate in state.alive_seats() if candidate != state.last_guard_target
-        )
-        return GuardProtect(actor=seat, target=rng.choice(stream, candidates))
-    if state.phase == Phase.NIGHT_WOLF_CHAT.value:
-        return WolfChatMessage(actor=seat, text="[沉默]")
-    if state.phase == Phase.NIGHT_WOLF_VOTE.value:
-        candidates = tuple(
-            player.seat for player in state.alive_players() if player.role is not Role.WOLF
-        )
-        return WolfKillVote(actor=seat, target=rng.choice(stream, candidates))
-    if state.phase == Phase.NIGHT_WITCH.value:
-        return WitchAction(actor=seat, action="skip", target=None)
-    if state.phase == Phase.NIGHT_SEER.value:
-        candidates = tuple(player.seat for player in state.players if player.seat != seat)
-        return SeerCheck(actor=seat, target=rng.choice(stream, candidates))
-    if state.phase == Phase.DAY_SPEECH.value:
-        return Speech(actor=seat, text=_contextual_public_speech(seat, view))
-    if state.phase == Phase.DAY_VOTE.value:
-        return Vote(actor=seat, target=rng.choice(stream, state.alive_seats()))
-    if state.phase == Phase.DAY_VOTE_PK.value:
-        return PkVote(actor=seat, target=rng.choice(stream, state.pk_seats))
-    if state.phase == Phase.DAY_LAST_WORDS.value:
-        return LastWords(actor=seat, text="我没有遗言")
-    return Speech(actor=seat, text=_contextual_public_speech(seat, view))
+    return _fallback_decision_for_phase(state, seat, rng, view).action
+
+
+def _candidate_payload(candidates: tuple[Seat, ...]) -> tuple[int, ...]:
+    return tuple(candidate.number for candidate in candidates)
+
+
+def _wolf_fallback_kill_candidates(
+    state: GameState,
+    seat: Seat,
+    view: PlayerView,
+) -> tuple[Seat, ...]:
+    can_kill_self = bool(view.rule_set_summary.get("wolf_can_kill_self"))
+    can_kill_teammate = bool(view.rule_set_summary.get("wolf_can_kill_teammate"))
+    return tuple(
+        player.seat
+        for player in state.alive_players()
+        if player.role is not Role.WOLF
+        or (player.seat == seat and can_kill_self)
+        or (player.seat != seat and can_kill_teammate)
+    )
 
 
 def _contextual_public_speech(seat: Seat, view: PlayerView) -> str:

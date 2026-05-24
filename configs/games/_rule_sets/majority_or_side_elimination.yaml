@@ -29,6 +29,7 @@ wolves:
   kill_decision: majority
   tie_break: deterministic_random_among_voted_targets
   can_no_kill: false
+  can_kill_self: true
   can_kill_wolf_teammate: false
 witch:
   antidote_uses_per_game: 1
@@ -63,13 +64,17 @@ fallback:
   retry_backoff_max_seconds: 8
   retry_backoff_jitter: false
   phase_timeout_seconds:
-    DAY_SPEECH: 45
-    DAY_VOTE: 20
-    DAY_VOTE_PK: 20
+    NIGHT_WOLF_CHAT: 15
+    NIGHT_WOLF_VOTE: 8
+    DAY_SPEECH: 25
+    DAY_VOTE: 8
+    DAY_VOTE_PK: 8
   phase_max_retries:
-    DAY_SPEECH: 2
-    DAY_VOTE: 1
-    DAY_VOTE_PK: 1
+    NIGHT_WOLF_CHAT: 1
+    NIGHT_WOLF_VOTE: 0
+    DAY_SPEECH: 1
+    DAY_VOTE: 0
+    DAY_VOTE_PK: 0
   actions:
     NIGHT_GUARD: random_legal_target_excluding_previous_guard
     NIGHT_WOLF_CHAT: silence_message
@@ -87,12 +92,12 @@ replay:
 timings:
   night_start_ms: 1000
   night_guard_ms: 60000
-  night_wolf_chat_ms: 120000
-  night_wolf_vote_ms: 30000
+  night_wolf_chat_ms: 15000
+  night_wolf_vote_ms: 8000
   night_witch_ms: 60000
   night_seer_ms: 60000
   day_announce_ms: 1000
   day_last_words_ms: 60000
-  day_speech_ms: 60000
-  day_vote_ms: 30000
-  day_vote_pk_ms: 30000
+  day_speech_ms: 25000
+  day_vote_ms: 8000
+  day_vote_pk_ms: 8000

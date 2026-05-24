@@ -44,6 +44,7 @@ from wolven_hunt.llm.provider_map import (
 from wolven_hunt.orchestration.fsm import run_game
 from wolven_hunt.orchestration.pacing import PacingController, PacingName, profile_from_settings
 from wolven_hunt.referee.reveal import build_role_reveal
+from wolven_hunt.referee.text_validate import validate_text_consistency
 from wolven_hunt.referee.validate import Reject, validate_action
 from wolven_hunt.referee.view import PlayerView, build_view
 from wolven_hunt.storage.disk import GameRunStore
@@ -166,6 +167,11 @@ class PendingActionAgent:
         if result is None:
             return None
         return cast(object, result)
+
+    def set_retry_feedback(self, error_type: str, message: str) -> None:
+        setter = getattr(self._base, "set_retry_feedback", None)
+        if callable(setter):
+            setter(error_type, message)
 
 
 @dataclass(slots=True)
@@ -399,6 +405,13 @@ class GameRegistry:
             return Reject("game.finished", "game has already finished")
         action = Speech(actor=seat, text=text)
         rejection = validate_action(session.state, action, session.config.rule_set)
+        if rejection is None:
+            rejection = validate_text_consistency(
+                session.state,
+                action,
+                session.config.rule_set,
+                session.event_log.events,
+            )
         if rejection is not None:
             return rejection
         session.pending.submit("speech", action)
@@ -410,6 +423,13 @@ class GameRegistry:
             return Reject("game.finished", "game has already finished")
         action = WolfChatMessage(actor=seat, text=text)
         rejection = validate_action(session.state, action, session.config.rule_set)
+        if rejection is None:
+            rejection = validate_text_consistency(
+                session.state,
+                action,
+                session.config.rule_set,
+                session.event_log.events,
+            )
         if rejection is not None:
             return rejection
         session.pending.submit("wolf_chat", action)

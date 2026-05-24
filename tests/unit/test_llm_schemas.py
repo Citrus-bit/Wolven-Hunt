@@ -26,7 +26,7 @@ def test_phase_output_models_cover_step_06_contract() -> None:
     ("phase", "payload"),
     [
         ("NIGHT_GUARD", {"target": 1}),
-        ("NIGHT_WOLF_CHAT", {"text": "[沉默]"}),
+        ("NIGHT_WOLF_CHAT", {"text": "建议统一刀口,避免狼队分票。"}),
         ("NIGHT_WOLF_VOTE", {"target": 2}),
         ("NIGHT_WITCH", {"action": "skip", "target": None}),
         ("NIGHT_SEER", {"target": 3}),
@@ -50,3 +50,11 @@ def test_phase_output_models_accept_minimal_payloads(
 def test_vote_output_models_reject_invalid_seat(phase: str) -> None:
     with pytest.raises(ValidationError):
         PHASE_OUTPUT_MODELS[phase].model_validate({"target": 0})
+
+
+@pytest.mark.llm
+@pytest.mark.parametrize("phase", ["NIGHT_WOLF_CHAT", "DAY_SPEECH"])
+@pytest.mark.parametrize("text", ["", "   ", "[沉默]", "无话可说", "我先观察"])
+def test_text_output_models_reject_placeholders(phase: str, text: str) -> None:
+    with pytest.raises(ValidationError):
+        PHASE_OUTPUT_MODELS[phase].model_validate({"text": text})

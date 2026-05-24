@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import time
+
 from tests.conftest import simulate
 
 from wolven_hunt.config.schema import GameConfig
-from wolven_hunt.core.actions import LastWords, PkVote, Speech, Vote
+from wolven_hunt.core.actions import LastWords, PkVote, Speech, Vote, WolfChatMessage
 from wolven_hunt.core.events import Event, EventType
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.rule_engine import build_initial_state
 from wolven_hunt.core.seat import Seat
 from wolven_hunt.core.state import GameState
-from wolven_hunt.orchestration.fsm import _run_day
+from wolven_hunt.orchestration.fsm import (
+    _apply_collected_actions,
+    _collect_actions_from_snapshot,
+    _run_day,
+)
+from wolven_hunt.orchestration.phases import Phase
 from wolven_hunt.referee.view import PlayerView
 from wolven_hunt.storage.event_log import EventLog
 from wolven_hunt.storage.jsonl import events_to_jsonl
@@ -132,6 +139,70 @@ def test_day_vote_uses_single_snapshot_and_reveals_casts_after_finish(
     )
     assert result.payload["counts"] == {"2": 9, "3": 1}
     assert max(event.seq for event in vote_casts) < result.seq
+
+
+def test_day_vote_collects_snapshot_actions_concurrently(game_config: GameConfig) -> None:
+    vote_targets = {seat: 2 for seat in range(1, 11)}
+    vote_targets[2] = 3
+    started_at = time.perf_counter()
+
+    _run_scripted_day(
+        game_config,
+        vote_targets=vote_targets,
+        seed="scripted-day-vote-concurrent",
+        agent_delay_seconds=0.08,
+    )
+
+    assert time.perf_counter() - started_at < 0.45
+
+
+def test_night_wolf_chat_collects_snapshot_actions_concurrently(
+    game_config: GameConfig,
+) -> None:
+    seed = "scripted-wolf-chat-concurrent"
+    state, start_events = build_initial_state(game_config, seed)
+    state = state.with_phase(Phase.NIGHT_WOLF_CHAT.value)
+    event_log = EventLog(seed=seed)
+    event_log.append_all(start_events)
+    wolf_seats = state.wolf_seats(alive_only=True)
+    agents = {
+        seat.number: ScriptedWolfChatAgent(seat.number, delay_seconds=0.08)
+        for seat in wolf_seats
+    }
+    started_at = time.perf_counter()
+
+    collected = _collect_actions_from_snapshot(
+        state,
+        game_config,
+        agents,
+        event_log.events,
+        wolf_seats,
+        lambda agent, view: agent.decide_wolf_chat(view),
+        DeterministicRNG(seed),
+    )
+
+    assert time.perf_counter() - started_at < 0.25
+    for agent in agents.values():
+        assert agent.seen_chat_actors == [()]
+
+    state = _apply_collected_actions(
+        state,
+        collected,
+        game_config,
+        DeterministicRNG(seed),
+        event_log,
+        state_sink=None,
+        control_hook=None,
+    )
+    del state
+    chat_events = [
+        event
+        for event in event_log.events
+        if event.type is EventType.WOLF_CHAT_MESSAGE
+    ]
+    assert [event.actor for event in chat_events] == sorted(
+        seat.number for seat in wolf_seats
+    )
 
 
 def test_day_vote_all_abstain_is_peaceful_without_last_words(
@@ -285,6 +356,7 @@ class ScriptedDayAgent:
         *,
         vote_target: int | None,
         pk_target: int | None | object = _DEFAULT_PK_TARGET,
+        delay_seconds: float = 0.0,
     ) -> None:
         self.seat = Seat(seat)
         self.vote_target = None if vote_target is None else Seat(vote_target)
@@ -295,6 +367,7 @@ class ScriptedDayAgent:
             if pk_target is None
             else Seat(pk_target)
         )
+        self.delay_seconds = delay_seconds
         self.vote_seen_vote_casts: list[tuple[int | None, ...]] = []
         self.pk_seen_vote_casts: list[tuple[int | None, ...]] = []
 
@@ -303,10 +376,14 @@ class ScriptedDayAgent:
         return Speech(actor=self.seat, text=f"{self.seat.number}号发言")
 
     def decide_vote(self, view: PlayerView) -> Vote:
+        if self.delay_seconds:
+            time.sleep(self.delay_seconds)
         self.vote_seen_vote_casts.append(_visible_vote_cast_actors(view, "DAY_VOTE"))
         return Vote(actor=self.seat, target=self.vote_target)
 
     def decide_pk_vote(self, view: PlayerView) -> PkVote:
+        if self.delay_seconds:
+            time.sleep(self.delay_seconds)
         self.pk_seen_vote_casts.append(_visible_vote_cast_actors(view, "DAY_VOTE_PK"))
         target = self.pk_target
         if target is _DEFAULT_PK_TARGET:
@@ -318,18 +395,33 @@ class ScriptedDayAgent:
         return LastWords(actor=self.seat, text=f"{self.seat.number}号遗言")
 
 
+class ScriptedWolfChatAgent:
+    def __init__(self, seat: int, *, delay_seconds: float = 0.0) -> None:
+        self.seat = Seat(seat)
+        self.delay_seconds = delay_seconds
+        self.seen_chat_actors: list[tuple[int | None, ...]] = []
+
+    def decide_wolf_chat(self, view: PlayerView) -> WolfChatMessage:
+        if self.delay_seconds:
+            time.sleep(self.delay_seconds)
+        self.seen_chat_actors.append(_visible_wolf_chat_actors(view))
+        return WolfChatMessage(actor=self.seat, text=f"{self.seat.number}号狼聊")
+
+
 def _run_scripted_day(
     game_config: GameConfig,
     *,
     vote_targets: dict[int, int | None],
     pk_targets: dict[int, int | None] | None = None,
     seed: str = "scripted-day-exile",
+    agent_delay_seconds: float = 0.0,
 ) -> tuple[GameState, EventLog]:
     state, event_log, _ = _run_scripted_day_with_agents(
         game_config,
         vote_targets=vote_targets,
         pk_targets=pk_targets,
         seed=seed,
+        agent_delay_seconds=agent_delay_seconds,
     )
     return state, event_log
 
@@ -340,6 +432,7 @@ def _run_scripted_day_with_agents(
     vote_targets: dict[int, int | None],
     pk_targets: dict[int, int | None] | None = None,
     seed: str = "scripted-day-exile",
+    agent_delay_seconds: float = 0.0,
 ) -> tuple[GameState, EventLog, dict[int, ScriptedDayAgent]]:
     state, start_events = build_initial_state(game_config, seed)
     event_log = EventLog(seed=seed)
@@ -353,6 +446,7 @@ def _run_scripted_day_with_agents(
                 if pk_targets is None or seat not in pk_targets
                 else pk_targets[seat]
             ),
+            delay_seconds=agent_delay_seconds,
         )
         for seat in range(game_config.seat_range.start, game_config.seat_range.end + 1)
     }
@@ -375,6 +469,17 @@ def _visible_vote_cast_actors(view: PlayerView, phase: str) -> tuple[int | None,
         for event in view.visible_events
         if event.type is EventType.VOTE_CAST
         and event.phase == phase
+        and event.day == current_day
+    )
+
+
+def _visible_wolf_chat_actors(view: PlayerView) -> tuple[int | None, ...]:
+    current_day = view.rule_set_summary["day"]
+    return tuple(
+        event.actor
+        for event in view.visible_events
+        if event.type is EventType.WOLF_CHAT_MESSAGE
+        and event.phase == Phase.NIGHT_WOLF_CHAT.value
         and event.day == current_day
     )
 

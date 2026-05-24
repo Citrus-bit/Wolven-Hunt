@@ -103,7 +103,7 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
   {
     baseUrl: 'https://yunwu.ai/v1',
     apiKey: 'sk-3xVFT4xdHR3DYvBf7haR7A1Fb1ndJznxwrs1onoZ5JrywzRV',
-    modelName: 'glm-5.1',
+    modelName: 'glm-4.5-air',
     thinkingEnabled: false,
   },
   {
@@ -115,7 +115,7 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
   {
     baseUrl: 'https://api.deepseek.com',
     apiKey: 'sk-303313d10b7149bf831b7909bf70ad4f',
-    modelName: 'deepseek-v4-pro',
+    modelName: 'deepseek-v4-flash',
     thinkingEnabled: false,
   },
   {

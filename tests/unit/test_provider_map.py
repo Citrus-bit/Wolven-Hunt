@@ -155,8 +155,9 @@ def test_litellm_provider_uses_phase_timeout_override(monkeypatch: pytest.Monkey
     assert captured["timeout"] == 20
 
 
-def test_build_provider_from_config_applies_thinking_extra_body(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("thinking_enabled", [False, True])
+def test_build_provider_from_config_applies_qwen_thinking_extra_body(
+    monkeypatch: pytest.MonkeyPatch, thinking_enabled: bool
 ) -> None:
     captured: dict[str, object] = {}
 
@@ -173,7 +174,7 @@ def test_build_provider_from_config_applies_thinking_extra_body(
             provider="litellm",
             model="qwen3.6-flash",
             api_key="test-key",
-            thinking_enabled=True,
+            thinking_enabled=thinking_enabled,
         )
     )
 
@@ -184,7 +185,39 @@ def test_build_provider_from_config_applies_thinking_extra_body(
         rng=DeterministicRNG("thinking-provider"),
     )
 
-    assert captured["extra_body"] == {"enable_thinking": True}
+    assert captured["extra_body"] == {"enable_thinking": thinking_enabled}
+
+
+def test_build_provider_from_config_omits_non_qwen_thinking_extra_body_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_completion(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": '{"target":1}'}}], "model": "m", "usage": {}}
+
+    monkeypatch.setattr(
+        "wolven_hunt.llm.provider._litellm_module",
+        lambda: SimpleNamespace(completion=fake_completion),
+    )
+    provider = build_provider_from_config(
+        ProviderConfig(
+            provider="litellm",
+            model="gpt-5.4",
+            api_key="test-key",
+            thinking_enabled=False,
+        )
+    )
+
+    provider.complete(
+        seat=Seat(1),
+        phase="NIGHT_GUARD",
+        prompt="{}",
+        rng=DeterministicRNG("thinking-provider-disabled"),
+    )
+
+    assert "extra_body" not in captured
 
 
 def test_provider_api_key_is_not_written_to_manifest(tmp_path: Path) -> None:

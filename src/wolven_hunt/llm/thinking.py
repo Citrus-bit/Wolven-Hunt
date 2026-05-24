@@ -4,11 +4,11 @@ from typing import Any
 
 
 def thinking_extra_body(model: str, *, enabled: bool) -> dict[str, Any]:
-    if not enabled:
-        return {}
     normalized = model.strip().lower()
     if normalized.startswith("qwen"):
-        return {"enable_thinking": True}
+        return {"enable_thinking": enabled}
+    if not enabled:
+        return {}
     if normalized.startswith(("kimi", "mimo", "deepseek", "glm", "doubao")):
         return {"thinking": {"type": "enabled"}}
     if normalized.startswith("hy3"):

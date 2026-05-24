@@ -15,3 +15,10 @@ def test_streams_are_independent() -> None:
     first_x = rng1.stream("x").randint(0, 99)
     _ = rng1.stream("y").randint(0, 99)
     assert first_x == rng2.stream("x").randint(0, 99)
+
+
+def test_randint_helper_matches_stream_sequence() -> None:
+    rng1 = DeterministicRNG("a")
+    rng2 = DeterministicRNG("a")
+
+    assert rng1.randint("x", 0, 99) == rng2.stream("x").randint(0, 99)

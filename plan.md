@@ -14,6 +14,7 @@
 - 规则、角色、模型、提示词全部**配置驱动**，核心代码不随板子变化。
 - 当前阶段：**STEP-07 / P3 观赛 MVP**。在 STEP-06 外部接入基础上允许实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与终局定格态。
 - STEP-07 增加 **spectator-only 观赛特效流**：观众上帝视角可以看到护盾、狼袭、预言、女巫药瓶与死亡揭晓动画；普通 PlayerView、prompt、玩家 SSE、narrative 仍不得暴露守卫/预言家/女巫私有结果、狼刀投票细节、provider 配置或 raw response。
+- `DAY_SPEECH` / `DAY_LAST_WORDS` 输出必须经过 Referee 文本事实一致性 hook；确定性违反规则机制、本人私有行动历史或越权私有事实的文本按 `illegal_action` 处理，不得进入 EventLog、narrative、spectator API 或 SSE。
 
 ---
 
@@ -62,9 +63,9 @@
 
 ### 1.6 狼人
 
-- 每晚最多 1 轮夜聊（每狼一句），然后**同时**提交刀人目标。
+- 每晚最多 1 轮夜聊（每狼一句），然后**同时**提交刀人目标。`NIGHT_WOLF_CHAT` 与 `NIGHT_WOLF_VOTE` 均可基于同一份夜晚 snapshot 并发收集各狼决策，结算和事件追加仍按 actor seat 升序执行。
 - 多数决定刀人目标；平票时**在被狼队投到的目标中随机**选择，并记录 `wolf_tie_random` 事件。
-- 合法刀人目标 = 所有存活非狼玩家。**不允许自刀、不允许刀狼队友、不允许空刀**。
+- 合法刀人目标 = 所有存活非狼玩家或狼人自己。**允许自刀，不允许刀其他狼队友，不允许空刀**。
 - 狼队夜聊内容对狼队玩家可见；STEP-07 spectator 上帝视角可在狼人聊天框看到真实发言者和内容。
 
 ### 1.7 女巫
@@ -82,9 +83,10 @@
 - 首夜可以死亡，`rule_set.first_night_can_die: true` 作为首版默认配置。
 - 首夜死亡在首日 `DAY_ANNOUNCE` 公示；首夜狼刀死亡和双奶死亡者进入首日 `DAY_LAST_WORDS`，毒药死亡无遗言。
 - 白天按座位顺序一轮发言，每名存活玩家一次，中文默认 300 字上限。
+- 白天发言和遗言允许正常身份伪装、诈身份和策略性判断；但 Referee 必须拦截确定性不可能或越权的文本事实，例如守卫声称连续两晚守同一人、守卫把“守护成功/挡刀成功”说成确定事实、玩家引用未授权狼聊/狼刀/模型/provider/raw response 作为可见事实。
 - 每日 `DAY_SPEECH` 发言起点优先由最近一次夜晚公布死亡决定：若 `state.last_night_deaths` 非空，以其中座位号最大的死亡玩家为锚点，从其下一位存活玩家开始，按座位号递增循环一圈并跳过死亡玩家。若当晚无人死亡，则回退 `rule_set.first_speaker_seat`（默认 1 号）作为起点。
 - 投票：同时投票、公开票型、**允许弃票、不允许改票、无警长**。
-- `DAY_VOTE` / `DAY_VOTE_PK` 的“同时投票”定义为：所有合法投票者基于同一份 `GameState` 与 `EventLog` 快照独立决策；投票决策在结算前只存在于 FSM 内存 pending action 中，不追加到 EventLog，也不得进入任何 PlayerView、prompt、spectator API 或 narrative。结算时由 Referee 按 actor seat 升序追加公开 `vote_cast`，再追加 `vote_result` / `vote_pk_enter` / `exile` / `peaceful_day`。弃票的 `vote_cast` payload 固定为 `{target: null, abstain: true}`；`vote_result` payload 必须包含 `counts`、`tied`、`abstain_count`、`abstentions`。弃票公开展示但不进入 `counts`，不参与最高票或平票候选；全员弃票直接平安日。EventLog 仍保持 append-only，禁止回写或修改历史 hidden 事件。
+- `DAY_VOTE` / `DAY_VOTE_PK` 的“同时投票”定义为：所有合法投票者基于同一份 `GameState` 与 `EventLog` 快照独立决策；运行时可并发调用各 Agent，但投票决策在结算前只存在于 FSM 内存 pending action 中，不追加到 EventLog，也不得进入任何 PlayerView、prompt、spectator API 或 narrative。结算时由 Referee 按 actor seat 升序追加公开 `vote_cast`，再追加 `vote_result` / `vote_pk_enter` / `exile` / `peaceful_day`。弃票的 `vote_cast` payload 固定为 `{target: null, abstain: true}`；`vote_result` payload 必须包含 `counts`、`tied`、`abstain_count`、`abstentions`。弃票公开展示但不进入 `counts`，不参与最高票或平票候选；全员弃票直接平安日。EventLog 仍保持 append-only，禁止回写或修改历史 hidden 事件。
 - 首轮投票合法目标 = 所有存活玩家，**允许投自己**，不能投已死亡玩家。
 - 首轮平票 → 进入 `DAY_VOTE_PK`，平票玩家各一次 PK 发言后重投；如果首轮所有有效票均为弃票，则直接平安日。
 - PK 重投合法目标 = PK 台上的存活玩家；PK 台上的玩家不能参与重投。
@@ -209,7 +211,7 @@ GAME_END
 - `llm_call` payload 字段固定为：`prompt_hash: str`、`raw_response_hash: str`、`storage_ref: str`、`model: str`、`prompt_tokens: int`、`completion_tokens: int`、`cost_usd: float`、`prompt_version: str`。payload 不得包含 `raw_response` 原文。
 - 随机：涉及平票随机、fallback 随机、角色洗牌的事件 payload 均记录 `rng_stream`、`candidates`、`selected`、`reason`。
 - `role_reveal` 仅在 `GAME_END` 后由 Referee 生成，公开可见，payload 固定为 `{winner, seats: [{seat, role, alive}], highlights}`。`pacing_tick` 作为未来保留事件，STEP-07 不写入事件日志，避免污染 replay hash。
-- `spectator_effect` **不是 EventLog 事件类型**，而是后端从 EventLog 派生的观赛投影：`{seq, day, phase, kind, actor, source_seat, target_seat, asset_key, duration_ms, meta}`。`kind` 固定为 `guard_shield | wolf_attack | seer_vision | witch_potion | death_reveal`。它只通过 spectator API/SSE 下发，不进入玩家视角、prompt、narrative 或 replay hash。`guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` 是现场观赛 transient effects，只能在非终局阶段播放；进入 `GAME_END` / `role_reveal` 后不得集中补播积压特效。复盘或 REST 回补中已发生的非死亡 transient effects 默认视为历史并标记为过期；`death_reveal` / `out_badge` 和 `role_reveal` 仍可在终局保留。
+- `spectator_effect` **不是 EventLog 事件类型**，而是后端从 EventLog 派生的观赛投影：`{seq, day, phase, kind, actor, source_seat, target_seat, asset_key, duration_ms, meta}`。`kind` 固定为 `guard_shield | wolf_attack | seer_vision | witch_potion | death_reveal`。它只通过 spectator API/SSE 下发，不进入玩家视角、prompt、narrative 或 replay hash。`guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` 是现场观赛 transient effects，只能在非终局阶段播放；live pacing 中这些 effect 是动作完成后的可见节奏点，后端发布对应投影后可等待前端 `spectator_effect_rendered:<seq>` ack 或超时，再推进下一阶段。前端必须在座位叠层/药水动画挂载并短暂可见后再发送该 ack，不能在收到 SSE 的同一刻抢跑推进。前端新建观赛对局必须显式使用 `live` pacing；SSE 中收到的 live transient effect 是现场座位叠层动画的唯一触发来源，REST 回补只能更新历史列表，不能推进 SSE cursor 或吞掉后续同 seq live effect。进入 `GAME_END` / `role_reveal` 后不得集中补播积压特效。复盘或 REST 回补中已发生的非死亡 transient effects 默认视为历史并标记为过期；`death_reveal` / `out_badge` 和 `role_reveal` 仍可在终局保留。
 
 ### 3.4 可见性规则
 
@@ -228,7 +230,7 @@ GAME_END
 
 1. **超时**：单次调用 > `llm.timeout_seconds`，若 RuleSet 配置了 `fallback.phase_timeout_seconds[phase]` 则以该阶段值为准。
 2. **非法 JSON / schema 校验失败**：Pydantic 解析失败。
-3. **合法性校验失败**：通过 schema 但违反规则（如刀狼队友、连守同一人）。
+3. **合法性校验失败**：通过 schema 但违反规则或文本事实一致性 hook（如刀狼队友、连守同一人、守卫声称确定守护成功）。
 
 错误子类映射：
 
@@ -242,7 +244,7 @@ GAME_END
 - 每阶段每 Agent 最多重试 `fallback.max_retries` 次（默认 2 次，可配置）；若 RuleSet 配置了 `fallback.phase_max_retries[phase]` 则该阶段覆盖默认值。运行时必须优先使用 RuleSet 中的 retry 配置，环境变量只能作为 provider/default 配置来源，不能覆盖已加载 RuleSet 的阶段重试契约。
 - 重试时在 prompt 末尾附加错误说明（仅本人可见），格式固定为：`上一次输出未被接受：{error_type}: {message}。请只返回符合 schema 的 JSON。`
 - 失败后若仍有重试预算，按 RuleSet 中的指数退避参数等待：`delay = min(retry_backoff_base_seconds * retry_backoff_multiplier ** attempt, retry_backoff_max_seconds)`，其中首次失败后的 `attempt=0`。当前默认 `retry_backoff_jitter: false`，不得引入未记录或不可复现的随机 jitter。
-- 重试仍失败 → 触发 fallback 并记录 `agent_fallback_triggered` 事件。
+- 通过 schema 但被 Referee 行动校验或文本事实一致性 hook 拒绝时，记录 `agent_invalid_action`，按同一阶段重试预算要求 Agent 重选/重写；重试仍失败 → 触发 fallback 并记录 `agent_fallback_triggered` 事件。
 
 ### 4.3 各阶段 Fallback 行为（默认）
 
@@ -262,13 +264,13 @@ GAME_END
 - 所有 fallback 随机均使用 deterministic RNG，并在对应事件 payload 中记录候选集、选中值与 fallback 原因。
 - `contextual_public_speech` 只能读取当前 seat 的 PlayerView、公开/本人可见事件与 rule summary；不得读取 raw response、provider 配置、spectator-only 投影或任何未授权私有事件。
 - 默认指数退避配置：`retry_backoff_base_seconds: 1`、`retry_backoff_multiplier: 2`、`retry_backoff_max_seconds: 8`、`retry_backoff_jitter: false`。
-- 默认阶段覆盖：`DAY_SPEECH` 使用 45 秒超时、2 次重试；`DAY_VOTE` 与 `DAY_VOTE_PK` 使用 20 秒超时、1 次重试；其他阶段沿用 provider timeout 与默认 `fallback.max_retries`。
+- 默认阶段覆盖：`DAY_SPEECH` 使用 25 秒超时、1 次重试；`NIGHT_WOLF_CHAT` 使用 15 秒超时、1 次重试；`NIGHT_WOLF_VOTE`、`DAY_VOTE` 与 `DAY_VOTE_PK` 使用 8 秒超时、0 次重试；其他阶段沿用 provider timeout 与默认 `fallback.max_retries`。
 
 ### 4.4 上下文管理策略
 
 - Prompt 上下文只从 Referee 过滤后的 `PlayerView.visible_events` 构造，不读取未授权事件。
 - 默认事件窗口为最近 40 条，并强制保留 `game_start`、`day_announce`、`death_at_night`、`exile`、`vote_result`、`vote_pk_enter`、`witch_action`、`seer_check_result` 等关键事件。
-- `DAY_SPEECH` prompt 中公开发言集中进入 `speech_context`，默认只保留最近 12 条公开发言；`visible_events` 不重复携带大量 `speech` 事件，避免长局发言 prompt 膨胀。
+- `DAY_SPEECH`、`DAY_VOTE`、`DAY_VOTE_PK`、`NIGHT_WOLF_CHAT` 与 `NIGHT_WOLF_VOTE` prompt 中公开发言集中进入 `speech_context`，默认只保留最近 12 条公开发言；`visible_events` 不重复携带大量 `speech` 事件，避免长局发言 prompt 膨胀。
 - 当可见事件超过 60 条时，payload 使用确定性长局摘要：首 10 条事件 + 中间摘要 + 最近 30 条事件。
 - 摘要格式固定为 `{type, day, phase, actor, summary_text}`，其中 `type` 为 `summary`，摘要由事件日志纯函数生成，不调用 LLM。
 - 上下文选择和摘要不得改变 EventLog、replay hash、PlayerView 权限边界或行动合法性。
@@ -316,14 +318,15 @@ final_reveal.json
 
 ### 6.1 输入侧（PlayerView）
 
-- **Referee 不审查 Agent 发言内容**，只保证注入到 prompt 的私有信息正确脱敏。
-- Agent 在发言里声称「我查了 3 号是狼」属于**合法角色扮演**，由游戏机制处理（信任/怀疑）。
+- Referee 不做开放式语义审查，只保证注入到 prompt 的私有信息正确脱敏，并对输出文本执行确定性事实一致性 hook。
+- Agent 在发言里声称「我查了 3 号是狼」属于**合法角色扮演**，由游戏机制处理（信任/怀疑）；但不得输出可由规则和本人可见历史确定为不可能或越权的事实。
+- 文本事实一致性 hook 至少覆盖：守卫不得声称连续两晚守同一人；守卫不得把“守护成功/挡刀成功”说成确定事实；任意玩家不得引用未授权狼聊、狼刀目标、provider、model name、raw response 或事件 schema 名作为可见事实。
 - 泄漏测试覆盖：预言家结果、狼队身份、狼刀细节、守卫目标和 `last_guard_target` 不出现在非授权玩家的 PlayerView / prompt payload 中。
 
 ### 6.2 输出侧
 
 - 所有 LLM 输出必须走 Pydantic / JSON Schema 校验。
-- Schema 校验失败 → 走 §4 fallback。
+- Schema 校验通过后必须进入 Referee 行动合法性校验；`DAY_SPEECH` / `DAY_LAST_WORDS` 还必须进入文本事实一致性 hook。任何失败都按 §4 重试与 fallback 处理。
 
 输出 JSON schema 按 phase 固定为：
 
@@ -345,7 +348,7 @@ final_reveal.json
 [system.{version}.md] + [role/phase.{version}.md] + [JSON payload] + [retry_error?]
 ```
 
-`system.v3.md` 是当前默认全员统一系统提示词，旧 `v1` / `v2` 文件保留用于回放兼容；角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`v3` 只加强 `text` 输出质量：文本必须高信息密度，禁止占位废话，不能把“信息有限/等大家发完”作为主要内容，白天发言优先控制在 2-4 句且不为凑满 `max_chars` 扩写；它不改变输出 JSON schema、事件 schema、fallback 或 replay hash。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context、output_schema，以及仅 wolf 夜聊/狼刀阶段允许出现的 `wolf_private_context`。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff` 与 `can_abstain`，当前 `vote_sheriff` 固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制；`can_abstain` 控制 `DAY_VOTE` / `DAY_VOTE_PK` 是否允许输出 `target: null` 弃票。`speech_context` 用于 DAY_SPEECH 的发言归属约束，固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须优先使用 manifest 中记录的版本解释日志，缺失时回退 `v1`。
+`system.v3.md` 是当前默认全员统一系统提示词，旧 `v1` / `v2` 文件保留用于回放兼容；角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`v3` 只加强 `text` 输出质量：文本必须高信息密度，禁止占位废话，不能把“信息有限/等大家发完”作为主要内容，白天发言优先控制在 2-4 句且不为凑满 `max_chars` 扩写；`DAY_SPEECH` / `NIGHT_WOLF_CHAT` 的模型正常输出若为空、纯占位或直接为 `[沉默]`，按 schema violation 进入重试与 fallback，只有 fallback 路径可生成 `[沉默]`。它不改变输出 JSON schema、事件 schema、fallback 或 replay hash。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context、output_schema，以及仅 wolf 夜聊/狼刀阶段允许出现的 `wolf_private_context`。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff` 与 `can_abstain`，当前 `vote_sheriff` 固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制；`can_abstain` 控制 `DAY_VOTE` / `DAY_VOTE_PK` 是否允许输出 `target: null` 弃票。`speech_context` 用于 DAY_SPEECH 的发言归属约束，也用于投票和狼人夜间阶段压缩公开发言上下文；固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须优先使用 manifest 中记录的版本解释日志，缺失时回退 `v1`。
 
 ### 6.3 PlayerView 大小控制
 
@@ -518,7 +521,7 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 - `GET /games/{id}/narrative`：返回 spectator-safe 中文叙事行，支持 `?after=<seq>`
 - `GET /games/{id}/effects`：返回从完整 EventLog 派生的 spectator-only 特效行，支持 `?after=<seq>`；不得包含 raw response、provider 配置、prompt、模型名或玩家不可见事件原文。
 - `GET /games/{id}/reveal`：仅游戏结束后返回 `final_reveal.json`；未结束返回 `404 {code: "game_not_finished"}`
-- `POST /games/{id}/ack`：前端音视频完成后解除 pacing 等待；ack 不进事件日志、不影响 replay hash
+- `POST /games/{id}/ack`：前端音频或现场 transient effect 渲染完成后解除 pacing 等待；effect ack event 名称为 `spectator_effect_rendered:<seq>`；ack 不进事件日志、不影响 replay hash
 - `POST /games/{id}/speech`：提交公开发言文本，仍走 Referee `validate_action`
 - `POST /games/{id}/wolf_chat`：提交狼聊文本，仍走 Referee `validate_action`
 - `POST /models/test`：STEP-08 后端代理模型连通性测试，不写 EventLog、不落盘、不回显 API key
@@ -644,15 +647,15 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 - 本阶段范围固定为「10 个 AI 自动对局 + spectator 观赛」，不实现真人入座、多人房间或玩家私有视角。
 - 默认开发端口为前端 Vite `7001`、后端 FastAPI `7002`。前端运行时 API base 默认空字符串，即同源相对路径；开发模式通过 Vite proxy 转发 `/games`、`/models`、`/healthz`。
 - 生产模式由 `wolven-hunt serve-prod` 设置 `WH_SERVE_STATIC=true`，FastAPI 在 API 路由之后挂载 `dist/`，单端口 `7002` 同时服务前端和 API。
-- 前端模型连通性测试必须走后端 `POST /models/test`。浏览器不得再直接向第三方模型 base URL 发请求；连通性测试失败不能永久阻止开局，用户可选择继续开局，运行期失败由 LLM 重试与 fallback 兜底。测试请求与正式游戏 `AgentSpecLLM` 均允许携带 `thinking_enabled`，未携带时默认为 `false`；仅为 `true` 时后端按模型名追加 provider 兼容的 thinking 参数。正式游戏中的 `thinking_enabled` 只影响 provider 调用参数，不进入 EventLog、PlayerView、narrative、spectator API 或 SSE。
+- 前端模型连通性测试必须走后端 `POST /models/test`。浏览器不得再直接向第三方模型 base URL 发请求；连通性测试失败不能永久阻止开局，用户可选择继续开局，运行期失败由 LLM 重试与 fallback 兜底。测试请求与正式游戏 `AgentSpecLLM` 均允许携带 `thinking_enabled`，未携带时默认为 `false`；Qwen 系列必须把 `thinking_enabled` 显式映射为 provider 请求中的 `enable_thinking: true/false`，其他模型仅在 `true` 时追加 provider 兼容的 thinking 参数。正式游戏中的 `thinking_enabled` 只影响 provider 调用参数，不进入 EventLog、PlayerView、narrative、spectator API、manifest 或 SSE，不影响 replay hash。
 - `POST /models/test` 只做临时 provider 调用，不写入 `runs/`、EventLog、raw response、cost 或 narrative，不返回或记录 API key；失败响应只返回脱敏后的短错误摘要，供前端展示诊断信息。
 - 所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 - 历史复盘只消费 Referee 过滤后的 spectator 上帝视角。`GET /games` 从 `runs/` 汇总 manifest；`GET /games/{id}/events` 在线时返回 session spectator events，离线历史从 `events.jsonl` 读取并按 spectator 过滤，不读取 `raw_responses.jsonl`。
 - `seat_presentation` 是历史复盘恢复游玩时头像和昵称的展示快照，必须只包含本地 `/assets/lobby/` 头像路径和有限长度昵称；它不改变身份来源、胜负判定、行动合法性、ack、EventLog、replay hash 或 LLM 输入。
 - 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。终局定格态不得继续播放或补播 `guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` transient spectator effects。
 - `manifest.json` 从 STEP-08 起必须包含 `config_path` 与 `prompt_pack_version`，用于 `replay_resimulate(config_path=None)` 恢复原配置与 prompt 版本。缺失时只能回退 classic_8 与 prompt `v1`，并需保持旧 run 兼容；新 run 默认使用 classic_10 与 prompt `v3`。
-- 前端 SSE 必须支持断线重连、`Last-Event-ID` 续传、最多 5 次带 jitter 的重试；超过上限显示可操作错误，不静默停住。
-- ack 仍只控制现场 pacing，不写 EventLog，不影响 replay hash。localStorage key `wolven_hunt.pacing_mode` 仅影响新建对局传入的 pacing profile。游戏内阶段语音使用独立于大厅 BGM 的本地状态与右上角开关，不能复用 `wolven_hunt.lobby.muted` 导致观赛语音被静音。
+- 前端 SSE 必须支持断线重连、`Last-Event-ID` 续传、最多 5 次带 jitter 的重试；超过上限显示可操作错误，不静默停住。断线时通过 REST 拉取 narrative/effects 只能作为历史补齐，不得更新用于 `Last-Event-ID` 的 raw event cursor；cursor 只能由 SSE raw event id 推进，避免私有动作派生的 live effect 被回补吞掉。
+- ack 仍只控制现场 pacing，不写 EventLog，不影响 replay hash。localStorage key `wolven_hunt.pacing_mode` 仅影响新建对局传入的 pacing profile。游戏内阶段语音使用独立于大厅 BGM 的本地状态与右上角开关，不能复用 `wolven_hunt.lobby.muted` 导致观赛语音被静音；阶段音频播放失败、effect 渲染 ack 丢失或浏览器阻止自动播放时，前端必须在超时内发送 ack，后端也必须按 `WH_PACING_ACK_TIMEOUT_MS` 超时继续推进。
 - 默认硬编码模型 key 保留为产品策略：作者自费轮换，用户可在设置里覆盖。README、StartModal 与 ModelConfigList 必须明确该策略。
 
 ## 14. 前端入口骨架（Web Lobby Shell）
@@ -803,6 +806,6 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 - **DEV-only [debug] 推进按钮**：`import.meta.env.DEV` 守卫；点击 `transitionToStage(...)` 切换白天/黑夜并自增 dayNumber，仅供开发期预览，生产 build tree-shake 掉。
 - **网络请求豁免登记**（与 §14.1 "前端不发起 fetch / WebSocket / SSE" 的关系）：
   - **豁免 A — 同源静态资源 fetch**：`RulesModal` 通过 `fetch('/assets/game/rules.md')` 读取打包到 `public/` 的纯文本规则文档。属于浏览器对自身静态资源的请求（与 `<img>` / `<video>` 同性质），不构成跨域 / 后端 / LLM 调用，不破坏 §14.1 边界精神。
-  - **豁免 B — 用户主动触发的 LLM 配置自检 fetch**：`testModelConnection` 仅在用户点击"测试模型连通性"按钮时执行；前端只向同源后端 `POST /models/test` 发送 `{provider, model, base_url, api_key, timeout_seconds, thinking_enabled}`，后端临时发起 OpenAI 兼容连通性调用。若该 slot `thinkingEnabled === true`，后端按模型名追加思考模式字段：`qwen*` 用 `enable_thinking: true`；`kimi*` / `mimo*` / `deepseek*` / `glm*` / `doubao*` 用 `thinking: {type: "enabled"}`；`hy3*` 用 `chat_template_kwargs: {thinking: true, reasoning_effort: "medium"}`；`MiniMax*` 用 `reasoning_effort: "medium"`。若 `thinkingEnabled === false`，不发送任何 thinking / reasoning 附加字段。其用途是"配置自检"而非"游戏逻辑驱动"，不构成 PlayerView，不进事件日志，不参与胜负判定；失败只向前端返回脱敏错误摘要。
+  - **豁免 B — 用户主动触发的 LLM 配置自检 fetch**：`testModelConnection` 仅在用户点击"测试模型连通性"按钮时执行；前端只向同源后端 `POST /models/test` 发送 `{provider, model, base_url, api_key, timeout_seconds, thinking_enabled}`，后端临时发起 OpenAI 兼容连通性调用。Qwen 系列始终显式传 `enable_thinking: true/false`；其他模型仅当 `thinkingEnabled === true` 时按模型名追加思考模式字段：`kimi*` / `mimo*` / `deepseek*` / `glm*` / `doubao*` 用 `thinking: {type: "enabled"}`；`hy3*` 用 `chat_template_kwargs: {thinking: true, reasoning_effort: "medium"}`；`MiniMax*` 用 `reasoning_effort: "medium"`。其用途是"配置自检"而非"游戏逻辑驱动"，不构成 PlayerView，不进事件日志，不参与胜负判定；失败只向前端返回脱敏错误摘要。
   - 上述两类 fetch 不允许扩展到游戏逻辑、对局推进、聊天消息收发等任何运行时数据流；引擎相关交互必须等 P2 走 Referee。
   - 风险登记：apiKey 在 fetch header 中明文传输（HTTPS 下加密，HTTP 下泄漏）——文档需提示仅在 HTTPS 部署或本地 dev 使用。CORS 失败由用户感知为席位 ✗，不静默吞错。

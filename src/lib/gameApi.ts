@@ -160,6 +160,10 @@ export async function sendAck(
   return parseJsonResponse<{ ok: boolean }>(res);
 }
 
+export function spectatorEffectAckEvent(seq: number) {
+  return `spectator_effect_rendered:${seq}`;
+}
+
 export async function submitSpeech(
   gameId: string,
   seat: number,

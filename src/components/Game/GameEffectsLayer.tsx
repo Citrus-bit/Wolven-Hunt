@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { gameEffectAssetPath, type GameEffectAssetKey } from '../../lib/effectAssets';
 import {
   activeRecentEffectAnnouncements,
-  activePotionEffects,
+  activeRecentTransientEffects,
   effectDisplayDurationMs,
   effectIdentity,
   type EffectSeenAtMap,
@@ -18,6 +18,7 @@ type GameEffectsLayerProps = {
   seenAtByKey: EffectSeenAtMap;
   recentEffects: RecentSpectatorEffect[];
   terminal?: boolean;
+  onEffectRendered?: (effect: SpectatorEffect) => void;
 };
 
 type PotionFlight = {
@@ -38,40 +39,102 @@ type PotionBurst = {
   durationMs: number;
 };
 
+type SeatOverlayPosition = {
+  x: string;
+  y: string;
+};
+
+type SeatOverlay = {
+  id: string;
+  effect: SpectatorEffect;
+  kind: SpectatorEffect['kind'];
+  assetKey: GameEffectAssetKey;
+  blocked: boolean;
+  durationMs: number;
+};
+
+const MIN_VISIBLE_EFFECT_ACK_MS = 700;
+const MAX_VISIBLE_EFFECT_ACK_MS = 1200;
+
 export function GameEffectsLayer({
-  effects,
-  currentDay,
-  currentPhase,
   nowMs,
-  seenAtByKey,
   recentEffects,
   terminal = false,
+  onEffectRendered,
 }: GameEffectsLayerProps) {
   const layerRef = useRef<HTMLDivElement | null>(null);
   const seenFlightIdsRef = useRef(new Set<string>());
+  const renderedLiveEffectIdsRef = useRef(new Set<string>());
   const renderedAnnouncementIdsRef = useRef(new Set<string>());
+  const renderAckTimersRef = useRef(new Map<string, number>());
+  const [seatOverlayPositions, setSeatOverlayPositions] = useState<
+    Record<string, SeatOverlayPosition>
+  >({});
   const [flights, setFlights] = useState<PotionFlight[]>([]);
   const [bursts, setBursts] = useState<PotionBurst[]>([]);
+  const activeRecentEffects = useMemo(
+    () => activeRecentTransientEffects(recentEffects, nowMs, { terminal }),
+    [nowMs, recentEffects, terminal],
+  );
+  const seatOverlays = useMemo(
+    () => buildSeatOverlays(activeRecentEffects),
+    [activeRecentEffects],
+  );
   const announcements = activeRecentEffectAnnouncements(recentEffects, nowMs, {
     terminal,
   }).slice(-4);
 
   useEffect(() => {
-    if (!import.meta.env.DEV || import.meta.env.MODE === 'test') {
-      return;
-    }
     for (const announcement of announcements) {
       if (renderedAnnouncementIdsRef.current.has(announcement.id)) {
         continue;
       }
       renderedAnnouncementIdsRef.current.add(announcement.id);
-      console.info('[spectator_effect rendered]', {
-        kind: announcement.kind,
-        seq: announcement.seq,
-        target: announcement.targetSeat,
-      });
+      if (import.meta.env.DEV && import.meta.env.MODE !== 'test') {
+        console.info('[spectator_effect rendered]', {
+          kind: announcement.kind,
+          seq: announcement.seq,
+          target: announcement.targetSeat,
+        });
+      }
     }
   }, [announcements]);
+
+  useEffect(() => () => clearRenderAckTimers(renderAckTimersRef.current), []);
+
+  useEffect(() => {
+    if (terminal) {
+      renderedLiveEffectIdsRef.current.clear();
+      clearRenderAckTimers(renderAckTimersRef.current);
+      setSeatOverlayPositions((current) =>
+        Object.keys(current).length === 0 ? current : {},
+      );
+      return;
+    }
+    if (seatOverlays.length === 0) {
+      setSeatOverlayPositions((current) =>
+        Object.keys(current).length === 0 ? current : {},
+      );
+      return;
+    }
+    const nextPositions: Record<string, SeatOverlayPosition> = {};
+    for (const overlay of seatOverlays) {
+      nextPositions[overlay.id] = seatOverlayPosition(
+        overlay.effect.target_seat,
+        layerRef.current,
+      );
+      markLiveEffectRendered(
+        renderedLiveEffectIdsRef.current,
+        renderAckTimersRef.current,
+        overlay.id,
+        overlay.effect,
+        onEffectRendered,
+      );
+    }
+    setSeatOverlayPositions((current) =>
+      samePositionMap(current, nextPositions) ? current : nextPositions,
+    );
+  }, [onEffectRendered, seatOverlays, terminal]);
 
   useEffect(() => {
     if (terminal) {
@@ -79,11 +142,7 @@ export function GameEffectsLayer({
       setBursts([]);
       return;
     }
-    const activeEffects = activePotionEffects(effects, currentPhase, {
-      currentDay,
-      nowMs,
-      seenAtByKey,
-    });
+    const activeEffects = activeRecentEffects.map((item) => item.effect);
     for (const effect of activeEffects) {
       if (effect.kind !== 'witch_potion') {
         continue;
@@ -101,6 +160,13 @@ export function GameEffectsLayer({
         }
         seenFlightIdsRef.current.add(id);
         setBursts((current) => [...current, burst]);
+        markLiveEffectRendered(
+          renderedLiveEffectIdsRef.current,
+          renderAckTimersRef.current,
+          id,
+          effect,
+          onEffectRendered,
+        );
         window.setTimeout(() => {
           setBursts((current) => current.filter((item) => item.id !== id));
         }, burst.durationMs + 220);
@@ -108,14 +174,44 @@ export function GameEffectsLayer({
       }
       seenFlightIdsRef.current.add(id);
       setFlights((current) => [...current, flight]);
+      markLiveEffectRendered(
+        renderedLiveEffectIdsRef.current,
+        renderAckTimersRef.current,
+        id,
+        effect,
+        onEffectRendered,
+      );
       window.setTimeout(() => {
         setFlights((current) => current.filter((item) => item.id !== id));
       }, flight.durationMs + 220);
     }
-  }, [currentDay, currentPhase, effects, nowMs, seenAtByKey, terminal]);
+  }, [activeRecentEffects, onEffectRendered, terminal]);
 
   return (
     <div ref={layerRef} className="game-effects-layer" aria-hidden="true">
+      {seatOverlays.map((overlay) => (
+        <img
+          key={overlay.id}
+          src={gameEffectAssetPath(overlay.assetKey)}
+          alt=""
+          className={[
+            'game-effect-seat-overlay',
+            `game-effect-seat-overlay--${overlay.kind}`,
+            `game-effect-seat-overlay--${overlay.assetKey}`,
+            overlay.blocked ? 'game-effect-seat-overlay--blocked' : '',
+          ].join(' ')}
+          data-target-seat={overlay.effect.target_seat}
+          style={{
+            '--effect-seat-x':
+              seatOverlayPositions[overlay.id]?.x ??
+              fallbackSeatPosition(overlay.effect.target_seat).x,
+            '--effect-seat-y':
+              seatOverlayPositions[overlay.id]?.y ??
+              fallbackSeatPosition(overlay.effect.target_seat).y,
+            '--effect-duration': `${overlay.durationMs}ms`,
+          } as CSSProperties}
+        />
+      ))}
       {flights.map((flight) => (
         <img
           key={flight.id}
@@ -199,10 +295,7 @@ function buildPotionBurst(
   if (!layer || !isEffectAssetKey(effect.asset_key)) {
     return null;
   }
-  const target = seatCenter(effect.target_seat, layer);
-  if (!target) {
-    return null;
-  }
+  const target = seatCenter(effect.target_seat, layer) ?? layerCenter(layer);
   return {
     id,
     assetKey: effect.asset_key,
@@ -210,6 +303,33 @@ function buildPotionBurst(
     y: target.y,
     durationMs: effectDisplayDurationMs(effect),
   };
+}
+
+function buildSeatOverlays(recentEffects: RecentSpectatorEffect[]): SeatOverlay[] {
+  return recentEffects.flatMap((item) => {
+    const effect = item.effect;
+    if (!isEffectAssetKey(effect.asset_key) || effect.kind === 'death_reveal') {
+      return [];
+    }
+    if (
+      effect.kind !== 'guard_shield' &&
+      effect.kind !== 'wolf_attack' &&
+      effect.kind !== 'seer_vision' &&
+      effect.kind !== 'witch_potion'
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: item.id,
+        effect,
+        kind: effect.kind,
+        assetKey: effect.asset_key,
+        blocked: effect.kind === 'wolf_attack' && effect.meta.blocked_by_guard === true,
+        durationMs: effectDisplayDurationMs(effect),
+      },
+    ];
+  });
 }
 
 function seatCenter(seat: number, layer: HTMLDivElement) {
@@ -226,6 +346,87 @@ function seatCenter(seat: number, layer: HTMLDivElement) {
     x: rect.left + rect.width / 2 - layerRect.left,
     y: rect.top + rect.height / 2 - layerRect.top,
   };
+}
+
+function layerCenter(layer: HTMLDivElement) {
+  return {
+    x: layer.clientWidth / 2,
+    y: layer.clientHeight / 2,
+  };
+}
+
+function seatOverlayPosition(
+  seat: number,
+  layer: HTMLDivElement | null,
+): SeatOverlayPosition {
+  if (layer) {
+    const center = seatCenter(seat, layer);
+    if (center) {
+      return { x: `${center.x}px`, y: `${center.y}px` };
+    }
+  }
+  return fallbackSeatPosition(seat);
+}
+
+function fallbackSeatPosition(seat: number): SeatOverlayPosition {
+  const clampedSeat = Number.isFinite(seat)
+    ? Math.max(1, Math.min(10, Math.floor(seat)))
+    : 1;
+  const index = clampedSeat <= 5 ? clampedSeat - 1 : clampedSeat - 6;
+  return {
+    x: clampedSeat <= 5 ? '8vw' : '92vw',
+    y: `${20 + index * 15}vh`,
+  };
+}
+
+function samePositionMap(
+  left: Record<string, SeatOverlayPosition>,
+  right: Record<string, SeatOverlayPosition>,
+) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  return rightKeys.every((key) => left[key]?.x === right[key].x && left[key]?.y === right[key].y);
+}
+
+function markLiveEffectRendered(
+  renderedIds: Set<string>,
+  renderAckTimers: Map<string, number>,
+  id: string,
+  effect: SpectatorEffect,
+  onEffectRendered: ((effect: SpectatorEffect) => void) | undefined,
+) {
+  if (renderedIds.has(id)) {
+    return;
+  }
+  renderedIds.add(id);
+  if (!onEffectRendered) {
+    return;
+  }
+  const timer = window.setTimeout(() => {
+    renderAckTimers.delete(id);
+    onEffectRendered(effect);
+  }, effectRenderAckDelayMs(effect));
+  renderAckTimers.set(id, timer);
+}
+
+function clearRenderAckTimers(renderAckTimers: Map<string, number>) {
+  for (const timer of renderAckTimers.values()) {
+    window.clearTimeout(timer);
+  }
+  renderAckTimers.clear();
+}
+
+function effectRenderAckDelayMs(effect: SpectatorEffect) {
+  return Math.min(
+    MAX_VISIBLE_EFFECT_ACK_MS,
+    Math.max(
+      MIN_VISIBLE_EFFECT_ACK_MS,
+      Math.floor(effectDisplayDurationMs(effect) * 0.32),
+    ),
+  );
 }
 
 function isEffectAssetKey(value: string): value is GameEffectAssetKey {

@@ -6,9 +6,13 @@ import {
   effectIdentity,
   type EffectSeenAtMap,
 } from '../../src/lib/gameEffects';
-import type { SpectatorEffect } from '../../src/lib/gameApi';
+import { spectatorEffectAckEvent, type SpectatorEffect } from '../../src/lib/gameApi';
 
 describe('GameEffectsLayer', () => {
+  it('uses stable spectator effect ack event names', () => {
+    expect(spectatorEffectAckEvent(27)).toBe('spectator_effect_rendered:27');
+  });
+
   it('renders live spectator effect announcements with matching assets', () => {
     const wolf = effect(2, 'wolf_attack', 4, 'wolf_attack', {}, 0, 'NIGHT_WOLF_VOTE');
     const guard = effect(1, 'guard_shield', 8, 'guard_shield', {}, 0, 'NIGHT_GUARD');
@@ -37,6 +41,12 @@ describe('GameEffectsLayer', () => {
     expect(html).toContain('女巫解药：5号');
     expect(html).toContain('/assets/game/effects/wolf_attack.png');
     expect(html).toContain('game-effect-announcement--wolf_attack');
+    expect(html).toContain('game-effect-seat-overlay--guard_shield');
+    expect(html).toContain('game-effect-seat-overlay--wolf_attack');
+    expect(html).toContain('game-effect-seat-overlay--seer_vision');
+    expect(html).toContain('game-effect-seat-overlay--witch_potion');
+    expect(html).toContain('data-target-seat="8"');
+    expect(html).toContain('data-target-seat="5"');
   });
 
   it('keeps live announcements visible after the seat animation window', () => {
@@ -108,6 +118,7 @@ describe('GameEffectsLayer', () => {
     expect(html).not.toContain('预言查验');
     expect(html).not.toContain('女巫解药');
     expect(html).not.toContain('game-effect-announcement');
+    expect(html).not.toContain('game-effect-seat-overlay');
   });
 
   it('does not render expired transient or death reveal announcements', () => {

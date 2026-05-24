@@ -11,6 +11,7 @@ from wolven_hunt.core.events import Event, EventType
 from wolven_hunt.core.state import GameState
 
 PacingName = Literal["live", "fast", "off"]
+SPECTATOR_EFFECT_ACK_PREFIX = "spectator_effect_rendered"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,10 @@ class PacingController:
 
     def on_event(self, event: Event) -> None:
         if self.profile.name == "off":
+            return
+        effect_ack_event = _effect_ack_event_for_event(event)
+        if effect_ack_event is not None and self.profile.name == "live":
+            self._wait_for_ack(event.phase, effect_ack_event)
             return
         if event.type is EventType.PHASE_ENTER:
             self._sleep(
@@ -121,3 +126,25 @@ def _ack_event_for_phase(phase: str) -> str | None:
         "NIGHT_SEER": "night_seer_done",
         "DAY_ANNOUNCE": "day_intro_done",
     }.get(phase)
+
+
+def spectator_effect_ack_event(seq: int) -> str:
+    return f"{SPECTATOR_EFFECT_ACK_PREFIX}:{seq}"
+
+
+def _effect_ack_event_for_event(event: Event) -> str | None:
+    if event.type in {
+        EventType.GUARD_PROTECT,
+        EventType.WOLF_KILL_DECIDED,
+        EventType.SEER_CHECK,
+    }:
+        if event.payload.get("target") is not None:
+            return spectator_effect_ack_event(event.seq)
+        return None
+    if (
+        event.type is EventType.WITCH_ACTION
+        and event.payload.get("action") in {"save", "poison"}
+        and event.payload.get("target") is not None
+    ):
+        return spectator_effect_ack_event(event.seq)
+    return None

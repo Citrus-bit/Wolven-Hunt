@@ -1,4 +1,4 @@
-import { Check, Plus, X as XIcon } from 'lucide-react';
+import { Check, Clock3, Plus, X as XIcon } from 'lucide-react';
 import { gameEffectAssetPath } from '../../lib/effectAssets';
 import type { SeatEffectState } from '../../lib/gameEffects';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
@@ -15,6 +15,7 @@ type GameSeatProps = {
   role?: SeatRole | null;
   testStatus?: ModelTestStatus;
   showTestBadge?: boolean;
+  thinkingEnabled?: boolean;
   speaking?: boolean;
   dead?: boolean;
   effects?: SeatEffectState;
@@ -30,6 +31,7 @@ export function GameSeat({
   role = null,
   testStatus,
   showTestBadge = true,
+  thinkingEnabled = false,
   speaking = false,
   dead = false,
   effects,
@@ -150,6 +152,15 @@ export function GameSeat({
             ) : (
               <XIcon size={16} strokeWidth={3} aria-hidden="true" />
             )}
+          </span>
+        )}
+        {thinkingEnabled && (
+          <span
+            className="game-seat-thinking-badge"
+            aria-label="思考模式开启，响应更慢"
+            title="思考模式开启，响应更慢"
+          >
+            <Clock3 size={14} strokeWidth={3} aria-hidden="true" />
           </span>
         )}
       </span>

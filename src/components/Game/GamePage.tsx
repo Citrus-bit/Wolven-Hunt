@@ -7,6 +7,7 @@ import {
   getGame,
   getNarrative,
   sendAck,
+  spectatorEffectAckEvent,
   subscribeGameEvents,
   type GameEvent,
   type GameTimings,
@@ -24,7 +25,7 @@ import {
   pruneRecentSpectatorEffects,
   publicEliminatedSeats,
   seedExpiredEffectSeenAt,
-  seedEffectSeenAt,
+  seedLiveEffectSeenAt,
   type EffectSeenAtMap,
   type RecentSpectatorEffect,
 } from '../../lib/gameEffects';
@@ -108,6 +109,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const effectSeenAtRef = useRef<EffectSeenAtMap>({});
   const [effectClockMs, setEffectClockMs] = useState(() => Date.now());
   const effectSeqRef = useRef(0);
+  const effectAckSeqRef = useRef(new Set<number>());
   const terminalRef = useRef(false);
   const streamCursorRef = useRef(0);
   const [timings, setTimings] = useState<GameTimings | null>(null);
@@ -270,6 +272,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     effectSeenAtRef.current = {};
     setEffectClockMs(Date.now());
     effectSeqRef.current = 0;
+    effectAckSeqRef.current = new Set();
     terminalRef.current = false;
     streamCursorRef.current = 0;
     setCurrentPhase(null);
@@ -324,7 +327,6 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           void getNarrative(gameId, narrativeSeqRef.current)
             .then((rows) => rows.forEach((row) => {
               narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
-              streamCursorRef.current = Math.max(streamCursorRef.current, row.seq);
               appendNarrativeRow(setNarrativeRows, row);
             }))
             .catch(() => undefined);
@@ -338,10 +340,10 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 effectSeenAtRef.current,
                 nowMs,
                 terminalRef.current,
+                false,
               );
               effects.forEach((effect) => {
                 effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
-                streamCursorRef.current = Math.max(streamCursorRef.current, effect.seq);
               });
               if (effects.length > 0) {
                 setEffectClockMs(nowMs);
@@ -652,6 +654,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       setSeatPresentation(presentation);
       const created = await createGame({
         agents,
+        pacing: 'live',
         seatPresentation: presentation,
       });
       setGameId(created.game_id);
@@ -661,6 +664,19 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     } finally {
       setIsStartingGame(false);
     }
+  };
+
+  const handleRenderedSpectatorEffect = (effect: SpectatorEffect) => {
+    if (!gameId || isReplay || terminalRef.current || effect.kind === 'death_reveal') {
+      return;
+    }
+    if (effectAckSeqRef.current.has(effect.seq)) {
+      return;
+    }
+    effectAckSeqRef.current.add(effect.seq);
+    void sendAck(gameId, effect.phase, spectatorEffectAckEvent(effect.seq)).catch(
+      () => undefined,
+    );
   };
 
   const handleConfirmExit = () => {
@@ -735,6 +751,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         seenAtByKey={effectSeenAtRef.current}
         recentEffects={recentEffects}
         terminal={finished}
+        onEffectRendered={handleRenderedSpectatorEffect}
       />
       {!gameStarted && !isReplay && (
         <div className="game-quick-assign-helper">
@@ -767,6 +784,10 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                     : undefined
                 }
                 showTestBadge={!gameStarted}
+                thinkingEnabled={
+                  assignment !== null &&
+                  readModelConfig(assignment)?.thinkingEnabled === true
+                }
                 speaking={currentSpeakerSeat === seatIndex + 1}
                 dead={deadSeats.has(seatIndex + 1)}
                 effects={seatEffects[seatIndex + 1]}
@@ -794,6 +815,10 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                     : undefined
                 }
                 showTestBadge={!gameStarted}
+                thinkingEnabled={
+                  assignment !== null &&
+                  readModelConfig(assignment)?.thinkingEnabled === true
+                }
                 speaking={currentSpeakerSeat === seatIndex + 1}
                 dead={deadSeats.has(seatIndex + 1)}
                 effects={seatEffects[seatIndex + 1]}
@@ -869,18 +894,19 @@ function ingestLiveSpectatorEffects(
   seenAtByKey: EffectSeenAtMap,
   nowMs: number,
   terminal: boolean,
+  live = true,
 ) {
   if (effects.length === 0) {
     return;
   }
   logSpectatorEffectsReceived(effects);
-  if (terminal) {
+  if (terminal || !live) {
     expireTransientEffectSeenAt(effects, seenAtByKey, nowMs);
     setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
     setRecentEffects((prev) => (prev.length === 0 ? prev : []));
     return;
   }
-  seedEffectSeenAt(effects, seenAtByKey, nowMs);
+  seedLiveEffectSeenAt(effects, seenAtByKey, nowMs);
   setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
   setRecentEffects((prev) => appendRecentSpectatorEffects(prev, effects, nowMs));
 }

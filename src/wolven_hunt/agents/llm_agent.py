@@ -52,11 +52,17 @@ class LLMAgent(PlayerInterface):
         self.prompt_renderer = prompt_renderer
         self.rng = rng
         self._last_call_result: LLMCallResult | None = None
+        self._retry_feedback: str | None = None
 
     def consume_last_call_result(self) -> LLMCallResult | None:
         result = self._last_call_result
         self._last_call_result = None
         return result
+
+    def set_retry_feedback(self, error_type: str, message: str) -> None:
+        self._retry_feedback = (
+            f"上一次输出未被接受: {error_type}: {message}. 请只返回符合 schema 的 JSON."
+        )
 
     def decide_guard(self, view: PlayerView) -> GuardProtect:
         parsed = cast(GuardOutput, self._call(view, "NIGHT_GUARD", GuardOutput))
@@ -116,6 +122,9 @@ class LLMAgent(PlayerInterface):
             phase=phase,
             schema_json=output_model.model_json_schema(),
         )
+        if self._retry_feedback is not None:
+            prompt = f"{prompt}\n\n{self._retry_feedback}"
+            self._retry_feedback = None
         result = self.gateway.call(
             seat=self.seat,
             phase=phase,

@@ -63,6 +63,7 @@ class WolfRules(BaseModel):
     kill_decision: str
     tie_break: str
     can_no_kill: bool
+    can_kill_self: bool
     can_kill_wolf_teammate: bool
 
 
