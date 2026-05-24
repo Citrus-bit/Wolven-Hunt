@@ -1,16 +1,14 @@
 import { BookOpen, Volume2, VolumeX, X } from 'lucide-react';
-import type { PacingMode } from './GamePage';
 
 type GameTopBarProps = {
   onClickRules: () => void;
   onClickExit: () => void;
   streamStatus: 'idle' | 'connecting' | 'open' | 'error' | 'failed';
   reconnectAttempts: number;
-  pacingMode: PacingMode;
-  gameStarted: boolean;
+  autoScrollEnabled: boolean;
   gameAudioMuted: boolean;
   gameAudioError: string | null;
-  onChangePacingMode: (mode: PacingMode) => void;
+  onToggleAutoScroll: () => void;
   onToggleGameAudio: () => void;
 };
 
@@ -19,14 +17,14 @@ export function GameTopBar({
   onClickExit,
   streamStatus,
   reconnectAttempts,
-  pacingMode,
-  gameStarted,
+  autoScrollEnabled,
   gameAudioMuted,
   gameAudioError,
-  onChangePacingMode,
+  onToggleAutoScroll,
   onToggleGameAudio,
 }: GameTopBarProps) {
   const statusText = statusMessage(streamStatus, reconnectAttempts);
+  const autoScrollLabel = autoScrollEnabled ? '关闭自动滚动' : '开启自动滚动';
   const AudioIcon = gameAudioMuted ? VolumeX : Volume2;
   const audioLabel = gameAudioMuted
     ? '开启游戏语音'
@@ -42,19 +40,20 @@ export function GameTopBar({
         </div>
       )}
       <div className="game-top-bar" role="toolbar" aria-label="游戏顶栏">
-        <label className="game-pacing-select">
-          <span>节奏</span>
-          <select
-            value={pacingMode}
-            disabled={gameStarted}
-            onChange={(event) => onChangePacingMode(event.target.value as PacingMode)}
-            aria-label="观赛节奏"
-          >
-            <option value="live">live</option>
-            <option value="fast">fast</option>
-            <option value="off">off</option>
-          </select>
-        </label>
+        <button
+          type="button"
+          className={[
+            'game-top-btn',
+            'game-top-btn--text',
+            autoScrollEnabled ? 'game-top-btn--active' : '',
+          ].join(' ')}
+          aria-label={autoScrollLabel}
+          aria-pressed={autoScrollEnabled}
+          title={autoScrollLabel}
+          onClick={onToggleAutoScroll}
+        >
+          自动滚动
+        </button>
         <button
           type="button"
           className={[

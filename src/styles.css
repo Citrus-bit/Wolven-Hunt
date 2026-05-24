@@ -1216,31 +1216,32 @@ button {
   transform: scale(1.05);
 }
 
+.game-top-btn--text {
+  width: auto;
+  min-width: 86px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.game-top-btn--active {
+  color: #fff1b8;
+  background: rgba(22, 72, 148, 0.78);
+  border-color: rgba(255, 232, 166, 0.78);
+  box-shadow: 0 0 18px rgba(86, 158, 255, 0.3);
+}
+
+.game-top-btn--active:hover {
+  background: rgba(34, 93, 178, 0.94);
+}
+
 .game-top-btn--warning {
   color: #ffe08a;
   border-color: rgba(255, 210, 86, 0.84);
   box-shadow: 0 0 18px rgba(255, 196, 52, 0.34);
-}
-
-.game-pacing-select {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  min-height: 40px;
-  padding: 0 10px;
-  color: #fff7df;
-  font-size: 12px;
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.44);
-  border-radius: 999px;
-}
-
-.game-pacing-select select {
-  min-height: 28px;
-  color: #fff7df;
-  background: rgba(0, 0, 0, 0.32);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 999px;
 }
 
 .game-top-alert {
@@ -1263,7 +1264,6 @@ button {
 
 .game-top-btn:focus-visible,
 .game-bottom-btn:focus-visible,
-.game-stage-debug:focus-visible,
 .game-quick-assign:focus-visible,
 .exit-confirm-btn:focus-visible {
   outline: 2px solid #ffd166;
@@ -1555,6 +1555,31 @@ button {
   margin: 0;
 }
 
+.game-typewriter-text {
+  word-break: break-word;
+}
+
+.game-typewriter-text--active::after {
+  display: inline-block;
+  width: 0.55em;
+  margin-left: 1px;
+  color: rgba(255, 242, 189, 0.9);
+  content: '|';
+  animation: game-typewriter-caret 760ms steps(2, end) infinite;
+}
+
+@keyframes game-typewriter-caret {
+  0%,
+  42% {
+    opacity: 1;
+  }
+
+  43%,
+  100% {
+    opacity: 0;
+  }
+}
+
 .game-phase-header {
   position: absolute;
   top: clamp(104px, 12vh, 132px);
@@ -1742,21 +1767,6 @@ button {
   .game-page:has(.game-test-status) .game-chat {
     top: clamp(290px, 36vh, 324px);
   }
-}
-
-.game-stage-debug {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  z-index: 5;
-  padding: 6px 12px;
-  color: #fff;
-  font-size: 12px;
-  background: rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 6px;
-  cursor: pointer;
-  touch-action: manipulation;
 }
 
 /* === STEP-04: 席位测试态 === */
@@ -2868,7 +2878,8 @@ button {
   .game-seat-effect--seer,
   .game-seat-effect--out,
   .game-effect-flight,
-  .game-effect-burst {
+  .game-effect-burst,
+  .game-typewriter-text--active::after {
     animation: none;
   }
 

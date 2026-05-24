@@ -19,6 +19,7 @@ import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
 import {
   buildSeatEffectMap,
   publicEliminatedSeats,
+  seedExpiredEffectSeenAt,
   seedEffectSeenAt,
   type EffectSeenAtMap,
 } from '../../lib/gameEffects';
@@ -55,11 +56,9 @@ import {
 const SEAT_COUNT = 10;
 const MIN_TESTING_MS = 800;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const PACING_STORAGE_KEY = 'wolven_hunt.pacing_mode';
 const leftSeats = [0, 1, 2, 3, 4];
 const rightSeats = [5, 6, 7, 8, 9];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
-export type PacingMode = 'live' | 'fast' | 'off';
 
 type GamePageProps = {
   onExitGame: () => void;
@@ -75,18 +74,6 @@ function shuffledModelSlots() {
   }
 
   return slots;
-}
-
-function readPacingMode(): PacingMode {
-  try {
-    const value = window.localStorage.getItem(PACING_STORAGE_KEY);
-    if (value === 'live' || value === 'fast' || value === 'off') {
-      return value;
-    }
-  } catch {
-    // Local storage may be unavailable in restricted browser contexts.
-  }
-  return 'live';
 }
 
 export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
@@ -123,7 +110,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [isStartingGame, setIsStartingGame] = useState(false);
   const [allowStartWithWarnings, setAllowStartWithWarnings] = useState(false);
-  const [pacingMode, setPacingMode] = useState<PacingMode>(() => readPacingMode());
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const gameAudioControls = useGameAudioControls();
   const isReplay = replayGameId !== null;
 
@@ -209,6 +196,10 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         setTimings(summary.timings);
         setEvents(loadedEvents);
         eventsRef.current = loadedEvents;
+        effectSeenAtRef.current = {};
+        const nowMs = Date.now();
+        seedExpiredEffectSeenAt(loadedEffects, effectSeenAtRef.current, nowMs);
+        setEffectClockMs(nowMs);
         setSpectatorEffects(loadedEffects);
         effectSeqRef.current = loadedEffects.reduce(
           (max, effect) => Math.max(max, effect.seq),
@@ -308,11 +299,18 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             }))
             .catch(() => undefined);
           void getEffects(gameId, effectSeqRef.current)
-            .then((effects) => effects.forEach((effect) => {
-              effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
-              streamCursorRef.current = Math.max(streamCursorRef.current, effect.seq);
-              appendSpectatorEffect(setSpectatorEffects, effect);
-            }))
+            .then((effects) => {
+              const nowMs = Date.now();
+              effects.forEach((effect) => {
+                seedEffectSeenAt([effect], effectSeenAtRef.current, nowMs);
+                effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
+                streamCursorRef.current = Math.max(streamCursorRef.current, effect.seq);
+                appendSpectatorEffect(setSpectatorEffects, effect);
+              });
+              if (effects.length > 0) {
+                setEffectClockMs(nowMs);
+              }
+            })
             .catch(() => undefined);
           if (closed) {
             return;
@@ -334,6 +332,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           appendNarrativeRow(setNarrativeRows, row);
         },
         (effect) => {
+          const nowMs = Date.now();
+          seedEffectSeenAt([effect], effectSeenAtRef.current, nowMs);
+          setEffectClockMs(nowMs);
           effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
           streamCursorRef.current = Math.max(streamCursorRef.current, effect.seq);
           appendSpectatorEffect(setSpectatorEffects, effect);
@@ -609,7 +610,6 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       setSeatPresentation(presentation);
       const created = await createGame({
         agents,
-        pacing: pacingMode,
         seatPresentation: presentation,
       });
       setGameId(created.game_id);
@@ -627,16 +627,8 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     onExitGame();
   };
 
-  const handleChangePacingMode = (mode: PacingMode) => {
-    if (gameStarted) {
-      return;
-    }
-    setPacingMode(mode);
-    try {
-      window.localStorage.setItem(PACING_STORAGE_KEY, mode);
-    } catch {
-      // Local storage is optional; the in-memory selection still applies.
-    }
+  const handleToggleAutoScroll = () => {
+    setAutoScrollEnabled((enabled) => !enabled);
   };
 
   const handleToggleGameAudio = () => {
@@ -670,11 +662,10 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         onClickExit={() => setExitConfirmOpen(true)}
         streamStatus={streamStatus}
         reconnectAttempts={reconnectAttempts}
-        pacingMode={pacingMode}
-        gameStarted={gameStarted}
+        autoScrollEnabled={autoScrollEnabled}
         gameAudioMuted={gameAudioControls.muted}
         gameAudioError={gameAudioControls.playError}
-        onChangePacingMode={handleChangePacingMode}
+        onToggleAutoScroll={handleToggleAutoScroll}
         onToggleGameAudio={handleToggleGameAudio}
       />
       <StageIndicator stage={stage} />
@@ -691,6 +682,8 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         narrativeRows={narrativeRows}
         assignments={assignments}
         streamStatus={streamStatus}
+        autoScrollEnabled={autoScrollEnabled}
+        liveTypingEnabled={!isReplay}
       />
       <GameEffectsLayer
         effects={spectatorEffects}
@@ -779,21 +772,6 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           onClickTest={handleClickTest}
           onClickEnterNight={handleClickEnterNight}
         />
-      )}
-      {import.meta.env.DEV && !gameStarted && !isReplay && (
-        <button
-          type="button"
-          className="game-stage-debug"
-          onClick={() => {
-            transitionToStage(
-              stage.phase === 'day'
-                ? { dayNumber: stage.dayNumber, phase: 'night' }
-                : { dayNumber: stage.dayNumber + 1, phase: 'day' },
-            );
-          }}
-        >
-          [debug] 推进
-        </button>
       )}
       <ModelPicker
         open={pickerSeat !== null}

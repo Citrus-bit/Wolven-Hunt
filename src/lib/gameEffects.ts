@@ -99,6 +99,22 @@ export function activePotionEffects(
   });
 }
 
+export function seedExpiredEffectSeenAt(
+  effects: SpectatorEffect[],
+  seenAtByKey: EffectSeenAtMap,
+  nowMs: number,
+) {
+  for (const effect of effects) {
+    if (effect.kind === 'death_reveal') {
+      continue;
+    }
+    const key = effectIdentity(effect);
+    if (!(key in seenAtByKey)) {
+      seenAtByKey[key] = nowMs - effectDisplayDurationMs(effect) - 1;
+    }
+  }
+}
+
 export function effectIdentity(effect: SpectatorEffect) {
   return [
     effect.seq,
@@ -186,9 +202,12 @@ function isGuardShieldActive(
   if (!isSameDay(effect, currentDay)) {
     return false;
   }
+  if (within(ageMs, GUARD_SETTLE_GRACE_MS)) {
+    return true;
+  }
   const currentOrder = phaseOrder(currentPhase);
   if (currentOrder === null) {
-    return within(ageMs, GUARD_SETTLE_GRACE_MS);
+    return false;
   }
   const effectOrder = phaseOrder(effect.phase) ?? PHASE_ORDER.NIGHT_GUARD;
   return currentOrder >= effectOrder && currentOrder <= PHASE_ORDER.NIGHT_RESOLVE;
@@ -209,7 +228,23 @@ function isShortEffectActive(
     return true;
   }
   const effectOrder = phaseOrder(effect.phase) ?? currentOrder;
-  return currentOrder >= effectOrder && currentOrder <= PHASE_ORDER.DAY_ANNOUNCE;
+  return currentOrder >= effectOrder;
+}
+
+function effectDisplayDurationMs(effect: SpectatorEffect) {
+  if (effect.kind === 'guard_shield') {
+    return GUARD_SETTLE_GRACE_MS;
+  }
+  if (effect.kind === 'wolf_attack') {
+    return Math.max(1200, effect.duration_ms || WOLF_ATTACK_MS);
+  }
+  if (effect.kind === 'seer_vision') {
+    return Math.max(1200, effect.duration_ms || SEER_VISION_MS);
+  }
+  if (effect.kind === 'witch_potion') {
+    return Math.max(900, effect.duration_ms || POTION_EFFECT_MS);
+  }
+  return 0;
 }
 
 function isSameDay(effect: SpectatorEffect, currentDay: number | null) {

@@ -5,6 +5,7 @@ import {
   deathRevealSeats,
   effectIdentity,
   publicEliminatedSeats,
+  seedExpiredEffectSeenAt,
 } from '../../src/lib/gameEffects';
 import type { GameEvent, SpectatorEffect } from '../../src/lib/gameApi';
 
@@ -31,7 +32,7 @@ describe('gameEffects', () => {
     expect([...deathRevealSeats(effects)]).toEqual([8]);
   });
 
-  it('expires guard shields at day announce and later nights', () => {
+  it('keeps just-seen guard shields visible after phase advances', () => {
     const effects: SpectatorEffect[] = [
       effect(1, 'guard_shield', 4, 'guard_shield', {}, 0, 'NIGHT_GUARD'),
     ];
@@ -44,6 +45,23 @@ describe('gameEffects', () => {
       nowMs: 1500,
       seenAtByKey,
     });
+
+    expect(dayMap[4].guardShield).toBe(true);
+  });
+
+  it('expires guard shields after their arrival grace window and later nights', () => {
+    const effects: SpectatorEffect[] = [
+      effect(1, 'guard_shield', 4, 'guard_shield', {}, 0, 'NIGHT_GUARD'),
+    ];
+    const seenAtByKey = Object.fromEntries(
+      effects.map((item) => [effectIdentity(item), 1000]),
+    );
+
+    const dayMap = buildSeatEffectMap(effects, 'DAY_ANNOUNCE', {
+      currentDay: 1,
+      nowMs: 2500,
+      seenAtByKey,
+    });
     const laterNightMap = buildSeatEffectMap(effects, 'NIGHT_GUARD', {
       currentDay: 2,
       nowMs: 1500,
@@ -54,7 +72,7 @@ describe('gameEffects', () => {
     expect(laterNightMap[4].guardShield).toBeUndefined();
   });
 
-  it('keeps recent wolf attacks visible across fast phase changes', () => {
+  it('keeps late-arriving wolf attacks visible across fast phase changes', () => {
     const effects: SpectatorEffect[] = [
       effect(2, 'wolf_attack', 4, 'wolf_attack', {}, 0, 'NIGHT_WOLF_VOTE'),
     ];
@@ -67,8 +85,37 @@ describe('gameEffects', () => {
       nowMs: 3000,
       seenAtByKey,
     });
+    const gameEndMap = buildSeatEffectMap(effects, 'GAME_END', {
+      currentDay: 1,
+      nowMs: 3000,
+      seenAtByKey,
+    });
 
     expect(map[4].wolfAttack).toBe(true);
+    expect(gameEndMap[4].wolfAttack).toBe(true);
+  });
+
+  it('keeps late-arriving seer and potion effects visible by arrival duration', () => {
+    const seer = effect(3, 'seer_vision', 7, 'seer_vision', {}, 1800, 'NIGHT_SEER');
+    const potion = effect(4, 'witch_potion', 5, 'potion_poison', { action: 'poison' }, 1200, 'NIGHT_WITCH', 9);
+    const seenAtByKey = {
+      [effectIdentity(seer)]: 1000,
+      [effectIdentity(potion)]: 1000,
+    };
+
+    const map = buildSeatEffectMap([seer], 'DAY_SPEECH', {
+      currentDay: 1,
+      nowMs: 1800,
+      seenAtByKey,
+    });
+    const activePotions = activePotionEffects([potion], 'GAME_END', {
+      currentDay: 1,
+      nowMs: 1800,
+      seenAtByKey,
+    });
+
+    expect(map[7].seerVisionSeq).toBe(3);
+    expect(activePotions).toEqual([potion]);
   });
 
   it('expires transient effects after their display window', () => {
@@ -146,6 +193,33 @@ describe('gameEffects', () => {
     expect(effectIdentity(save)).not.toBe(effectIdentity(poison));
     expect(poison.source_seat).toBeNull();
     expect(expired).toEqual([]);
+  });
+
+  it('seeds replay history transient effects as expired while keeping death reveals', () => {
+    const wolf = effect(2, 'wolf_attack', 4, 'wolf_attack', {}, 0, 'NIGHT_WOLF_VOTE');
+    const seer = effect(3, 'seer_vision', 7, 'seer_vision', {}, 1800, 'NIGHT_SEER');
+    const potion = effect(4, 'witch_potion', 5, 'potion_antidote', { action: 'save' }, 1200, 'NIGHT_WITCH', 9);
+    const death = effect(5, 'death_reveal', 8, 'out_badge', {}, 0, 'DAY_ANNOUNCE');
+    const effects = [wolf, seer, potion, death];
+    const seenAtByKey = {};
+
+    seedExpiredEffectSeenAt(effects, seenAtByKey, 5000);
+
+    const map = buildSeatEffectMap(effects, 'GAME_END', {
+      currentDay: 1,
+      nowMs: 5000,
+      seenAtByKey,
+    });
+    const activePotions = activePotionEffects(effects, 'GAME_END', {
+      currentDay: 1,
+      nowMs: 5000,
+      seenAtByKey,
+    });
+
+    expect(map[4].wolfAttack).toBeUndefined();
+    expect(map[7].seerVisionSeq).toBeUndefined();
+    expect(map[8].outBadge).toBe(true);
+    expect(activePotions).toEqual([]);
   });
 });
 

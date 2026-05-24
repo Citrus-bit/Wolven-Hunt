@@ -1,6 +1,10 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GameEvent, NarrativeRow } from '../../lib/gameApi';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
+import {
+  TYPEWRITER_DURATION_MS,
+  typewriterVisibleText,
+} from '../../lib/typewriter';
 import { VoteHistogram } from './VoteHistogram';
 
 type GameChatProps = {
@@ -8,6 +12,8 @@ type GameChatProps = {
   narrativeRows: NarrativeRow[];
   assignments: (number | null)[];
   streamStatus: 'idle' | 'connecting' | 'open' | 'error' | 'failed';
+  autoScrollEnabled: boolean;
+  liveTypingEnabled: boolean;
 };
 
 export function GameChat({
@@ -15,13 +21,31 @@ export function GameChat({
   narrativeRows,
   assignments,
   streamStatus,
+  autoScrollEnabled,
+  liveTypingEnabled,
 }: GameChatProps) {
+  const generalBodyRef = useRef<HTMLDivElement | null>(null);
+  const wolfBodyRef = useRef<HTMLDivElement | null>(null);
   const rows = useMemo(() => narrativeRows.slice(-80), [narrativeRows]);
   const wolfRows = useMemo(
     () => events.filter((event) => event.type === 'wolf_chat_message').slice(-80),
     [events],
   );
   const voteCounts = useMemo(() => latestVoteCounts(events), [events]);
+  const scrollGeneralToBottom = useCallback(() => {
+    scrollChatBodyToBottom(generalBodyRef.current, autoScrollEnabled);
+  }, [autoScrollEnabled]);
+  const scrollWolfToBottom = useCallback(() => {
+    scrollChatBodyToBottom(wolfBodyRef.current, autoScrollEnabled);
+  }, [autoScrollEnabled]);
+
+  useEffect(() => {
+    scrollGeneralToBottom();
+  }, [rows.length, rows[rows.length - 1]?.seq, scrollGeneralToBottom]);
+
+  useEffect(() => {
+    scrollWolfToBottom();
+  }, [wolfRows.length, wolfRows[wolfRows.length - 1]?.seq, scrollWolfToBottom]);
 
   return (
     <div className="game-chat" aria-label="游戏聊天区">
@@ -43,7 +67,12 @@ export function GameChat({
                     : '未连接'}
           </span>
         </header>
-        <div className="game-chat-body" role="log" aria-live="polite">
+        <div
+          ref={generalBodyRef}
+          className="game-chat-body"
+          role="log"
+          aria-live="polite"
+        >
           {rows.length === 0 ? (
             <p className="game-event-line game-event-line--system">
               完成席位分配并通过测试后，点击夜深了开始观赛。
@@ -54,6 +83,8 @@ export function GameChat({
                 key={`${row.seq}-${row.kind}`}
                 row={row}
                 assignments={assignments}
+                liveTypingEnabled={liveTypingEnabled}
+                onTypingFrame={scrollGeneralToBottom}
               />
             ))
           )}
@@ -65,7 +96,12 @@ export function GameChat({
         aria-label="狼人聊天框"
       >
         <header className="game-chat-header">狼人聊天框</header>
-        <div className="game-chat-body" role="log" aria-live="polite">
+        <div
+          ref={wolfBodyRef}
+          className="game-chat-body"
+          role="log"
+          aria-live="polite"
+        >
           {wolfRows.length === 0 ? (
             <p className="game-event-line game-event-line--system">
               等待狼人夜聊。
@@ -76,6 +112,8 @@ export function GameChat({
                 key={`${event.seq}-wolf-chat`}
                 event={event}
                 assignments={assignments}
+                liveTypingEnabled={liveTypingEnabled}
+                onTypingFrame={scrollWolfToBottom}
               />
             ))
           )}
@@ -88,9 +126,13 @@ export function GameChat({
 function NarrativeLine({
   row,
   assignments,
+  liveTypingEnabled,
+  onTypingFrame,
 }: {
   row: NarrativeRow;
   assignments: (number | null)[];
+  liveTypingEnabled: boolean;
+  onTypingFrame: () => void;
 }) {
   const slotIndex = row.actor === null ? null : assignments[row.actor - 1];
   const slot = slotIndex === null ? null : MODEL_SLOTS[slotIndex];
@@ -101,7 +143,13 @@ function NarrativeLine({
         <img src={slot.iconPath} alt="" className="game-narrative-avatar" />
         <div>
           <strong>{slot.nickname}</strong>
-          <p>{row.text}</p>
+          <p>
+            <TypewriterText
+              text={row.text}
+              enabled={liveTypingEnabled}
+              onFrame={onTypingFrame}
+            />
+          </p>
         </div>
       </article>
     );
@@ -118,9 +166,13 @@ function NarrativeLine({
 function WolfChatLine({
   event,
   assignments,
+  liveTypingEnabled,
+  onTypingFrame,
 }: {
   event: GameEvent;
   assignments: (number | null)[];
+  liveTypingEnabled: boolean;
+  onTypingFrame: () => void;
 }) {
   const slotIndex = event.actor === null ? null : assignments[event.actor - 1];
   const slot = slotIndex === null ? null : MODEL_SLOTS[slotIndex];
@@ -131,10 +183,123 @@ function WolfChatLine({
       {slot && <img src={slot.iconPath} alt="" className="game-narrative-avatar" />}
       <div>
         <strong>{slot ? `${actorLabel} ${slot.nickname}` : actorLabel}</strong>
-        <p>{String(event.payload.text ?? '')}</p>
+        <p>
+          <TypewriterText
+            text={String(event.payload.text ?? '')}
+            enabled={liveTypingEnabled}
+            onFrame={onTypingFrame}
+          />
+        </p>
       </div>
     </article>
   );
+}
+
+function TypewriterText({
+  text,
+  enabled,
+  onFrame,
+}: {
+  text: string;
+  enabled: boolean;
+  onFrame: () => void;
+}) {
+  const reducedMotion = usePrefersReducedMotion();
+  const [elapsedMs, setElapsedMs] = useState(() =>
+    enabled && !reducedMotion ? 0 : TYPEWRITER_DURATION_MS,
+  );
+  const shouldAnimate = enabled && !reducedMotion && text.length > 0;
+  const visibleText = typewriterVisibleText(text, {
+    elapsedMs,
+    enabled: shouldAnimate,
+    reducedMotion,
+  });
+  const complete = visibleText === text;
+
+  useEffect(() => {
+    if (!shouldAnimate) {
+      setElapsedMs(TYPEWRITER_DURATION_MS);
+      return undefined;
+    }
+
+    let frameId = 0;
+    const startedAt = window.performance.now();
+    setElapsedMs(0);
+
+    const tick = (now: number) => {
+      const nextElapsed = now - startedAt;
+      setElapsedMs(nextElapsed);
+      if (nextElapsed < TYPEWRITER_DURATION_MS) {
+        frameId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [shouldAnimate, text]);
+
+  useEffect(() => {
+    if (shouldAnimate) {
+      onFrame();
+    }
+  }, [onFrame, shouldAnimate, visibleText]);
+
+  return (
+    <span
+      className={[
+        'game-typewriter-text',
+        shouldAnimate && !complete ? 'game-typewriter-text--active' : '',
+      ].join(' ')}
+    >
+      {visibleText}
+    </span>
+  );
+}
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(() => prefersReducedMotion());
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setReduced(media.matches);
+    update();
+    media.addEventListener?.('change', update);
+    return () => media.removeEventListener?.('change', update);
+  }, []);
+
+  return reduced;
+}
+
+function prefersReducedMotion() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+export function scrollChatBodyToBottom(
+  element: Pick<HTMLDivElement, 'scrollHeight' | 'scrollTo'> | null,
+  enabled: boolean,
+) {
+  if (!enabled || element === null) {
+    return;
+  }
+  element.scrollTo({
+    top: element.scrollHeight,
+    behavior: chatScrollBehavior(),
+  });
+}
+
+export function chatScrollBehavior(): ScrollBehavior {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return 'smooth';
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ? 'auto'
+    : 'smooth';
 }
 
 function latestVoteCounts(events: GameEvent[]) {
