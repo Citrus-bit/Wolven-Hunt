@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import replace
 
-from wolven_hunt.config.schema import GameConfig
+from wolven_hunt.config.schema import GameConfig, RuleSet
 from wolven_hunt.core.actions import (
     Action,
     GuardProtect,
@@ -106,8 +106,10 @@ def phase_exit(state: GameState) -> tuple[Event, ...]:
     )
 
 
-def emit_win_check(state: GameState, *, phase: str) -> tuple[GameState, tuple[Event, ...]]:
-    winner = check_winner(state)
+def emit_win_check(
+    state: GameState, *, phase: str, rule_set: RuleSet
+) -> tuple[GameState, tuple[Event, ...]]:
+    winner = check_winner(state, rule_set)
     new_state = replace(state, winner=winner)
     payload: dict[str, str | None] = {"winner": winner.value if winner is not None else None}
     events = [
@@ -249,13 +251,13 @@ def emit_day_announce(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
 
 
 def finish_vote(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
-    counts = Counter(target.number for _, target in state.votes)
-    if not counts:
+    if not state.votes:
         new_state = replace(state, votes=())
         return new_state, ()
-    max_votes = max(counts.values())
-    tied = tuple(Seat(number) for number, count in sorted(counts.items()) if count == max_votes)
+    counts, abstentions = _vote_counts_and_abstentions(state.votes)
+    tied = _tied_vote_targets(counts)
     events: list[Event] = [
+        *_public_vote_cast_events(state, pk=False),
         draft_event(
             game_id=state.game_id,
             phase="DAY_VOTE",
@@ -263,12 +265,12 @@ def finish_vote(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
             event_type=EventType.VOTE_RESULT,
             actor=None,
             visibility=public_visibility(),
-            payload={
-                "counts": {str(number): count for number, count in sorted(counts.items())},
-                "tied": [seat.number for seat in tied],
-            },
-        )
+            payload=_vote_result_payload(counts, tied, abstentions),
+        ),
     ]
+    if not counts:
+        new_state, peaceful = _peaceful_day(state, phase="DAY_VOTE", reason="all_abstained")
+        return new_state, tuple([*events, *peaceful])
     if len(tied) > 1:
         new_state = replace(state, pk_seats=tied, pk_round=1, votes=())
         events.append(
@@ -302,11 +304,11 @@ def finish_vote(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
 
 def finish_pk_vote(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
     if not state.pk_votes:
-        return _peaceful_day(state)
-    counts = Counter(target.number for _, target in state.pk_votes)
-    max_votes = max(counts.values())
-    tied = tuple(Seat(number) for number, count in sorted(counts.items()) if count == max_votes)
+        return _peaceful_day(state, phase="DAY_VOTE_PK", reason="second_tie_or_no_voters")
+    counts, abstentions = _vote_counts_and_abstentions(state.pk_votes)
+    tied = _tied_vote_targets(counts)
     events: list[Event] = [
+        *_public_vote_cast_events(state, pk=True),
         draft_event(
             game_id=state.game_id,
             phase="DAY_VOTE_PK",
@@ -315,14 +317,18 @@ def finish_pk_vote(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
             actor=None,
             visibility=public_visibility(),
             payload={
-                "counts": {str(number): count for number, count in sorted(counts.items())},
-                "tied": [seat.number for seat in tied],
+                **_vote_result_payload(counts, tied, abstentions),
                 "pk_round": 2,
             },
-        )
+        ),
     ]
+    if not counts:
+        new_state, peaceful = _peaceful_day(state, phase="DAY_VOTE_PK", reason="all_abstained")
+        return new_state, tuple([*events, *peaceful])
     if len(tied) > 1:
-        new_state, peaceful = _peaceful_day(state)
+        new_state, peaceful = _peaceful_day(
+            state, phase="DAY_VOTE_PK", reason="second_tie_or_no_voters"
+        )
         return new_state, tuple([*events, *peaceful])
     exiled = tied[0]
     new_state = state.mark_dead(exiled, "DAY_EXILE")
@@ -341,19 +347,83 @@ def finish_pk_vote(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
     return new_state, tuple(events)
 
 
-def _peaceful_day(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
+def _vote_counts_and_abstentions(
+    votes: tuple[tuple[Seat, Seat | None], ...],
+) -> tuple[Counter[int], tuple[Seat, ...]]:
+    counts: Counter[int] = Counter()
+    abstentions: list[Seat] = []
+    for actor, target in votes:
+        if target is None:
+            abstentions.append(actor)
+            continue
+        counts[target.number] += 1
+    return counts, tuple(sorted(abstentions, key=lambda seat: seat.number))
+
+
+def _tied_vote_targets(counts: Counter[int]) -> tuple[Seat, ...]:
+    if not counts:
+        return ()
+    max_votes = max(counts.values())
+    return tuple(Seat(number) for number, count in sorted(counts.items()) if count == max_votes)
+
+
+def _vote_result_payload(
+    counts: Counter[int],
+    tied: tuple[Seat, ...],
+    abstentions: tuple[Seat, ...],
+) -> dict[str, object]:
+    return {
+        "counts": {str(number): count for number, count in sorted(counts.items())},
+        "tied": [seat.number for seat in tied],
+        "abstain_count": len(abstentions),
+        "abstentions": [seat.number for seat in abstentions],
+    }
+
+
+def _peaceful_day(
+    state: GameState,
+    *,
+    phase: str,
+    reason: str,
+) -> tuple[GameState, tuple[Event, ...]]:
     new_state = replace(state, pk_votes=(), pk_seats=(), pk_round=0, votes=())
     return new_state, (
         draft_event(
             game_id=state.game_id,
-            phase="DAY_VOTE_PK",
+            phase=phase,
             day=state.day,
             event_type=EventType.PEACEFUL_DAY,
             actor=None,
             visibility=public_visibility(),
-            payload={"reason": "second_tie_or_no_voters"},
+            payload={"reason": reason},
         ),
     )
+
+
+def _public_vote_cast_events(state: GameState, *, pk: bool) -> tuple[Event, ...]:
+    phase = "DAY_VOTE_PK" if pk else "DAY_VOTE"
+    votes = state.pk_votes if pk else state.votes
+    events: list[Event] = []
+    for actor, target in sorted(votes, key=lambda vote: vote[0].number):
+        payload: dict[str, object] = (
+            {"target": None, "abstain": True}
+            if target is None
+            else {"target": target.number}
+        )
+        if pk:
+            payload["pk"] = True
+        events.append(
+            draft_event(
+                game_id=state.game_id,
+                phase=phase,
+                day=state.day,
+                event_type=EventType.VOTE_CAST,
+                actor=actor.number,
+                visibility=public_visibility(),
+                payload=payload,
+            )
+        )
+    return tuple(events)
 
 
 def advance_to_next_night(state: GameState) -> GameState:
@@ -530,33 +600,13 @@ def _apply_witch(state: GameState, action: WitchAction) -> tuple[GameState, tupl
 def _apply_vote(state: GameState, action: Vote) -> tuple[GameState, tuple[Event, ...]]:
     votes = (*state.votes, (action.actor, action.target))
     new_state = replace(state, votes=votes)
-    return new_state, (
-        draft_event(
-            game_id=state.game_id,
-            phase=state.phase,
-            day=state.day,
-            event_type=EventType.VOTE_CAST,
-            actor=action.actor.number,
-            visibility=public_visibility(),
-            payload={"target": action.target.number},
-        ),
-    )
+    return new_state, ()
 
 
 def _apply_pk_vote(state: GameState, action: PkVote) -> tuple[GameState, tuple[Event, ...]]:
     votes = (*state.pk_votes, (action.actor, action.target))
     new_state = replace(state, pk_votes=votes)
-    return new_state, (
-        draft_event(
-            game_id=state.game_id,
-            phase=state.phase,
-            day=state.day,
-            event_type=EventType.VOTE_CAST,
-            actor=action.actor.number,
-            visibility=public_visibility(),
-            payload={"target": action.target.number, "pk": True},
-        ),
-    )
+    return new_state, ()
 
 
 def _apply_last_words(

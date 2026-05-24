@@ -20,6 +20,7 @@ import {
   appendRecentSpectatorEffects,
   appendUniqueSpectatorEffects,
   buildSeatEffectMap,
+  expireTransientEffectSeenAt,
   pruneRecentSpectatorEffects,
   publicEliminatedSeats,
   seedExpiredEffectSeenAt,
@@ -107,6 +108,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const effectSeenAtRef = useRef<EffectSeenAtMap>({});
   const [effectClockMs, setEffectClockMs] = useState(() => Date.now());
   const effectSeqRef = useRef(0);
+  const terminalRef = useRef(false);
   const streamCursorRef = useRef(0);
   const [timings, setTimings] = useState<GameTimings | null>(null);
   const [currentPhase, setCurrentPhase] = useState<string | null>(null);
@@ -173,6 +175,17 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   }, []);
 
   useEffect(() => {
+    terminalRef.current = finished;
+    if (!finished) {
+      return;
+    }
+    const nowMs = Date.now();
+    expireTransientEffectSeenAt(spectatorEffects, effectSeenAtRef.current, nowMs);
+    setEffectClockMs(nowMs);
+    setRecentEffects((current) => (current.length === 0 ? current : []));
+  }, [finished, spectatorEffects]);
+
+  useEffect(() => {
     if (spectatorEffects.length === 0 && recentEffects.length === 0) {
       return undefined;
     }
@@ -203,6 +216,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         effectSeenAtRef.current = {};
         const nowMs = Date.now();
         seedExpiredEffectSeenAt(loadedEffects, effectSeenAtRef.current, nowMs);
+        terminalRef.current = isGameFinished(loadedEvents);
         setEffectClockMs(nowMs);
         setSpectatorEffects(loadedEffects);
         setRecentEffects([]);
@@ -256,6 +270,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     effectSeenAtRef.current = {};
     setEffectClockMs(Date.now());
     effectSeqRef.current = 0;
+    terminalRef.current = false;
     streamCursorRef.current = 0;
     setCurrentPhase(null);
     setStreamStatus('connecting');
@@ -270,6 +285,11 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           setStreamStatus('open');
           setReconnectAttempts(0);
           streamCursorRef.current = Math.max(streamCursorRef.current, event.seq);
+          if (isTerminalGameEvent(event)) {
+            terminalRef.current = true;
+            setRecentEffects((current) => (current.length === 0 ? current : []));
+            setEffectClockMs(Date.now());
+          }
           if (event.type === 'phase_enter') {
             setCurrentPhase(String(event.payload.phase ?? event.phase));
           }
@@ -293,6 +313,10 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           void getGame(gameId).then((summary) => {
             setCurrentPhase(summary.phase);
             setTimings(summary.timings);
+            if (summary.status === 'finished') {
+              terminalRef.current = true;
+              setRecentEffects((current) => (current.length === 0 ? current : []));
+            }
             if (summary.status === 'failed') {
               setStreamStatus('failed');
             }
@@ -313,6 +337,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 effects,
                 effectSeenAtRef.current,
                 nowMs,
+                terminalRef.current,
               );
               effects.forEach((effect) => {
                 effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
@@ -350,6 +375,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             [effect],
             effectSeenAtRef.current,
             nowMs,
+            terminalRef.current,
           );
           setEffectClockMs(nowMs);
           effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
@@ -708,6 +734,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         nowMs={effectClockMs}
         seenAtByKey={effectSeenAtRef.current}
         recentEffects={recentEffects}
+        terminal={finished}
       />
       {!gameStarted && !isReplay && (
         <div className="game-quick-assign-helper">
@@ -841,14 +868,25 @@ function ingestLiveSpectatorEffects(
   effects: SpectatorEffect[],
   seenAtByKey: EffectSeenAtMap,
   nowMs: number,
+  terminal: boolean,
 ) {
   if (effects.length === 0) {
     return;
   }
   logSpectatorEffectsReceived(effects);
+  if (terminal) {
+    expireTransientEffectSeenAt(effects, seenAtByKey, nowMs);
+    setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
+    setRecentEffects((prev) => (prev.length === 0 ? prev : []));
+    return;
+  }
   seedEffectSeenAt(effects, seenAtByKey, nowMs);
   setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
   setRecentEffects((prev) => appendRecentSpectatorEffects(prev, effects, nowMs));
+}
+
+function isTerminalGameEvent(event: GameEvent) {
+  return event.type === 'game_end' || event.type === 'role_reveal';
 }
 
 function logSpectatorEffectsReceived(effects: SpectatorEffect[]) {

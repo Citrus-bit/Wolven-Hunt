@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from time import sleep
 
 from fastapi.testclient import TestClient
@@ -152,10 +153,12 @@ def test_api_persists_spectator_safe_seat_presentation(monkeypatch, tmp_path) ->
         summary = client.get(f"/games/{game_id}").json()
 
     manifest_text = (tmp_path / game_id / "manifest.json").read_text(encoding="utf-8")
+    manifest = json.loads(manifest_text)
     assert summary["seat_presentation"]["1"] == {
         "nickname": "GPT",
         "icon_path": "/assets/lobby/model_icon_gpt.png",
     }
+    assert manifest["prompt_pack_version"] == "v3"
     assert "seat_presentation" in manifest_text
     assert "api_key" not in manifest_text
     assert "base_url" not in manifest_text

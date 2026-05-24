@@ -263,9 +263,33 @@ def test_vote_self_and_dead_target_rules(game_config: GameConfig, initial_state:
         validate_action(initial_state, Vote(actor=actor, target=actor), game_config.rule_set)
         is None
     )
+    assert (
+        validate_action(initial_state, Vote(actor=actor, target=None), game_config.rule_set)
+        is None
+    )
     dead_state = initial_state.mark_dead(Seat(1), "test")
     rejection = validate_action(dead_state, Vote(actor=actor, target=Seat(1)), game_config.rule_set)
     assert rejection is not None
+
+
+def test_vote_abstain_disabled_rejected(
+    game_config: GameConfig, initial_state: GameState
+) -> None:
+    actor = initial_state.alive_seats()[0]
+    rule_set = game_config.rule_set.model_copy(
+        update={
+            "vote": game_config.rule_set.vote.model_copy(update={"can_abstain": False})
+        }
+    )
+
+    vote_rejection = validate_action(initial_state, Vote(actor=actor, target=None), rule_set)
+    assert vote_rejection is not None
+    assert vote_rejection.rule_id == "vote.abstain"
+
+    pk_state = replace(initial_state, pk_seats=(Seat(1), Seat(2)))
+    pk_rejection = validate_action(pk_state, PkVote(actor=Seat(3), target=None), rule_set)
+    assert pk_rejection is not None
+    assert pk_rejection.rule_id == "pk.abstain"
 
 
 def test_vote_tie_enters_pk(game_config: GameConfig, initial_state: GameState) -> None:
@@ -276,6 +300,59 @@ def test_vote_tie_enters_pk(game_config: GameConfig, initial_state: GameState) -
     assert any(event.type is EventType.VOTE_PK_ENTER for event in events)
 
 
+def test_finish_vote_reveals_public_vote_casts_by_actor_seat(
+    initial_state: GameState,
+) -> None:
+    state = replace(
+        initial_state,
+        votes=((Seat(3), Seat(2)), (Seat(1), Seat(2)), (Seat(2), Seat(3))),
+    )
+    _, events = finish_vote(state)
+    vote_casts = [event for event in events if event.type is EventType.VOTE_CAST]
+
+    assert [event.actor for event in vote_casts] == [1, 2, 3]
+    assert [event.payload["target"] for event in vote_casts] == [2, 3, 2]
+    assert all(event.visibility.public for event in vote_casts)
+    result = next(event for event in events if event.type is EventType.VOTE_RESULT)
+    assert max(event.seq for event in vote_casts) == 0
+    assert events.index(vote_casts[-1]) < events.index(result)
+
+
+def test_finish_vote_records_abstentions_without_counting_them(
+    initial_state: GameState,
+) -> None:
+    state = replace(
+        initial_state,
+        votes=((Seat(1), None), (Seat(2), Seat(3)), (Seat(3), Seat(3)), (Seat(4), None)),
+    )
+    state, events = finish_vote(state)
+    vote_casts = [event for event in events if event.type is EventType.VOTE_CAST]
+
+    assert [event.payload["target"] for event in vote_casts] == [None, 3, 3, None]
+    assert [event.payload.get("abstain") for event in vote_casts] == [True, None, None, True]
+    result = next(event for event in events if event.type is EventType.VOTE_RESULT)
+    assert result.payload["counts"] == {"3": 2}
+    assert result.payload["tied"] == [3]
+    assert result.payload["abstain_count"] == 2
+    assert result.payload["abstentions"] == [1, 4]
+    assert not state.player(Seat(3)).alive
+
+
+def test_finish_vote_all_abstain_is_peaceful(initial_state: GameState) -> None:
+    state = replace(initial_state, votes=((Seat(1), None), (Seat(2), None)))
+    state, events = finish_vote(state)
+
+    result = next(event for event in events if event.type is EventType.VOTE_RESULT)
+    assert result.payload["counts"] == {}
+    assert result.payload["tied"] == []
+    assert result.payload["abstain_count"] == 2
+    assert any(
+        event.type is EventType.PEACEFUL_DAY and event.phase == "DAY_VOTE"
+        for event in events
+    )
+    assert state.pk_seats == ()
+
+
 def test_pk_second_tie_is_peaceful(game_config: GameConfig, initial_state: GameState) -> None:
     state = replace(
         initial_state,
@@ -284,6 +361,33 @@ def test_pk_second_tie_is_peaceful(game_config: GameConfig, initial_state: GameS
     )
     state, events = finish_pk_vote(state)
     assert state.pk_seats == ()
+    assert any(event.type is EventType.PEACEFUL_DAY for event in events)
+
+
+def test_finish_pk_vote_reveals_public_vote_casts_by_actor_seat(
+    initial_state: GameState,
+) -> None:
+    state = replace(
+        initial_state,
+        pk_seats=(Seat(1), Seat(2)),
+        pk_votes=((Seat(4), Seat(2)), (Seat(3), Seat(1)), (Seat(5), Seat(1))),
+    )
+    _, events = finish_pk_vote(state)
+    vote_casts = [event for event in events if event.type is EventType.VOTE_CAST]
+
+    assert [event.actor for event in vote_casts] == [3, 4, 5]
+    assert [event.payload["target"] for event in vote_casts] == [1, 2, 1]
+    assert all(event.payload["pk"] is True for event in vote_casts)
+    assert all(event.visibility.public for event in vote_casts)
+    result = next(event for event in events if event.type is EventType.VOTE_RESULT)
+    assert events.index(vote_casts[-1]) < events.index(result)
+
+
+def test_finish_pk_vote_without_voters_has_no_vote_casts(initial_state: GameState) -> None:
+    state = replace(initial_state, pk_seats=(Seat(1), Seat(2)), pk_votes=())
+    _, events = finish_pk_vote(state)
+
+    assert not any(event.type is EventType.VOTE_CAST for event in events)
     assert any(event.type is EventType.PEACEFUL_DAY for event in events)
 
 
@@ -310,3 +414,29 @@ def test_pk_player_cannot_vote(game_config: GameConfig, initial_state: GameState
     rejection = validate_action(state, PkVote(actor=Seat(1), target=Seat(2)), game_config.rule_set)
     assert rejection is not None
     assert rejection.rule_id == "pk.actor_on_stage"
+
+    abstain_rejection = validate_action(
+        state, PkVote(actor=Seat(1), target=None), game_config.rule_set
+    )
+    assert abstain_rejection is not None
+    assert abstain_rejection.rule_id == "pk.actor_on_stage"
+
+
+def test_finish_pk_vote_all_abstain_is_peaceful(initial_state: GameState) -> None:
+    state = replace(
+        initial_state,
+        pk_seats=(Seat(1), Seat(2)),
+        pk_votes=((Seat(3), None), (Seat(4), None)),
+    )
+    state, events = finish_pk_vote(state)
+
+    result = next(event for event in events if event.type is EventType.VOTE_RESULT)
+    assert result.payload["counts"] == {}
+    assert result.payload["tied"] == []
+    assert result.payload["abstain_count"] == 2
+    assert result.payload["pk_round"] == 2
+    assert any(
+        event.type is EventType.PEACEFUL_DAY and event.phase == "DAY_VOTE_PK"
+        for event in events
+    )
+    assert state.pk_seats == ()

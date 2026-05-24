@@ -108,7 +108,7 @@ describe('gameEffects', () => {
     expect(laterNightMap[4].guardShield).toBeUndefined();
   });
 
-  it('keeps late-arriving wolf attacks visible across fast phase and day changes', () => {
+  it('keeps late-arriving wolf attacks visible across fast non-terminal phase and day changes', () => {
     const effects: SpectatorEffect[] = [
       effect(2, 'wolf_attack', 4, 'wolf_attack', {}, 0, 'NIGHT_WOLF_VOTE'),
     ];
@@ -133,7 +133,7 @@ describe('gameEffects', () => {
     });
 
     expect(map[4].wolfAttack).toBe(true);
-    expect(gameEndMap[4].wolfAttack).toBe(true);
+    expect(gameEndMap[4].wolfAttack).toBeUndefined();
     expect(laterDayMap[4].wolfAttack).toBe(true);
   });
 
@@ -150,7 +150,17 @@ describe('gameEffects', () => {
       nowMs: 1800,
       seenAtByKey,
     });
-    const activePotions = activePotionEffects([potion], 'GAME_END', {
+    const activePotions = activePotionEffects([potion], 'DAY_SPEECH', {
+      currentDay: 2,
+      nowMs: 1800,
+      seenAtByKey,
+    });
+    const terminalMap = buildSeatEffectMap([seer], 'GAME_END', {
+      currentDay: 2,
+      nowMs: 1800,
+      seenAtByKey,
+    });
+    const terminalPotions = activePotionEffects([potion], 'GAME_END', {
       currentDay: 2,
       nowMs: 1800,
       seenAtByKey,
@@ -158,6 +168,8 @@ describe('gameEffects', () => {
 
     expect(map[7].seerVisionSeq).toBe(3);
     expect(activePotions).toEqual([potion]);
+    expect(terminalMap[7].seerVisionSeq).toBeUndefined();
+    expect(terminalPotions).toEqual([]);
   });
 
   it('keeps live short effects visible after fast phase changes by arrival time', () => {
@@ -334,6 +346,7 @@ describe('gameEffects', () => {
 
     const recent = appendRecentSpectatorEffects([], effects, 1000);
     const active = activeRecentEffectAnnouncements(recent, 8999);
+    const terminal = activeRecentEffectAnnouncements(recent, 1800, { terminal: true });
     const expired = activeRecentEffectAnnouncements(recent, 9001);
 
     expect(recent.map((item) => item.effect.kind)).toEqual([
@@ -348,6 +361,7 @@ describe('gameEffects', () => {
       '预言查验：5号',
       '女巫解药：6号',
     ]);
+    expect(terminal).toEqual([]);
     expect(expired).toEqual([]);
   });
 

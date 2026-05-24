@@ -85,11 +85,13 @@ class LLMAgent(PlayerInterface):
 
     def decide_vote(self, view: PlayerView) -> Vote:
         parsed = cast(VoteOutput, self._call(view, "DAY_VOTE", VoteOutput))
-        return Vote(actor=self.seat, target=Seat(parsed.target))
+        target = None if parsed.target is None else Seat(parsed.target)
+        return Vote(actor=self.seat, target=target)
 
     def decide_pk_vote(self, view: PlayerView) -> PkVote:
         parsed = cast(PkVoteOutput, self._call(view, "DAY_VOTE_PK", PkVoteOutput))
-        return PkVote(actor=self.seat, target=Seat(parsed.target))
+        target = None if parsed.target is None else Seat(parsed.target)
+        return PkVote(actor=self.seat, target=target)
 
     def decide_last_words(self, view: PlayerView) -> LastWords:
         parsed = cast(LastWordsOutput, self._call(view, "DAY_LAST_WORDS", LastWordsOutput))

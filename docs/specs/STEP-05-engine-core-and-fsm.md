@@ -9,7 +9,7 @@
 > 3. **本步骤只动 Python 后端**：不修改 `src/components/`、`src/hooks/`、`src/lib/`、`src/App.tsx`、`src/main.tsx`、`src/styles.css`、`public/`、`package.json`、`vite.config.ts`、`tsconfig*.json`、`scripts/build-lobby-pingpong.mjs`。前端验收用例必须仍然通过。
 > 4. 后端代码不得 `import` 任何前端 TS / TSX；前端代码也不得 `import` `src/wolven_hunt/*`（plan.md §14.1 / architecture.md §18.1 已固化）。
 > 5. **本步骤不接 LLM**、**不写 FastAPI**、**不写 SSE**、**不持久化磁盘**：内存 EventLog 即可；持久化和 LiteLLM 网关留给 STEP-06。
-> 6. 板子规则不得硬编码进 `core/`：所有规则旋钮（`first_night_can_die`、`max_uses_per_game`、`fallback.actions` 等）必须从 `configs/games/_rule_sets/majority_or_massacre_all.yaml` + `configs/games/_role_packs/classic_8_three_gods.yaml` 读取。
+> 6. 板子规则不得硬编码进 `core/`：所有规则旋钮（`first_night_can_die`、`max_uses_per_game`、`fallback.actions` 等）必须从 `configs/games/_rule_sets/majority_or_side_elimination.yaml` + `configs/games/_role_packs/classic_8_three_gods.yaml` 读取。
 > 7. **Referee 是唯一权限边界**：`RuleEngine.apply` 不接 `player_id`、不读 PlayerView、不写 LLM；任何脱敏 / 合法性校验 / 视角分发都走 Referee。
 
 ---
@@ -642,7 +642,7 @@ JSONL，每行一个事件 `model_dump_json()`。 进程退出码 0 表示正常
 | `events` | Event frozen、seq 单调、`Visibility.seats` 自动去重排序、unknown EventType 反序列化失败 |
 | `state` | `PlayerState.alive` 转 `False` 后 `death_day` 必须非空 |
 | `rng` | 同 seed 同 stream 必同序列；不同 stream 必互不影响；hash 派生稳定 |
-| `win` | 三条规则各一组 minimal state（狼严格大于、屠城、狼全灭）；alive_wolves==alive_good 不算狼胜（严格 `>`） |
+| `win` | 配置驱动规则各一组 minimal state（狼严格大于、村民边全灭、神职边全灭、狼全灭）；alive_wolves==alive_good 且神民两边均未全灭时不算狼胜（严格 `>`） |
 | `rule_engine_seer` | 查活人 / 查死人 / 重复查同一人 / 不能查自己 / 死亡后再调直接 reject |
 | `rule_engine_guard` | 自守 / 第一晚可守 / 连守同一目标被 reject / 守目标==狼刀目标 → no_death_tonight |
 | `rule_engine_wolf` | 多数决 / 平票走 wolf_tie_random（候选集 + selected 写入 payload）/ 自刀被 reject / 刀狼队友被 reject / 空刀被 reject |

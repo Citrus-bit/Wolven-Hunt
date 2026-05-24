@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from wolven_hunt.core.seat import Role
 from wolven_hunt.llm.context import build_prompt_visible_events, build_speech_context
 from wolven_hunt.referee.view import PlayerView
 
@@ -18,9 +19,22 @@ PHASE_TEMPLATE_KIND: dict[str, str] = {
     "DAY_LAST_WORDS": "last_words",
 }
 
+WOLF_PRIVATE_EVENT_TYPES = frozenset(
+    {
+        "wolf_chat_message",
+        "wolf_kill_vote",
+        "wolf_kill_decided",
+        "wolf_tie_random",
+    }
+)
+WOLF_DAY_ISOLATED_PHASES = frozenset(
+    {"DAY_SPEECH", "DAY_VOTE", "DAY_VOTE_PK", "DAY_LAST_WORDS"}
+)
+WOLF_NIGHT_PRIVATE_PHASES = frozenset({"NIGHT_WOLF_CHAT", "NIGHT_WOLF_VOTE"})
+
 
 class PromptRenderer:
-    def __init__(self, prompt_root: Path, *, version: str = "v1") -> None:
+    def __init__(self, prompt_root: Path, *, version: str = "v3") -> None:
         self.prompt_root = prompt_root
         self.version = version
 
@@ -34,7 +48,23 @@ class PromptRenderer:
     ) -> str:
         role_name = "villager" if view.self_role is None else view.self_role.value
         current_seat = None if view.seat_or_none is None else view.seat_or_none.number
-        exclude_event_types = frozenset({"speech"}) if phase == "DAY_SPEECH" else frozenset()
+        exclude_event_types: frozenset[str] = (
+            frozenset({"speech"}) if phase == "DAY_SPEECH" else frozenset()
+        )
+        wolf_private_context: tuple[dict[str, object], ...] | None = None
+        if view.self_role is Role.WOLF and phase in WOLF_DAY_ISOLATED_PHASES:
+            exclude_event_types = exclude_event_types | WOLF_PRIVATE_EVENT_TYPES
+        if view.self_role is Role.WOLF and phase in WOLF_NIGHT_PRIVATE_PHASES:
+            exclude_event_types = exclude_event_types | WOLF_PRIVATE_EVENT_TYPES
+            wolf_private_events = tuple(
+                event
+                for event in view.visible_events
+                if event.type.value in WOLF_PRIVATE_EVENT_TYPES
+            )
+            wolf_private_context = build_prompt_visible_events(
+                wolf_private_events,
+                max_count=40,
+            )
         payload = {
             "seat": current_seat,
             "role": role_name,
@@ -55,6 +85,8 @@ class PromptRenderer:
             ),
             "output_schema": schema_json,
         }
+        if wolf_private_context is not None:
+            payload["wolf_private_context"] = wolf_private_context
         parts = [
             self._load_system_template(),
             self._load_template(role_name, phase),

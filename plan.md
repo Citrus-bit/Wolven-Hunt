@@ -4,7 +4,7 @@
 
 - 默认固定 10 人板：**3 狼人 + 4 村民 + 1 预言家 + 1 女巫 + 1 守卫**。
 - 胜负条件：
-  - **狼人胜**：`alive_wolves > alive_good_players`（严格大于），或 `alive_good_players == 0`（屠城）。
+  - **狼人胜**：`alive_wolves > alive_good_players`（严格大于），或 `alive_villagers == 0` / `alive_gods == 0`（屠边）。
   - **好人胜**：`alive_wolves == 0`。
 - 预言家规则：每晚查验一名玩家（**可查死人**，**不可查自己**），只返回阵营（`wolf` / `good`），不返回具体角色。
 - 白天被投票放逐的玩家有遗言；首夜可以死亡，**首夜狼刀死亡和双奶死亡的玩家**在首日白天有遗言；毒药导致的死亡任何情况下无遗言，后续夜晚死亡玩家无遗言。
@@ -40,7 +40,8 @@
 ### 1.3 首版 WinCondition
 
 - 每次「夜晚结算」后立即执行胜负检查；「投票放逐」后若有放逐者先执行其遗言，再执行胜负检查。
-- 三条胜负规则按上述 Summary 写死，写入 `majority_or_massacre_all.yaml`。
+- 胜负规则按 `RuleSet.win_conditions` 配置驱动执行，默认写入 `majority_or_side_elimination.yaml`。
+- 屠边中的神职边固定由好人阵营中非 `villager` 角色组成，当前为预言家、女巫、守卫。
 
 ### 1.4 预言家
 
@@ -82,11 +83,12 @@
 - 首夜死亡在首日 `DAY_ANNOUNCE` 公示；首夜狼刀死亡和双奶死亡者进入首日 `DAY_LAST_WORDS`，毒药死亡无遗言。
 - 白天按座位顺序一轮发言，每名存活玩家一次，中文默认 300 字上限。
 - 每日 `DAY_SPEECH` 发言起点优先由最近一次夜晚公布死亡决定：若 `state.last_night_deaths` 非空，以其中座位号最大的死亡玩家为锚点，从其下一位存活玩家开始，按座位号递增循环一圈并跳过死亡玩家。若当晚无人死亡，则回退 `rule_set.first_speaker_seat`（默认 1 号）作为起点。
-- 投票：同时投票、公开票型、**不允许弃票、不允许改票、无警长**。
+- 投票：同时投票、公开票型、**允许弃票、不允许改票、无警长**。
+- `DAY_VOTE` / `DAY_VOTE_PK` 的“同时投票”定义为：所有合法投票者基于同一份 `GameState` 与 `EventLog` 快照独立决策；投票决策在结算前只存在于 FSM 内存 pending action 中，不追加到 EventLog，也不得进入任何 PlayerView、prompt、spectator API 或 narrative。结算时由 Referee 按 actor seat 升序追加公开 `vote_cast`，再追加 `vote_result` / `vote_pk_enter` / `exile` / `peaceful_day`。弃票的 `vote_cast` payload 固定为 `{target: null, abstain: true}`；`vote_result` payload 必须包含 `counts`、`tied`、`abstain_count`、`abstentions`。弃票公开展示但不进入 `counts`，不参与最高票或平票候选；全员弃票直接平安日。EventLog 仍保持 append-only，禁止回写或修改历史 hidden 事件。
 - 首轮投票合法目标 = 所有存活玩家，**允许投自己**，不能投已死亡玩家。
-- 首轮平票 → 进入 `DAY_VOTE_PK`，平票玩家各一次 PK 发言后重投。
+- 首轮平票 → 进入 `DAY_VOTE_PK`，平票玩家各一次 PK 发言后重投；如果首轮所有有效票均为弃票，则直接平安日。
 - PK 重投合法目标 = PK 台上的存活玩家；PK 台上的玩家不能参与重投。
-- PK 重投如果第二次再次平票，则视为平安日，不放逐任何人，直接进入夜晚。
+- PK 重投如果第二次再次平票，或所有台下投票者均弃票，则视为平安日，不放逐任何人，直接进入夜晚。
 - 如果 PK 重投时除 PK 台上玩家外无人存活可投，则直接按二次平票/平安日处理并入夜。
 
 ### 1.9 遗言
@@ -201,17 +203,19 @@ GAME_END
 - 流程：`game_start`, `phase_enter`, `phase_exit`, `game_end`, `role_reveal`
 - 夜晚：`guard_protect`, `wolf_chat_message`, `wolf_kill_vote`, `wolf_kill_decided`, `wolf_tie_random`, `witch_action`, `seer_check`, `seer_check_result`, `no_death_tonight`, `death_at_night`
 - 白天：`day_announce`, `last_words`, `speech`, `vote_cast`, `vote_result`, `vote_pk_enter`, `peaceful_day`, `exile`
+- `vote_cast` 只在投票 phase 结算时公开追加；投票收集过程中不得提前写入 EventLog。弃票 `vote_cast` 使用 `{target: null, abstain: true}`。`vote_result` 仍然 public，`counts` 只统计非弃票目标，并通过 `abstain_count` / `abstentions` 暴露弃票数量与座位，继续作为前端直方图与叙事票型的来源。
 - 系统：`win_check`, `agent_timeout`, `agent_invalid_action`, `agent_fallback_triggered`, `agent_budget_warning`
 - 元数据：`llm_call`（包含 `prompt_hash`、`raw_response_hash`、`storage_ref`、model、token、cost，**仅写入存储层，不进 PlayerView**）
 - `llm_call` payload 字段固定为：`prompt_hash: str`、`raw_response_hash: str`、`storage_ref: str`、`model: str`、`prompt_tokens: int`、`completion_tokens: int`、`cost_usd: float`、`prompt_version: str`。payload 不得包含 `raw_response` 原文。
 - 随机：涉及平票随机、fallback 随机、角色洗牌的事件 payload 均记录 `rng_stream`、`candidates`、`selected`、`reason`。
 - `role_reveal` 仅在 `GAME_END` 后由 Referee 生成，公开可见，payload 固定为 `{winner, seats: [{seat, role, alive}], highlights}`。`pacing_tick` 作为未来保留事件，STEP-07 不写入事件日志，避免污染 replay hash。
-- `spectator_effect` **不是 EventLog 事件类型**，而是后端从 EventLog 派生的观赛投影：`{seq, day, phase, kind, actor, source_seat, target_seat, asset_key, duration_ms, meta}`。`kind` 固定为 `guard_shield | wolf_attack | seer_vision | witch_potion | death_reveal`。它只通过 spectator API/SSE 下发，不进入玩家视角、prompt、narrative 或 replay hash。
+- `spectator_effect` **不是 EventLog 事件类型**，而是后端从 EventLog 派生的观赛投影：`{seq, day, phase, kind, actor, source_seat, target_seat, asset_key, duration_ms, meta}`。`kind` 固定为 `guard_shield | wolf_attack | seer_vision | witch_potion | death_reveal`。它只通过 spectator API/SSE 下发，不进入玩家视角、prompt、narrative 或 replay hash。`guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` 是现场观赛 transient effects，只能在非终局阶段播放；进入 `GAME_END` / `role_reveal` 后不得集中补播积压特效。复盘或 REST 回补中已发生的非死亡 transient effects 默认视为历史并标记为过期；`death_reveal` / `out_badge` 和 `role_reveal` 仍可在终局保留。
 
 ### 3.4 可见性规则
 
 - 公共事件（`public: true`）：所有玩家可见（含死亡 Agent，见 §1.10）。
 - 狼队事件：`wolf_kill_vote`、`wolf_kill_decided`、`wolf_tie_random` 仅狼队 seat 可见；`wolf_chat_message` 对狼队 seat 和 STEP-07 spectator 上帝视角可见。
+- 狼人白天 prompt 额外执行上下文隔离：`DAY_SPEECH`、`DAY_VOTE`、`DAY_VOTE_PK`、`DAY_LAST_WORDS` 中，wolf seat 的 prompt payload `visible_events` 必须剔除 `wolf_chat_message`、`wolf_kill_vote`、`wolf_kill_decided`、`wolf_tie_random`，且不得注入 `wolf_private_context`。`NIGHT_WOLF_CHAT` / `NIGHT_WOLF_VOTE` 中，wolf seat 可通过独立 `wolf_private_context` 字段接收这些狼队私有事件，同类事件不得重复出现在 `visible_events`。
 - 私有事件（`seer_check_result`, `guard_protect`, `witch_action`）：仅 actor 可见。
 - `llm_call`、raw response 存储引用默认不进入任何 PlayerView；完整 `role_assignment` 只允许进入 spectator 上帝视角和存储/调试工具，不进入普通玩家 PlayerView。
 - **Referee 是唯一权限边界**，PlayerView 由 Referee 按 visibility 过滤生成。
@@ -250,7 +254,7 @@ GAME_END
 | `NIGHT_WITCH` | 默认跳过，不消耗药品 |
 | `NIGHT_SEER` | 随机选一个非自己玩家 |
 | `DAY_SPEECH` | 基于 Referee 过滤后 PlayerView 的确定性公开发言模板 `contextual_public_speech` |
-| `DAY_VOTE` | 随机选一个存活玩家（允许自己） |
+| `DAY_VOTE` | 随机选一个存活玩家（允许自己），fallback 不主动弃票 |
 | `DAY_VOTE_PK` | 台下玩家随机投一个 PK 台上存活玩家；如无台下玩家可投，直接平安日 |
 | `DAY_LAST_WORDS` | 默认模板「我没有遗言」 |
 
@@ -331,17 +335,17 @@ final_reveal.json
 | `NIGHT_WITCH` | `{action: "save" | "poison" | "skip", target: int | null}` |
 | `NIGHT_SEER` | `{target: int}` |
 | `DAY_SPEECH` | `{text: str}` |
-| `DAY_VOTE` | `{target: int}` |
-| `DAY_VOTE_PK` | `{target: int}` |
+| `DAY_VOTE` | `{target: int | null}` |
+| `DAY_VOTE_PK` | `{target: int | null}` |
 | `DAY_LAST_WORDS` | `{text: str}` |
 
 提示词结构固定为：
 
 ```text
-[system.v1.md] + [role/phase.v1.md] + [JSON payload] + [retry_error?]
+[system.{version}.md] + [role/phase.{version}.md] + [JSON payload] + [retry_error?]
 ```
 
-`system.v1.md` 是全员统一系统提示词，角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context 和 output_schema。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff`，当前固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制。`speech_context` 用于 DAY_SPEECH 的发言归属约束，固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须使用一致版本解释日志。
+`system.v3.md` 是当前默认全员统一系统提示词，旧 `v1` / `v2` 文件保留用于回放兼容；角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`v3` 只加强 `text` 输出质量：文本必须高信息密度，禁止占位废话，不能把“信息有限/等大家发完”作为主要内容，白天发言优先控制在 2-4 句且不为凑满 `max_chars` 扩写；它不改变输出 JSON schema、事件 schema、fallback 或 replay hash。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context、output_schema，以及仅 wolf 夜聊/狼刀阶段允许出现的 `wolf_private_context`。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff` 与 `can_abstain`，当前 `vote_sheriff` 固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制；`can_abstain` 控制 `DAY_VOTE` / `DAY_VOTE_PK` 是否允许输出 `target: null` 弃票。`speech_context` 用于 DAY_SPEECH 的发言归属约束，固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须优先使用 manifest 中记录的版本解释日志，缺失时回退 `v1`。
 
 ### 6.3 PlayerView 大小控制
 
@@ -365,12 +369,13 @@ final_reveal.json
 │   │   │   ├── classic_10_witch_guard_seer.yaml
 │   │   │   └── classic_8_witch_guard_seer.yaml
 │   │   └── _rule_sets/
-│   │       └── majority_or_massacre_all.yaml
+│   │       └── majority_or_side_elimination.yaml
 │   ├── models/
 │   │   ├── providers.yaml
 │   │   └── roster.yaml
 │   └── prompts/
-│       ├── zh/{seer,guard,wolf,witch,villager}/{night_action,speech,vote,last_words}.v1.md
+│       ├── zh/system.{v1,v2,v3}.md
+│       ├── zh/{seer,guard,wolf,witch,villager}/{night_action,speech,vote,last_words}.{v1,v2,v3}.md
 │       └── en/...
 ├── docs/
 │   └── specs/                               # 阶段交付规格（GPT 执行手册 + 验收指标）
@@ -536,7 +541,7 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 ### 10.1 规则黄金测试（unit + golden）
 
 - 预言家：查活人、查死人、重复查验、死亡后不调用、结果只返回阵营、不能查自己。
-- 胜负：狼严格人数优势胜、屠城胜、好人全灭狼胜、狼全灭好人胜、每个检查点都触发。
+- 胜负：狼严格人数优势胜、村民边全灭狼胜、神职边全灭狼胜、狼全灭好人胜、每个检查点都触发。
 - 流程：首夜狼刀/双奶死亡并触发遗言、首夜毒药死亡无遗言、第二夜及以后夜死无遗言、首夜守卫平安夜、女巫救人、女巫毒人、双奶死亡、同夜双死、平票 PK、二次平票平安日、遗言规则、首日规则。
 - 死亡 Agent 停用 + 仍接收公开事件。
 
@@ -644,8 +649,8 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 - 所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 - 历史复盘只消费 Referee 过滤后的 spectator 上帝视角。`GET /games` 从 `runs/` 汇总 manifest；`GET /games/{id}/events` 在线时返回 session spectator events，离线历史从 `events.jsonl` 读取并按 spectator 过滤，不读取 `raw_responses.jsonl`。
 - `seat_presentation` 是历史复盘恢复游玩时头像和昵称的展示快照，必须只包含本地 `/assets/lobby/` 头像路径和有限长度昵称；它不改变身份来源、胜负判定、行动合法性、ack、EventLog、replay hash 或 LLM 输入。
-- 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。
-- `manifest.json` 从 STEP-08 起必须包含 `config_path`，用于 `replay_resimulate(config_path=None)` 恢复原配置。缺失时只能回退 classic_8，并需保持旧 run 兼容；新 run 默认使用 classic_10。
+- 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。终局定格态不得继续播放或补播 `guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` transient spectator effects。
+- `manifest.json` 从 STEP-08 起必须包含 `config_path` 与 `prompt_pack_version`，用于 `replay_resimulate(config_path=None)` 恢复原配置与 prompt 版本。缺失时只能回退 classic_8 与 prompt `v1`，并需保持旧 run 兼容；新 run 默认使用 classic_10 与 prompt `v3`。
 - 前端 SSE 必须支持断线重连、`Last-Event-ID` 续传、最多 5 次带 jitter 的重试；超过上限显示可操作错误，不静默停住。
 - ack 仍只控制现场 pacing，不写 EventLog，不影响 replay hash。localStorage key `wolven_hunt.pacing_mode` 仅影响新建对局传入的 pacing profile。游戏内阶段语音使用独立于大厅 BGM 的本地状态与右上角开关，不能复用 `wolven_hunt.lobby.muted` 导致观赛语音被静音。
 - 默认硬编码模型 key 保留为产品策略：作者自费轮换，用户可在设置里覆盖。README、StartModal 与 ModelConfigList 必须明确该策略。

@@ -23,16 +23,16 @@
   "potion_antidote": {
     "key": "potion_antidote",
     "kind": "image",
-    "path": "/assets/game/effects/potion_antidote.jpg",
-    "source_sha256": "e3561158ac86b2d1de683ea6c78cb4342a3d54d8ae6034d3bc89e47a5ae92b0a",
-    "target_sha256": "e3561158ac86b2d1de683ea6c78cb4342a3d54d8ae6034d3bc89e47a5ae92b0a"
+    "path": "/assets/game/effects/potion_antidote.png",
+    "source_sha256": "a42ef3c69671c553c1be1abf6b9a017895a5ea84f6c7269c4d14437db5074858",
+    "target_sha256": "a42ef3c69671c553c1be1abf6b9a017895a5ea84f6c7269c4d14437db5074858"
   },
   "potion_poison": {
     "key": "potion_poison",
     "kind": "image",
-    "path": "/assets/game/effects/potion_poison.jpg",
-    "source_sha256": "f20aae86d2f4789c08f1c3e03173c34c1fbbf0d105cc2d4d465e9b191236ea69",
-    "target_sha256": "f20aae86d2f4789c08f1c3e03173c34c1fbbf0d105cc2d4d465e9b191236ea69"
+    "path": "/assets/game/effects/potion_poison.png",
+    "source_sha256": "d845eab00ca3a46d985db048ca9b86624985e48d959c7db9373a7d1d02d3463f",
+    "target_sha256": "d845eab00ca3a46d985db048ca9b86624985e48d959c7db9373a7d1d02d3463f"
   },
   "out_badge": {
     "key": "out_badge",

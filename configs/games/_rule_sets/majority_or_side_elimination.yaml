@@ -1,0 +1,98 @@
+schema_version: "1.0"
+name: majority_or_side_elimination
+first_night_can_die: true
+first_speaker_seat: 1
+speech:
+  language: zh
+  max_chars: 300
+win_conditions:
+  check_after:
+    - NIGHT_RESOLVE
+    - DAY_EXILE
+  wolf_wins_when:
+    - alive_wolves_gt_alive_good_players
+    - alive_villagers_eq_0
+    - alive_gods_eq_0
+  good_wins_when:
+    - alive_wolves_eq_0
+seer:
+  can_check_dead: true
+  can_check_self: false
+  result_granularity: camp_only
+guard:
+  can_guard_first_night: true
+  can_guard_self: true
+  can_guard_same_target_consecutive_nights: false
+wolves:
+  night_chat_rounds: 1
+  kill_vote_mode: simultaneous
+  kill_decision: majority
+  tie_break: deterministic_random_among_voted_targets
+  can_no_kill: false
+  can_kill_wolf_teammate: false
+witch:
+  antidote_uses_per_game: 1
+  poison_uses_per_game: 1
+  max_potions_per_night: 1
+  knows_wolf_target: true
+  poison_can_target_self: false
+  double_heal_kills: true
+vote:
+  mode: simultaneous
+  public_ballot: true
+  can_abstain: true
+  can_change_vote: false
+  sheriff: false
+  can_vote_self: true
+  first_round_targets: alive_players
+  pk_round_targets: pk_alive_players
+  pk_players_vote_in_pk_round: false
+  second_tie_result: peaceful_day
+last_words:
+  allowed:
+    - day_exiled
+    - first_night_wolf_killed
+    - first_night_double_heal_killed
+  denied:
+    - night_death_after_first_night
+    - poison_death
+fallback:
+  max_retries: 2
+  retry_backoff_base_seconds: 1
+  retry_backoff_multiplier: 2
+  retry_backoff_max_seconds: 8
+  retry_backoff_jitter: false
+  phase_timeout_seconds:
+    DAY_SPEECH: 45
+    DAY_VOTE: 20
+    DAY_VOTE_PK: 20
+  phase_max_retries:
+    DAY_SPEECH: 2
+    DAY_VOTE: 1
+    DAY_VOTE_PK: 1
+  actions:
+    NIGHT_GUARD: random_legal_target_excluding_previous_guard
+    NIGHT_WOLF_CHAT: silence_message
+    NIGHT_WOLF_VOTE: random_legal_target
+    NIGHT_WITCH: skip
+    NIGHT_SEER: random_non_self_player
+    DAY_SPEECH: contextual_public_speech
+    DAY_VOTE: random_alive_player_allow_self
+    DAY_VOTE_PK: random_pk_alive_player_by_non_pk_voter_or_peaceful_day
+    DAY_LAST_WORDS: default_no_last_words
+replay:
+  deterministic: true
+  resimulate: true
+  random_events_record_candidates_and_selected: true
+timings:
+  night_start_ms: 1000
+  night_guard_ms: 60000
+  night_wolf_chat_ms: 120000
+  night_wolf_vote_ms: 30000
+  night_witch_ms: 60000
+  night_seer_ms: 60000
+  day_announce_ms: 1000
+  day_last_words_ms: 60000
+  day_speech_ms: 60000
+  day_vote_ms: 30000
+  day_vote_pk_ms: 30000

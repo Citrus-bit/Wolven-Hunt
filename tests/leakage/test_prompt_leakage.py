@@ -24,6 +24,7 @@ from wolven_hunt.llm.schemas import (
 from wolven_hunt.referee.view import build_view
 
 PROMPT_PAYLOAD_MARKER = "以下 JSON payload 是你本次决策唯一可用的结构化上下文:"
+DEFAULT_PROMPT_VERSION = "v3"
 
 PHASE_SCHEMAS = {
     "NIGHT_GUARD": GuardOutput,
@@ -153,6 +154,7 @@ def test_prompt_payload_uses_only_referee_filtered_view(
     assert payload["seat"] == seat.number
     assert payload["role"] == role.value
     assert payload["rule_set_summary"]["vote_sheriff"] is False
+    assert payload["rule_set_summary"]["can_abstain"] is True
     assert speech_context["current_seat"] == seat.number
     assert "role_assignment" not in visible_events_json
     assert "role_assignment" not in speech_context_json
@@ -204,7 +206,7 @@ def test_prompt_exposes_last_guard_target_only_to_guard_night_action(
     guard = state.seats_by_role(Role.GUARD)[0]
     non_guard = next(player.seat for player in state.players if player.seat != guard)
     state = replace(state, phase="NIGHT_GUARD", last_guard_target=Seat(7))
-    renderer = PromptRenderer(game_config.prompt_pack_root, version="v1")
+    renderer = PromptRenderer(game_config.prompt_pack_root, version=DEFAULT_PROMPT_VERSION)
 
     guard_prompt = renderer.render(
         view=build_view(state, events, rule_set=game_config.rule_set, seat=guard),
@@ -248,8 +250,118 @@ def test_prompt_declares_no_sheriff_rule(game_config: GameConfig) -> None:
     payload = _extract_payload(prompt)
 
     assert payload["rule_set_summary"]["vote_sheriff"] is False
+    assert payload["rule_set_summary"]["can_abstain"] is True
     assert "本局无警长" in prompt
     assert "警长归票" in prompt
+
+
+@pytest.mark.leakage
+def test_prompt_v3_template_pack_is_complete(game_config: GameConfig) -> None:
+    root = game_config.prompt_pack_root
+    expected_paths = [root / f"system.{DEFAULT_PROMPT_VERSION}.md"]
+    for role_name in ("guard", "seer", "villager", "witch", "wolf"):
+        for kind in ("last_words", "night_action", "speech", "vote"):
+            expected_paths.append(root / role_name / f"{kind}.{DEFAULT_PROMPT_VERSION}.md")
+
+    missing = [str(path.relative_to(root)) for path in expected_paths if not path.exists()]
+
+    assert missing == []
+
+
+@pytest.mark.leakage
+@pytest.mark.parametrize("role", [Role.VILLAGER, Role.WOLF, Role.SEER, Role.WITCH, Role.GUARD])
+def test_day_speech_prompt_v3_contains_density_constraints(
+    game_config: GameConfig,
+    role: Role,
+) -> None:
+    prompt, _ = _render_prompt(game_config, role=role, phase="DAY_SPEECH")
+
+    assert "高信息密度" in prompt
+    assert "禁止占位废话" in prompt
+    assert "2-4 句" in prompt
+    assert "不要把信息有限/等大家发完作为主要内容" in prompt
+
+
+@pytest.mark.leakage
+def test_wolf_day_prompt_payload_excludes_wolf_private_context(
+    game_config: GameConfig,
+) -> None:
+    state, event_log = simulate(game_config, "prompt-wolf-day-isolation")
+    wolf = next(player.seat for player in state.players if player.role is Role.WOLF)
+    wolf_chat_text = next(
+        str(event.payload["text"])
+        for event in event_log.events
+        if event.type is EventType.WOLF_CHAT_MESSAGE
+    )
+    state = replace(state, phase="DAY_SPEECH")
+    renderer = PromptRenderer(game_config.prompt_pack_root, version=DEFAULT_PROMPT_VERSION)
+
+    prompt = renderer.render(
+        view=build_view(state, event_log.events, rule_set=game_config.rule_set, seat=wolf),
+        phase="DAY_SPEECH",
+        schema_json=SpeechOutput.model_json_schema(),
+    )
+    payload = _extract_payload(prompt)
+    visible_events_json = json.dumps(payload["visible_events"], ensure_ascii=False)
+
+    assert "wolf_private_context" not in payload
+    assert wolf_chat_text not in visible_events_json
+    for event_type in WOLF_PRIVATE_EVENT_TYPES:
+        assert event_type not in visible_events_json
+
+
+@pytest.mark.leakage
+def test_wolf_night_prompt_payload_moves_private_events_to_private_context(
+    game_config: GameConfig,
+) -> None:
+    state, event_log = simulate(game_config, "prompt-wolf-night-private-context")
+    wolf = next(player.seat for player in state.players if player.role is Role.WOLF)
+    wolf_chat_text = next(
+        str(event.payload["text"])
+        for event in event_log.events
+        if event.type is EventType.WOLF_CHAT_MESSAGE
+    )
+    state = replace(state, phase="NIGHT_WOLF_CHAT")
+    renderer = PromptRenderer(game_config.prompt_pack_root, version=DEFAULT_PROMPT_VERSION)
+
+    prompt = renderer.render(
+        view=build_view(state, event_log.events, rule_set=game_config.rule_set, seat=wolf),
+        phase="NIGHT_WOLF_CHAT",
+        schema_json=WolfChatOutput.model_json_schema(),
+    )
+    payload = _extract_payload(prompt)
+    visible_events_json = json.dumps(payload["visible_events"], ensure_ascii=False)
+    private_context_json = json.dumps(payload["wolf_private_context"], ensure_ascii=False)
+
+    assert "wolf_private_context" in payload
+    assert wolf_chat_text in private_context_json
+    assert EventType.WOLF_CHAT_MESSAGE.value in private_context_json
+    for event_type in WOLF_PRIVATE_EVENT_TYPES:
+        assert event_type not in visible_events_json
+
+
+@pytest.mark.leakage
+def test_non_wolf_prompt_payload_never_includes_wolf_private_context(
+    game_config: GameConfig,
+) -> None:
+    state, event_log = simulate(game_config, "prompt-non-wolf-no-private-context")
+    non_wolf = next(player.seat for player in state.players if player.role is not Role.WOLF)
+    state = replace(state, phase="DAY_VOTE")
+    renderer = PromptRenderer(game_config.prompt_pack_root, version=DEFAULT_PROMPT_VERSION)
+
+    prompt = renderer.render(
+        view=build_view(
+            state,
+            event_log.events,
+            rule_set=game_config.rule_set,
+            seat=non_wolf,
+        ),
+        phase="DAY_VOTE",
+        schema_json=VoteOutput.model_json_schema(),
+    )
+    payload = _extract_payload(prompt)
+
+    assert "wolf_private_context" not in payload
 
 
 def _render_prompt(
@@ -261,7 +373,7 @@ def _render_prompt(
     state, event_log = simulate(game_config, f"prompt-leakage-{role.value}-{phase}")
     seat = next(player.seat for player in state.players if player.role is role)
     view = build_view(state, event_log.events, rule_set=game_config.rule_set, seat=seat)
-    renderer = PromptRenderer(game_config.prompt_pack_root, version="v1")
+    renderer = PromptRenderer(game_config.prompt_pack_root, version=DEFAULT_PROMPT_VERSION)
     output_model = PHASE_SCHEMAS[phase]
     return (
         renderer.render(

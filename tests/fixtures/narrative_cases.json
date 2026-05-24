@@ -40,8 +40,16 @@
     "expected": {"seq":10,"day":1,"phase":"DAY_VOTE","kind":"action","text":"5号投票给2号","actor":5,"icon":null}
   },
   {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000014","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":14,"phase":"DAY_VOTE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"vote_cast","actor":6,"visibility":{"public":true,"seats":[]},"payload":{"target":null,"abstain":true}},
+    "expected": {"seq":14,"day":1,"phase":"DAY_VOTE","kind":"action","text":"6号选择弃票","actor":6,"icon":null}
+  },
+  {
     "event": {"event_id":"00000000-0000-0000-0000-000000000011","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":11,"phase":"DAY_VOTE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"vote_result","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"counts":{"2":4,"5":2},"tied":[2]}},
     "expected": {"seq":11,"day":1,"phase":"DAY_VOTE","kind":"verdict","text":"投票结果：2号 4票 / 5号 2票","actor":null,"icon":null}
+  },
+  {
+    "event": {"event_id":"00000000-0000-0000-0000-000000000015","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":15,"phase":"DAY_VOTE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"vote_result","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"counts":{"2":4,"5":2},"tied":[2],"abstain_count":1,"abstentions":[6]}},
+    "expected": {"seq":15,"day":1,"phase":"DAY_VOTE","kind":"verdict","text":"投票结果：2号 4票 / 5号 2票 / 弃票 1票","actor":null,"icon":null}
   },
   {
     "event": {"event_id":"00000000-0000-0000-0000-000000000012","schema_version":"1.0","game_id":"11111111-1111-1111-1111-111111111111","seq":12,"phase":"DAY_EXILE","day":1,"timestamp":"2026-01-01T00:00:00+00:00","type":"exile","actor":null,"visibility":{"public":true,"seats":[]},"payload":{"seat":2}},

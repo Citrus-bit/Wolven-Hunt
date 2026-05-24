@@ -35,11 +35,11 @@ class WitchOutput(LLMOutput):
 
 
 class VoteOutput(LLMOutput):
-    target: int = Field(ge=1)
+    target: int | None = Field(ge=1)
 
 
 class PkVoteOutput(LLMOutput):
-    target: int = Field(ge=1)
+    target: int | None = Field(ge=1)
 
 
 class LastWordsOutput(LLMOutput):

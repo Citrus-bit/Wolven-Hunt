@@ -46,8 +46,8 @@ class GameState:
     night_witch_target: Seat | None = None
     last_night_deaths: tuple[Seat, ...] = ()
     first_night_deaths: tuple[Seat, ...] = ()
-    votes: tuple[tuple[Seat, Seat], ...] = ()
-    pk_votes: tuple[tuple[Seat, Seat], ...] = ()
+    votes: tuple[tuple[Seat, Seat | None], ...] = ()
+    pk_votes: tuple[tuple[Seat, Seat | None], ...] = ()
 
     def player(self, seat: Seat) -> PlayerState:
         if not self.has_seat(seat):

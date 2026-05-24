@@ -15,6 +15,8 @@ from wolven_hunt.storage.event_log import EventLog
 from wolven_hunt.storage.jsonl import events_to_jsonl
 from wolven_hunt.storage.replay import replay_deterministic
 
+_DEFAULT_PK_TARGET = object()
+
 
 def test_fsm_runs_100_seeded_games(game_config: GameConfig) -> None:
     for index in range(100):
@@ -102,29 +104,212 @@ def test_peaceful_pk_day_does_not_trigger_last_words(game_config: GameConfig) ->
     assert not any(event.type is EventType.LAST_WORDS for event in event_log.events)
 
 
+def test_day_vote_uses_single_snapshot_and_reveals_casts_after_finish(
+    game_config: GameConfig,
+) -> None:
+    vote_targets = {seat: 2 for seat in range(1, 11)}
+    vote_targets[2] = 3
+    _, event_log, agents = _run_scripted_day_with_agents(
+        game_config,
+        vote_targets=vote_targets,
+        seed="scripted-day-vote-snapshot",
+    )
+
+    for agent in agents.values():
+        assert agent.vote_seen_vote_casts == [()]
+
+    vote_casts = [
+        event
+        for event in event_log.events
+        if event.type is EventType.VOTE_CAST and event.phase == "DAY_VOTE"
+    ]
+    assert [event.actor for event in vote_casts] == list(range(1, 11))
+    assert all(event.visibility.public for event in vote_casts)
+    result = next(
+        event
+        for event in event_log.events
+        if event.type is EventType.VOTE_RESULT and event.phase == "DAY_VOTE"
+    )
+    assert result.payload["counts"] == {"2": 9, "3": 1}
+    assert max(event.seq for event in vote_casts) < result.seq
+
+
+def test_day_vote_all_abstain_is_peaceful_without_last_words(
+    game_config: GameConfig,
+) -> None:
+    vote_targets = {seat: None for seat in range(1, 11)}
+    _, event_log = _run_scripted_day(
+        game_config,
+        vote_targets=vote_targets,
+        seed="scripted-day-all-abstain",
+    )
+
+    vote_casts = [
+        event
+        for event in event_log.events
+        if event.type is EventType.VOTE_CAST and event.phase == "DAY_VOTE"
+    ]
+    assert [event.actor for event in vote_casts] == list(range(1, 11))
+    assert all(event.payload["target"] is None for event in vote_casts)
+    result = next(
+        event
+        for event in event_log.events
+        if event.type is EventType.VOTE_RESULT and event.phase == "DAY_VOTE"
+    )
+    assert result.payload["counts"] == {}
+    assert result.payload["abstain_count"] == 10
+    assert any(
+        event.type is EventType.PEACEFUL_DAY and event.phase == "DAY_VOTE"
+        for event in event_log.events
+    )
+    assert not any(event.type is EventType.EXILE for event in event_log.events)
+    assert not any(event.type is EventType.LAST_WORDS for event in event_log.events)
+
+
+def test_day_vote_mixed_abstentions_ignore_abstain_for_exile(
+    game_config: GameConfig,
+) -> None:
+    vote_targets: dict[int, int | None] = {seat: None for seat in range(1, 11)}
+    vote_targets.update({1: 2, 2: 2, 3: 4})
+    _, event_log = _run_scripted_day(
+        game_config,
+        vote_targets=vote_targets,
+        seed="scripted-day-mixed-abstain",
+    )
+
+    result = next(
+        event
+        for event in event_log.events
+        if event.type is EventType.VOTE_RESULT and event.phase == "DAY_VOTE"
+    )
+    assert result.payload["counts"] == {"2": 2, "4": 1}
+    assert result.payload["abstain_count"] == 7
+    exile = next(event for event in event_log.events if event.type is EventType.EXILE)
+    assert exile.payload["seat"] == 2
+
+
+def test_pk_vote_uses_single_snapshot_and_reveals_casts_after_finish(
+    game_config: GameConfig,
+) -> None:
+    vote_targets = {
+        1: 1,
+        2: 1,
+        3: 1,
+        4: 1,
+        5: 1,
+        6: 2,
+        7: 2,
+        8: 2,
+        9: 2,
+        10: 2,
+    }
+    pk_targets = {seat: 1 for seat in range(3, 11)}
+    _, event_log, agents = _run_scripted_day_with_agents(
+        game_config,
+        vote_targets=vote_targets,
+        pk_targets=pk_targets,
+        seed="scripted-pk-vote-snapshot",
+    )
+
+    for seat, agent in agents.items():
+        if seat in {1, 2}:
+            assert agent.pk_seen_vote_casts == []
+        else:
+            assert agent.pk_seen_vote_casts == [()]
+
+    pk_vote_casts = [
+        event
+        for event in event_log.events
+        if event.type is EventType.VOTE_CAST and event.phase == "DAY_VOTE_PK"
+    ]
+    assert [event.actor for event in pk_vote_casts] == list(range(3, 11))
+    assert all(event.visibility.public for event in pk_vote_casts)
+    result = next(
+        event
+        for event in event_log.events
+        if event.type is EventType.VOTE_RESULT and event.phase == "DAY_VOTE_PK"
+    )
+    assert result.payload["counts"] == {"1": 8}
+    assert max(event.seq for event in pk_vote_casts) < result.seq
+
+
+def test_pk_vote_all_abstain_is_peaceful_without_last_words(
+    game_config: GameConfig,
+) -> None:
+    vote_targets = {
+        1: 1,
+        2: 1,
+        3: 1,
+        4: 1,
+        5: 1,
+        6: 2,
+        7: 2,
+        8: 2,
+        9: 2,
+        10: 2,
+    }
+    pk_targets = {seat: None for seat in range(3, 11)}
+    _, event_log = _run_scripted_day(
+        game_config,
+        vote_targets=vote_targets,
+        pk_targets=pk_targets,
+        seed="scripted-pk-all-abstain",
+    )
+
+    pk_vote_casts = [
+        event
+        for event in event_log.events
+        if event.type is EventType.VOTE_CAST and event.phase == "DAY_VOTE_PK"
+    ]
+    assert [event.actor for event in pk_vote_casts] == list(range(3, 11))
+    assert all(event.payload["target"] is None for event in pk_vote_casts)
+    result = next(
+        event
+        for event in event_log.events
+        if event.type is EventType.VOTE_RESULT and event.phase == "DAY_VOTE_PK"
+    )
+    assert result.payload["counts"] == {}
+    assert result.payload["abstain_count"] == 8
+    assert any(
+        event.type is EventType.PEACEFUL_DAY and event.phase == "DAY_VOTE_PK"
+        for event in event_log.events
+    )
+    assert not any(event.type is EventType.EXILE for event in event_log.events)
+    assert not any(event.type is EventType.LAST_WORDS for event in event_log.events)
+
+
 class ScriptedDayAgent:
     def __init__(
         self,
         seat: int,
         *,
-        vote_target: int,
-        pk_target: int | None = None,
+        vote_target: int | None,
+        pk_target: int | None | object = _DEFAULT_PK_TARGET,
     ) -> None:
         self.seat = Seat(seat)
-        self.vote_target = Seat(vote_target)
-        self.pk_target = None if pk_target is None else Seat(pk_target)
+        self.vote_target = None if vote_target is None else Seat(vote_target)
+        self.pk_target = (
+            _DEFAULT_PK_TARGET
+            if pk_target is _DEFAULT_PK_TARGET
+            else None
+            if pk_target is None
+            else Seat(pk_target)
+        )
+        self.vote_seen_vote_casts: list[tuple[int | None, ...]] = []
+        self.pk_seen_vote_casts: list[tuple[int | None, ...]] = []
 
     def decide_speech(self, view: PlayerView) -> Speech:
         del view
         return Speech(actor=self.seat, text=f"{self.seat.number}号发言")
 
     def decide_vote(self, view: PlayerView) -> Vote:
-        del view
+        self.vote_seen_vote_casts.append(_visible_vote_cast_actors(view, "DAY_VOTE"))
         return Vote(actor=self.seat, target=self.vote_target)
 
     def decide_pk_vote(self, view: PlayerView) -> PkVote:
+        self.pk_seen_vote_casts.append(_visible_vote_cast_actors(view, "DAY_VOTE_PK"))
         target = self.pk_target
-        if target is None:
+        if target is _DEFAULT_PK_TARGET:
             target = Seat(int(view.rule_set_summary["pk_seats"][0]))
         return PkVote(actor=self.seat, target=target)
 
@@ -136,10 +321,26 @@ class ScriptedDayAgent:
 def _run_scripted_day(
     game_config: GameConfig,
     *,
-    vote_targets: dict[int, int],
-    pk_targets: dict[int, int] | None = None,
+    vote_targets: dict[int, int | None],
+    pk_targets: dict[int, int | None] | None = None,
     seed: str = "scripted-day-exile",
 ) -> tuple[GameState, EventLog]:
+    state, event_log, _ = _run_scripted_day_with_agents(
+        game_config,
+        vote_targets=vote_targets,
+        pk_targets=pk_targets,
+        seed=seed,
+    )
+    return state, event_log
+
+
+def _run_scripted_day_with_agents(
+    game_config: GameConfig,
+    *,
+    vote_targets: dict[int, int | None],
+    pk_targets: dict[int, int | None] | None = None,
+    seed: str = "scripted-day-exile",
+) -> tuple[GameState, EventLog, dict[int, ScriptedDayAgent]]:
     state, start_events = build_initial_state(game_config, seed)
     event_log = EventLog(seed=seed)
     event_log.append_all(start_events)
@@ -147,7 +348,11 @@ def _run_scripted_day(
         seat: ScriptedDayAgent(
             seat,
             vote_target=vote_targets[seat],
-            pk_target=None if pk_targets is None else pk_targets.get(seat),
+            pk_target=(
+                _DEFAULT_PK_TARGET
+                if pk_targets is None or seat not in pk_targets
+                else pk_targets[seat]
+            ),
         )
         for seat in range(game_config.seat_range.start, game_config.seat_range.end + 1)
     }
@@ -160,7 +365,18 @@ def _run_scripted_day(
         state_sink=None,
         control_hook=None,
     )
-    return state, event_log
+    return state, event_log, agents
+
+
+def _visible_vote_cast_actors(view: PlayerView, phase: str) -> tuple[int | None, ...]:
+    current_day = view.rule_set_summary["day"]
+    return tuple(
+        event.actor
+        for event in view.visible_events
+        if event.type is EventType.VOTE_CAST
+        and event.phase == phase
+        and event.day == current_day
+    )
 
 
 def _last_words_between_exile_and_day_win(events: tuple[Event, ...], seat: int) -> bool:

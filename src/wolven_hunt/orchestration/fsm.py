@@ -92,7 +92,9 @@ def run_game(
             _sync_runtime(state, state_sink, control_hook)
     if state.winner is None:
         # Deterministic guardrail for pathological mock strategies.
-        state, win_events = emit_win_check(state, phase=Phase.GAME_END.value)
+        state, win_events = emit_win_check(
+            state, phase=Phase.GAME_END.value, rule_set=config.rule_set
+        )
         event_log.append_all(win_events)
         _sync_runtime(state, state_sink, control_hook)
     return state, event_log
@@ -210,7 +212,9 @@ def _run_night(
     event_log.append_all(events)
     _sync_runtime(state, state_sink, control_hook)
     event_log.append_all(phase_exit(state))
-    state, events = emit_win_check(state, phase=Phase.CHECK_WIN_NIGHT.value)
+    state, events = emit_win_check(
+        state, phase=Phase.CHECK_WIN_NIGHT.value, rule_set=config.rule_set
+    )
     event_log.append_all(events)
     _sync_runtime(state, state_sink, control_hook)
     return state
@@ -259,17 +263,23 @@ def _run_day(
     event_log.append_all(phase_exit(state))
 
     state = _enter_phase(state, Phase.DAY_VOTE, event_log, state_sink, control_hook)
-    for seat in state.alive_seats():
-        action = _decide_with_fallback(
+    state = _apply_collected_actions(
+        state,
+        _collect_actions_from_snapshot(
             state,
             config,
-            agents[seat.number],
-            event_log,
-            seat,
+            agents,
+            event_log.events,
+            state.alive_seats(),
             lambda agent, view: agent.decide_vote(view),
             rng,
-        )
-        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
+        ),
+        config,
+        rng,
+        event_log,
+        state_sink,
+        control_hook,
+    )
     state, vote_events = finish_vote(state)
     event_log.append_all(vote_events)
     _sync_runtime(state, state_sink, control_hook)
@@ -286,25 +296,23 @@ def _run_day(
             _sync_runtime(state, state_sink, control_hook)
             exiled_seat = _exiled_seat_from_events(events)
         else:
-            for seat in voters:
-                action = _decide_with_fallback(
+            state = _apply_collected_actions(
+                state,
+                _collect_actions_from_snapshot(
                     state,
                     config,
-                    agents[seat.number],
-                    event_log,
-                    seat,
+                    agents,
+                    event_log.events,
+                    voters,
                     lambda agent, view: agent.decide_pk_vote(view),
                     rng,
-                )
-                state = _apply_and_log(
-                    state,
-                    action,
-                    config,
-                    rng,
-                    event_log,
-                    state_sink,
-                    control_hook,
-                )
+                ),
+                config,
+                rng,
+                event_log,
+                state_sink,
+                control_hook,
+            )
             state, events = finish_pk_vote(state)
             event_log.append_all(events)
             _sync_runtime(state, state_sink, control_hook)
@@ -323,7 +331,9 @@ def _run_day(
             control_hook=control_hook,
         )
 
-    state, events = emit_win_check(state, phase=Phase.CHECK_WIN_DAY.value)
+    state, events = emit_win_check(
+        state, phase=Phase.CHECK_WIN_DAY.value, rule_set=config.rule_set
+    )
     event_log.append_all(events)
     _sync_runtime(state, state_sink, control_hook)
     return state
@@ -398,6 +408,47 @@ def _exiled_seat_from_events(events: tuple[Event, ...]) -> Seat | None:
     return None
 
 
+def _collect_actions_from_snapshot(
+    state: GameState,
+    config: GameConfig,
+    agents: AgentMap,
+    events: tuple[Event, ...],
+    seats: tuple[Seat, ...],
+    decide: Callable[[PlayerInterface, PlayerView], Action],
+    rng: DeterministicRNG,
+) -> tuple[tuple[Seat, Action, tuple[Event, ...]], ...]:
+    snapshot_state = state
+    snapshot_events = events
+    collected: list[tuple[Seat, Action, tuple[Event, ...]]] = []
+    for seat in sorted(seats, key=lambda item: item.number):
+        action, support_events = _resolve_action(
+            snapshot_state,
+            config,
+            agents[seat.number],
+            snapshot_events,
+            seat,
+            decide,
+            rng,
+        )
+        collected.append((seat, action, support_events))
+    return tuple(collected)
+
+
+def _apply_collected_actions(
+    state: GameState,
+    collected: tuple[tuple[Seat, Action, tuple[Event, ...]], ...],
+    config: GameConfig,
+    rng: DeterministicRNG,
+    event_log: EventLog,
+    state_sink: StateSink | None,
+    control_hook: ControlHook | None,
+) -> GameState:
+    for _, action, support_events in collected:
+        event_log.append_all(support_events)
+        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
+    return state
+
+
 def _apply_and_log(
     state: GameState,
     action: Action,
@@ -433,25 +484,48 @@ def _decide_with_fallback(
     decide: Callable[[PlayerInterface, PlayerView], Action],
     rng: DeterministicRNG,
 ) -> Action:
-    view = build_view(state, event_log.events, rule_set=config.rule_set, seat=seat)
+    action, support_events = _resolve_action(
+        state,
+        config,
+        agent,
+        event_log.events,
+        seat,
+        decide,
+        rng,
+    )
+    event_log.append_all(support_events)
+    return action
+
+
+def _resolve_action(
+    state: GameState,
+    config: GameConfig,
+    agent: PlayerInterface,
+    events: tuple[Event, ...],
+    seat: Seat,
+    decide: Callable[[PlayerInterface, PlayerView], Action],
+    rng: DeterministicRNG,
+) -> tuple[Action, tuple[Event, ...]]:
+    support_events: list[Event] = []
+    view = build_view(state, events, rule_set=config.rule_set, seat=seat)
     try:
         action = decide(agent, view)
-        _record_llm_call_if_present(state, agent, event_log, seat)
+        support_events.extend(_consume_llm_call_events_if_present(state, agent, seat))
     except LLMFallbackRequired as exc:
-        _record_llm_call_if_present(state, agent, event_log, seat)
-        _record_llm_error(state, seat, event_log, exc)
+        support_events.extend(_consume_llm_call_events_if_present(state, agent, seat))
+        support_events.append(_llm_error_event(state, seat, exc))
         action = _fallback_for_phase(state, seat, rng, view)
-        _record_fallback(state, seat, event_log, f"llm:{exc.error.type}", action)
-        return action
+        support_events.append(_fallback_event(state, seat, f"llm:{exc.error.type}", action))
+        return action, tuple(support_events)
     except Exception:
-        _record_llm_call_if_present(state, agent, event_log, seat)
+        support_events.extend(_consume_llm_call_events_if_present(state, agent, seat))
         action = _fallback_for_phase(state, seat, rng, view)
-        _record_fallback(state, seat, event_log, "exception", action)
-        return action
+        support_events.append(_fallback_event(state, seat, "exception", action))
+        return action, tuple(support_events)
     rejection = validate_action(state, action, config.rule_set)
     if rejection is None:
-        return action
-    event_log.append(
+        return action, tuple(support_events)
+    support_events.append(
         draft_event(
             game_id=state.game_id,
             phase=state.phase,
@@ -464,8 +538,8 @@ def _decide_with_fallback(
     )
     reason = f"validation_failed:{rejection.rule_id}"
     action = _fallback_for_phase(state, seat, rng, view)
-    _record_fallback(state, seat, event_log, reason, action)
-    return action
+    support_events.append(_fallback_event(state, seat, reason, action))
+    return action, tuple(support_events)
 
 
 def _record_llm_call_if_present(
@@ -474,13 +548,21 @@ def _record_llm_call_if_present(
     event_log: EventLog,
     seat: Seat,
 ) -> None:
+    event_log.append_all(_consume_llm_call_events_if_present(state, agent, seat))
+
+
+def _consume_llm_call_events_if_present(
+    state: GameState,
+    agent: PlayerInterface,
+    seat: Seat,
+) -> tuple[Event, ...]:
     consume = getattr(agent, "consume_last_call_result", None)
     if not callable(consume):
-        return
+        return ()
     result = consume()
     if result is None:
-        return
-    event_log.append(
+        return ()
+    events = [
         draft_event(
             game_id=state.game_id,
             phase=state.phase,
@@ -490,9 +572,9 @@ def _record_llm_call_if_present(
             visibility=hidden_visibility(),
             payload=result.event_payload(),
         )
-    )
+    ]
     if result.budget_warning is not None:
-        event_log.append(
+        events.append(
             draft_event(
                 game_id=state.game_id,
                 phase=state.phase,
@@ -503,6 +585,7 @@ def _record_llm_call_if_present(
                 payload=result.budget_warning,
             )
         )
+    return tuple(events)
 
 
 def _record_llm_error(
@@ -511,6 +594,14 @@ def _record_llm_error(
     event_log: EventLog,
     exc: LLMFallbackRequired,
 ) -> None:
+    event_log.append(_llm_error_event(state, seat, exc))
+
+
+def _llm_error_event(
+    state: GameState,
+    seat: Seat,
+    exc: LLMFallbackRequired,
+) -> Event:
     timeout_like = {
         LLMErrorType.TIMEOUT,
         LLMErrorType.RATE_LIMIT,
@@ -521,16 +612,14 @@ def _record_llm_error(
         if exc.error.type in timeout_like
         else EventType.AGENT_INVALID_ACTION
     )
-    event_log.append(
-        draft_event(
-            game_id=state.game_id,
-            phase=state.phase,
-            day=state.day,
-            event_type=event_type,
-            actor=seat.number,
-            visibility=hidden_visibility(),
-            payload={"error_type": exc.error.type.value, "message": exc.error.message},
-        )
+    return draft_event(
+        game_id=state.game_id,
+        phase=state.phase,
+        day=state.day,
+        event_type=event_type,
+        actor=seat.number,
+        visibility=hidden_visibility(),
+        payload={"error_type": exc.error.type.value, "message": exc.error.message},
     )
 
 
@@ -541,30 +630,39 @@ def _record_fallback(
     reason: str,
     action: Action,
 ) -> None:
+    event_log.append(_fallback_event(state, seat, reason, action))
+
+
+def _fallback_event(
+    state: GameState,
+    seat: Seat,
+    reason: str,
+    action: Action,
+) -> Event:
     selected = _selected_from_action(action)
-    event_log.append(
-        draft_event(
-            game_id=state.game_id,
-            phase=state.phase,
-            day=state.day,
-            event_type=EventType.AGENT_FALLBACK_TRIGGERED,
-            actor=seat.number,
-            visibility=hidden_visibility(),
-            payload={
-                "phase": state.phase,
-                "seat": seat.number,
-                "reason": reason,
-                "fallback_action": action.__class__.__name__,
-                "rng_stream": f"fallback:{state.phase}:seat{seat.number}:retry0",
-                "candidates": [],
-                "selected": selected,
-            },
-        )
+    return draft_event(
+        game_id=state.game_id,
+        phase=state.phase,
+        day=state.day,
+        event_type=EventType.AGENT_FALLBACK_TRIGGERED,
+        actor=seat.number,
+        visibility=hidden_visibility(),
+        payload={
+            "phase": state.phase,
+            "seat": seat.number,
+            "reason": reason,
+            "fallback_action": action.__class__.__name__,
+            "rng_stream": f"fallback:{state.phase}:seat{seat.number}:retry0",
+            "candidates": [],
+            "selected": selected,
+        },
     )
 
 
 def _selected_from_action(action: Action) -> int | str | None:
     if isinstance(action, (GuardProtect, WolfKillVote, SeerCheck, Vote, PkVote)):
+        if action.target is None:
+            return None
         return action.target.number
     if isinstance(action, WitchAction):
         target = None if action.target is None else action.target.number

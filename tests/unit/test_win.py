@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from wolven_hunt.config.schema import GameConfig
 from wolven_hunt.core.ids import GameId
 from wolven_hunt.core.seat import Camp, Role, Seat
 from wolven_hunt.core.state import GameState, PlayerState
@@ -38,21 +39,31 @@ def _state(roles: tuple[Role, ...], alive: tuple[bool, ...]) -> GameState:
     )
 
 
-def test_wolf_strict_majority_wins() -> None:
+def test_wolf_strict_majority_wins(game_config: GameConfig) -> None:
     state = _state((Role.WOLF, Role.WOLF, Role.VILLAGER), (True, True, True))
-    assert check_winner(state) is Camp.WOLF
+    assert check_winner(state, game_config.rule_set) is Camp.WOLF
 
 
-def test_equal_counts_do_not_give_wolf_win() -> None:
-    state = _state((Role.WOLF, Role.VILLAGER), (True, True))
-    assert check_winner(state) is None
+def test_equal_counts_with_villager_and_god_alive_do_not_give_wolf_win(
+    game_config: GameConfig,
+) -> None:
+    state = _state(
+        (Role.WOLF, Role.WOLF, Role.VILLAGER, Role.SEER),
+        (True, True, True, True),
+    )
+    assert check_winner(state, game_config.rule_set) is None
 
 
-def test_good_wins_when_all_wolves_dead() -> None:
+def test_good_wins_when_all_wolves_dead(game_config: GameConfig) -> None:
     state = _state((Role.WOLF, Role.VILLAGER), (False, True))
-    assert check_winner(state) is Camp.GOOD
+    assert check_winner(state, game_config.rule_set) is Camp.GOOD
 
 
-def test_massacre_gives_wolf_win() -> None:
-    state = _state((Role.WOLF, Role.VILLAGER), (True, False))
-    assert check_winner(state) is Camp.WOLF
+def test_villager_side_elimination_gives_wolf_win(game_config: GameConfig) -> None:
+    state = _state((Role.WOLF, Role.SEER), (True, True))
+    assert check_winner(state, game_config.rule_set) is Camp.WOLF
+
+
+def test_god_side_elimination_gives_wolf_win(game_config: GameConfig) -> None:
+    state = _state((Role.WOLF, Role.VILLAGER, Role.SEER), (True, True, False))
+    assert check_winner(state, game_config.rule_set) is Camp.WOLF

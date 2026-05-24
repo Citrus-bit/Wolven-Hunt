@@ -43,11 +43,13 @@ def replay_resimulate(
     raw_responses_path: str | Path | None = None,
     config_path: str | Path | None = None,
 ) -> tuple[Event, ...]:
+    events_path = Path(events_path)
     events = replay_deterministic(read_events_jsonl(events_path))
+    manifest = _read_manifest(events_path)
     raw_path = (
         Path(raw_responses_path)
         if raw_responses_path is not None
-        else Path(events_path).with_name("raw_responses.jsonl")
+        else events_path.with_name("raw_responses.jsonl")
     )
     raw_rows = _read_raw_response_rows(raw_path)
     _validate_raw_response_hashes(raw_rows)
@@ -67,9 +69,10 @@ def replay_resimulate(
 
     seed = str(events[0].payload["random_seed"])
     config_hash = str(events[0].payload["config_hash"])
-    config = load_game_config(_resolve_config_path(Path(events_path), config_path))
+    config = load_game_config(_resolve_config_path(config_path, manifest))
     if config.config_hash != config_hash:
         raise ResimulateDivergence(1, "config_hash", config_hash, config.config_hash)
+    prompt_version = _prompt_version_from_manifest(manifest)
 
     llm_seats = {_int_value(row.get("seat")) for row in raw_rows if row.get("error") is None}
     provider = ReplayLLMProvider(raw_rows)
@@ -77,8 +80,9 @@ def replay_resimulate(
         provider=provider,
         max_retries=config.rule_set.fallback.max_retries,
         phase_max_retries=config.rule_set.fallback.phase_max_retries,
+        prompt_version=prompt_version,
     )
-    renderer = PromptRenderer(config.prompt_pack_root, version="v1")
+    renderer = PromptRenderer(config.prompt_pack_root, version=prompt_version)
     rng = DeterministicRNG(seed)
     agents: dict[int, PlayerInterface] = {}
     for seat_number in range(config.seat_range.start, config.seat_range.end + 1):
@@ -139,20 +143,33 @@ def _read_raw_response_rows(path: Path) -> tuple[dict[str, object], ...]:
     return tuple(rows)
 
 
-def _resolve_config_path(events_path: Path, config_path: str | Path | None) -> Path:
+def _read_manifest(events_path: Path) -> dict[str, object]:
+    manifest_path = events_path.with_name("manifest.json")
+    if not manifest_path.exists():
+        return {}
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(manifest, dict):
+        return {}
+    return cast(dict[str, object], manifest)
+
+
+def _resolve_config_path(config_path: str | Path | None, manifest: dict[str, object]) -> Path:
     if config_path is not None:
         return Path(config_path)
-    manifest_path = events_path.with_name("manifest.json")
-    if manifest_path.exists():
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            manifest = {}
-        if isinstance(manifest, dict):
-            value = manifest.get("config_path")
-            if isinstance(value, str) and value:
-                return Path(value)
+    value = manifest.get("config_path")
+    if isinstance(value, str) and value:
+        return Path(value)
     return Path("configs/games/classic_8.yaml")
+
+
+def _prompt_version_from_manifest(manifest: dict[str, object]) -> str:
+    value = manifest.get("prompt_pack_version")
+    if isinstance(value, str) and value:
+        return value
+    return "v1"
 
 
 def _validate_raw_response_hashes(rows: tuple[dict[str, object], ...]) -> None:

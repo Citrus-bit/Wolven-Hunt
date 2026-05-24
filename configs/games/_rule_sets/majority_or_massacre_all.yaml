@@ -39,7 +39,7 @@ witch:
 vote:
   mode: simultaneous
   public_ballot: true
-  can_abstain: false
+  can_abstain: true
   can_change_vote: false
   sheriff: false
   can_vote_self: true

@@ -46,13 +46,13 @@ class WitchAction:
 @dataclass(frozen=True, slots=True)
 class Vote:
     actor: Seat
-    target: Seat
+    target: Seat | None
 
 
 @dataclass(frozen=True, slots=True)
 class PkVote:
     actor: Seat
-    target: Seat
+    target: Seat | None
 
 
 @dataclass(frozen=True, slots=True)

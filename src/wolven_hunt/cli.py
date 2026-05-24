@@ -90,7 +90,7 @@ def _run_simulate(args: argparse.Namespace) -> int:
                 "config_hash": config.config_hash,
                 "config_path": str(config.path),
                 "seed": str(args.seed),
-                "prompt_pack_version": "v1",
+                "prompt_pack_version": "v3",
                 "started_at": None,
                 "ended_at": None,
                 "winner": None if state.winner is None else state.winner.value,

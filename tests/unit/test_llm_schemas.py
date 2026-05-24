@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from wolven_hunt.llm.schemas import PHASE_OUTPUT_MODELS
 
@@ -32,6 +33,8 @@ def test_phase_output_models_cover_step_06_contract() -> None:
         ("DAY_SPEECH", {"text": "我先基于公开信息观察发言和票型。"}),
         ("DAY_VOTE", {"target": 4}),
         ("DAY_VOTE_PK", {"target": 5}),
+        ("DAY_VOTE", {"target": None}),
+        ("DAY_VOTE_PK", {"target": None}),
         ("DAY_LAST_WORDS", {"text": "我没有遗言"}),
     ],
 )
@@ -40,3 +43,10 @@ def test_phase_output_models_accept_minimal_payloads(
     payload: dict[str, object],
 ) -> None:
     assert PHASE_OUTPUT_MODELS[phase].model_validate(payload)
+
+
+@pytest.mark.llm
+@pytest.mark.parametrize("phase", ["DAY_VOTE", "DAY_VOTE_PK"])
+def test_vote_output_models_reject_invalid_seat(phase: str) -> None:
+    with pytest.raises(ValidationError):
+        PHASE_OUTPUT_MODELS[phase].model_validate({"target": 0})

@@ -43,6 +43,7 @@ def build_view(
         "pk_seats": [seat_.number for seat_ in state.pk_seats],
         "max_chars": rule_set.speech.max_chars,
         "can_vote_self": rule_set.vote.can_vote_self,
+        "can_abstain": rule_set.vote.can_abstain,
         "vote_sheriff": rule_set.vote.sheriff,
     }
     if player is not None and player.role is Role.GUARD and state.phase == "NIGHT_GUARD":

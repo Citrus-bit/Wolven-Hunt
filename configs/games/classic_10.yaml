@@ -5,7 +5,7 @@ seat_range:
   start: 1
   end: 10
 role_pack: _role_packs/classic_10_witch_guard_seer.yaml
-rule_set: _rule_sets/majority_or_massacre_all.yaml
+rule_set: _rule_sets/majority_or_side_elimination.yaml
 model_roster: ../models/roster.yaml
 prompt_pack:
   language: zh

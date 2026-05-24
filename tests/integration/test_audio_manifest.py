@@ -38,8 +38,8 @@ def test_effect_manifest_contains_copied_game_effects() -> None:
         "guard_shield": "守卫的护盾.png",
         "wolf_attack": "狼人袭击.png",
         "seer_vision": "预言.png",
-        "potion_antidote": "解药.jpg",
-        "potion_poison": "毒药.jpg",
+        "potion_antidote": "女巫的解药.png",
+        "potion_poison": "女巫的毒药.png",
         "out_badge": "OUT.png",
     }
 

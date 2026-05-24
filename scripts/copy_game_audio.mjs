@@ -26,8 +26,8 @@ const effectAssets = [
   ['guard_shield', 'image', '守卫的护盾.png', 'effects/guard_shield.png'],
   ['wolf_attack', 'image', '狼人袭击.png', 'effects/wolf_attack.png'],
   ['seer_vision', 'image', '预言.png', 'effects/seer_vision.png'],
-  ['potion_antidote', 'image', '解药.jpg', 'effects/potion_antidote.jpg'],
-  ['potion_poison', 'image', '毒药.jpg', 'effects/potion_poison.jpg'],
+  ['potion_antidote', 'image', '女巫的解药.png', 'effects/potion_antidote.png'],
+  ['potion_poison', 'image', '女巫的毒药.png', 'effects/potion_poison.png'],
   ['out_badge', 'image', 'OUT.png', 'effects/out_badge.png'],
 ];
 

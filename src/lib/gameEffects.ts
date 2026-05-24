@@ -67,12 +67,15 @@ export function buildSeatEffectMap(
   const map: SeatEffectMap = {};
   const currentDay = options.currentDay ?? latestEffectDay(effects);
   const nowMs = options.nowMs ?? Number.POSITIVE_INFINITY;
+  const terminal = isTerminalEffectPhase(currentPhase);
   for (const effect of effects) {
     const seatState = (map[effect.target_seat] ??= {});
     const ageMs = effectAgeMs(effect, options.seenAtByKey, nowMs);
     if (effect.kind === 'death_reveal') {
       seatState.outBadge = true;
       seatState.outBadgeSeq = Math.max(seatState.outBadgeSeq ?? 0, effect.seq);
+    } else if (terminal) {
+      continue;
     } else if (effect.kind === 'guard_shield') {
       if (isGuardShieldActive(effect, currentPhase, currentDay, ageMs, options.seenAtByKey)) {
         seatState.guardShield = true;
@@ -121,6 +124,9 @@ export function activePotionEffects(
 ) {
   const currentDay = options.currentDay ?? latestEffectDay(effects);
   const nowMs = options.nowMs ?? Number.POSITIVE_INFINITY;
+  if (isTerminalEffectPhase(currentPhase)) {
+    return [];
+  }
   return effects.filter((effect) => {
     if (effect.kind !== 'witch_potion' || !isWitchPotionAction(effect)) {
       return false;
@@ -145,6 +151,9 @@ export function activeEffectAnnouncements(
 ): EffectAnnouncement[] {
   const currentDay = options.currentDay ?? latestEffectDay(effects);
   const nowMs = options.nowMs ?? Number.POSITIVE_INFINITY;
+  if (isTerminalEffectPhase(currentPhase)) {
+    return [];
+  }
   const announcements: EffectAnnouncement[] = [];
   for (const effect of effects) {
     const label = effectAnnouncementText(effect);
@@ -190,6 +199,22 @@ export function seedExpiredEffectSeenAt(
         Math.max(effectDisplayDurationMs(effect), effectAnnouncementDurationMs(effect)) -
         1;
     }
+  }
+}
+
+export function expireTransientEffectSeenAt(
+  effects: SpectatorEffect[],
+  seenAtByKey: EffectSeenAtMap,
+  nowMs: number,
+) {
+  for (const effect of effects) {
+    if (effect.kind === 'death_reveal') {
+      continue;
+    }
+    seenAtByKey[effectIdentity(effect)] =
+      nowMs -
+      Math.max(effectDisplayDurationMs(effect), effectAnnouncementDurationMs(effect)) -
+      1;
   }
 }
 
@@ -253,7 +278,11 @@ export function pruneRecentSpectatorEffects(
 export function activeRecentEffectAnnouncements(
   recentEffects: RecentSpectatorEffect[],
   nowMs: number,
+  options: { terminal?: boolean } = {},
 ): EffectAnnouncement[] {
+  if (options.terminal) {
+    return [];
+  }
   const announcements: EffectAnnouncement[] = [];
   for (const item of recentEffects) {
     const label = effectAnnouncementText(item.effect);
@@ -497,6 +526,10 @@ function phaseOrder(phase: string | null) {
     return null;
   }
   return PHASE_ORDER[phase] ?? null;
+}
+
+function isTerminalEffectPhase(phase: string | null) {
+  return phase === 'GAME_END';
 }
 
 function latestEffectDay(effects: SpectatorEffect[]) {

@@ -25,10 +25,17 @@ export function toNarrative(event: GameEvent): NarrativeRow | null {
     return row(event, 'announce', '昨晚是平安夜');
   }
   if (event.type === 'vote_cast') {
+    if (payload.abstain === true || payload.target === null) {
+      return row(event, 'action', `${event.actor}号选择弃票`);
+    }
     return row(event, 'action', `${event.actor}号投票给${String(payload.target ?? '')}号`);
   }
   if (event.type === 'vote_result') {
-    return row(event, 'verdict', `投票结果：${formatCounts(payload.counts)}`);
+    return row(
+      event,
+      'verdict',
+      `投票结果：${formatCounts(payload.counts, payload.abstain_count)}`,
+    );
   }
   if (event.type === 'vote_pk_enter') {
     return row(event, 'verdict', `平票，${formatSeats(payload.pk_seats)}进入 PK`);
@@ -81,14 +88,18 @@ function phaseText(phase: string) {
   )[phase];
 }
 
-function formatCounts(value: unknown) {
+function formatCounts(value: unknown, abstainCount: unknown = null) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return '暂无票型';
   }
-  return Object.entries(value as Record<string, unknown>)
+  const parts = Object.entries(value as Record<string, unknown>)
     .sort(([left], [right]) => Number(left) - Number(right))
     .map(([seat, count]) => `${seat}号 ${String(count)}票`)
-    .join(' / ');
+  const abstainNumber = Number(abstainCount);
+  if (Number.isFinite(abstainNumber) && abstainNumber > 0) {
+    parts.push(`弃票 ${abstainNumber}票`);
+  }
+  return parts.length > 0 ? parts.join(' / ') : '暂无有效票';
 }
 
 function formatSeats(value: unknown) {

@@ -181,7 +181,18 @@ def normalize_litellm_model(*, model: str, base_url: str = "") -> str:
 
 class ReplayLLMProvider:
     def __init__(self, raw_responses: tuple[dict[str, object], ...]) -> None:
-        self._responses = list(raw_responses)
+        self._responses = [
+            row
+            for row in raw_responses
+            if _int_value(row.get("seat")) <= 0 or not str(row.get("phase") or "")
+        ]
+        self._responses_by_key: dict[tuple[int, str], list[dict[str, object]]] = {}
+        for row in raw_responses:
+            seat_number = _int_value(row.get("seat"))
+            phase = str(row.get("phase") or "")
+            if seat_number <= 0 or not phase:
+                continue
+            self._responses_by_key.setdefault((seat_number, phase), []).append(row)
 
     def complete(
         self,
@@ -191,10 +202,14 @@ class ReplayLLMProvider:
         prompt: str,
         rng: DeterministicRNG,
     ) -> ProviderResponse:
-        del seat, phase, prompt, rng
-        if not self._responses:
+        del prompt, rng
+        bucket = self._responses_by_key.get((seat.number, phase))
+        if bucket:
+            row = bucket.pop(0)
+        elif self._responses:
+            row = self._responses.pop(0)
+        else:
             raise RuntimeError("replay raw response exhausted")
-        row = self._responses.pop(0)
         return ProviderResponse(
             content=str(row.get("raw_response", "")),
             model=str(row.get("model", "replay/raw")),

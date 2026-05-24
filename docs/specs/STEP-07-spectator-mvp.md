@@ -442,7 +442,7 @@ export interface AudioController {
 | `DAY_VOTE` / `DAY_VOTE_PK` | 30s |
 | `DAY_LAST_WORDS` | 60s |
 
-这些秒数写入 `configs/games/_rule_sets/majority_or_massacre_all.yaml` 的 `timings` 段；前端从 `GET /games/{id}` 拿到 timings（新增 `GameSummaryResponse.timings`）显示倒计时，后端 PacingController 同源读取，保持单一事实源。
+这些秒数写入 `configs/games/_rule_sets/majority_or_side_elimination.yaml` 的 `timings` 段；前端从 `GET /games/{id}` 拿到 timings（新增 `GameSummaryResponse.timings`）显示倒计时，后端 PacingController 同源读取，保持单一事实源。
 
 ### A.7 高亮特效 / 投票直方图
 
@@ -560,7 +560,7 @@ export interface AudioController {
 | `DAY_VOTE` / `DAY_VOTE_PK` | 30s |
 | `DAY_LAST_WORDS` | 60s |
 
-这些秒数写入 `configs/games/_rule_sets/majority_or_massacre_all.yaml` 的 `timings` 段；前端从 `GET /games/{id}` 拿到 timings（新增 `GameSummaryResponse.timings`）显示倒计时，后端 PacingController 同源读取，保持单一事实源。
+这些秒数写入 `configs/games/_rule_sets/majority_or_side_elimination.yaml` 的 `timings` 段；前端从 `GET /games/{id}` 拿到 timings（新增 `GameSummaryResponse.timings`）显示倒计时，后端 PacingController 同源读取，保持单一事实源。
 
 ### A.7 高亮特效 / 投票直方图
 

@@ -89,7 +89,12 @@ export function GameChat({
             ))
           )}
         </div>
-        {voteCounts && <VoteHistogram counts={voteCounts} />}
+        {voteCounts && (
+          <VoteHistogram
+            counts={voteCounts.counts}
+            abstainCount={voteCounts.abstainCount}
+          />
+        )}
       </section>
       <section
         className="game-chat-panel game-chat-panel--wolf"
@@ -314,7 +319,10 @@ function latestVoteCounts(events: GameEvent[]) {
       typeof event.payload.counts === 'object' &&
       !Array.isArray(event.payload.counts)
     ) {
-      return event.payload.counts as Record<string, unknown>;
+      return {
+        counts: event.payload.counts as Record<string, unknown>,
+        abstainCount: event.payload.abstain_count,
+      };
     }
   }
   return null;

@@ -43,10 +43,16 @@ def event_to_narrative(event: Event) -> NarrativeRow | None:
     if event.type is EventType.NO_DEATH_TONIGHT:
         return _row(event, "announce", "昨晚是平安夜")
     if event.type is EventType.VOTE_CAST:
+        if payload.get("abstain") is True or payload.get("target") is None:
+            return _row(event, "action", f"{event.actor}号选择弃票")
         return _row(event, "action", f"{event.actor}号投票给{payload.get('target')}号")
     if event.type is EventType.VOTE_RESULT:
         counts = payload.get("counts")
-        return _row(event, "verdict", f"投票结果：{_format_counts(counts)}")
+        return _row(
+            event,
+            "verdict",
+            f"投票结果：{_format_counts(counts, payload.get('abstain_count'))}",
+        )
     if event.type is EventType.VOTE_PK_ENTER:
         seats = payload.get("pk_seats", [])
         return _row(event, "verdict", f"平票，{_format_seats(seats)}进入 PK")
@@ -89,13 +95,17 @@ def _phase_text(phase: str) -> str | None:
     }.get(phase)
 
 
-def _format_counts(value: object) -> str:
+def _format_counts(value: object, abstain_count: object = None) -> str:
     if not isinstance(value, dict):
         return "暂无票型"
     parts = [
         f"{seat}号 {count}票"
         for seat, count in sorted(value.items(), key=lambda item: int(item[0]))
     ]
+    if isinstance(abstain_count, int) and abstain_count > 0:
+        parts.append(f"弃票 {abstain_count}票")
+    if not parts:
+        return "暂无有效票"
     return " / ".join(parts)
 
 

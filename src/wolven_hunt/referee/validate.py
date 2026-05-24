@@ -48,7 +48,7 @@ def validate_action(state: GameState, action: Action, rule_set: RuleSet) -> Vali
     if isinstance(action, Vote):
         return _validate_vote(state, action, rule_set)
     if isinstance(action, PkVote):
-        return _validate_pk_vote(state, action)
+        return _validate_pk_vote(state, action, rule_set)
     if isinstance(action, LastWords):
         return _validate_text(state, action.actor, action.text, rule_set, expected_role=None)
 
@@ -152,9 +152,13 @@ def _validate_witch(state: GameState, action: WitchAction, rule_set: RuleSet) ->
 
 def _validate_vote(state: GameState, action: Vote, rule_set: RuleSet) -> ValidationResult:
     actor = state.player(action.actor)
-    target = state.player(action.target)
     if not actor.alive:
         return Reject("vote.actor_alive", "dead player cannot vote")
+    if action.target is None:
+        if rule_set.vote.can_abstain:
+            return None
+        return Reject("vote.abstain", "abstain disabled")
+    target = state.player(action.target)
     if not target.alive:
         return Reject("vote.target_alive", "vote target must be alive")
     if action.actor == action.target and not rule_set.vote.can_vote_self:
@@ -162,13 +166,17 @@ def _validate_vote(state: GameState, action: Vote, rule_set: RuleSet) -> Validat
     return None
 
 
-def _validate_pk_vote(state: GameState, action: PkVote) -> ValidationResult:
+def _validate_pk_vote(state: GameState, action: PkVote, rule_set: RuleSet) -> ValidationResult:
     actor = state.player(action.actor)
-    target = state.player(action.target)
     if not actor.alive:
         return Reject("pk.actor_alive", "dead player cannot pk vote")
     if action.actor in state.pk_seats:
         return Reject("pk.actor_on_stage", "pk players cannot vote in pk round")
+    if action.target is None:
+        if rule_set.vote.can_abstain:
+            return None
+        return Reject("pk.abstain", "abstain disabled")
+    target = state.player(action.target)
     if action.target not in state.pk_seats:
         return Reject("pk.target_not_on_stage", "pk vote target must be on stage")
     if not target.alive:

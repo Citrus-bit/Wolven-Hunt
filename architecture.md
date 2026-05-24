@@ -38,13 +38,14 @@
 狼人胜：
 
 - `alive_wolves > alive_good_players`
-- 或 `alive_good_players == 0`
+- 或 `alive_villagers == 0`
+- 或 `alive_gods == 0`
 
 好人胜：
 
 - `alive_wolves == 0`
 
-胜负规则写入 `configs/games/_rule_sets/majority_or_massacre_all.yaml`。
+胜负规则写入 `configs/games/_rule_sets/majority_or_side_elimination.yaml`，并由 `RuleSet.win_conditions` 配置驱动执行。神职边为好人阵营中非 `villager` 的角色，当前为预言家、女巫、守卫。
 
 ## 4. Roles
 
@@ -106,14 +107,15 @@
 
 - 同时投票。
 - 公开票型。
-- 不允许弃票。
+- 允许弃票。
 - 不允许改票。
 - 无警长。
 - 首轮投票只能投存活玩家。
 - 允许投自己。
 - 不能投已死亡玩家。
+- `DAY_VOTE` / `DAY_VOTE_PK` 的同时投票必须基于同一份 `GameState` 与 `EventLog` 快照收集所有合法投票者决策。结算前投票决策只保存在 FSM 内存 pending action 中，不写入 EventLog、不进入 PlayerView、prompt、spectator API 或 narrative。结算时按 actor seat 升序追加公开 `vote_cast`，再追加 `vote_result` / `vote_pk_enter` / `exile` / `peaceful_day`。弃票的 `vote_cast` payload 固定为 `{target: null, abstain: true}`；`vote_result` payload 必须包含 `counts`、`tied`、`abstain_count`、`abstentions`。弃票公开展示但不进入 `counts`，不参与最高票或平票候选；全员弃票直接平安日。EventLog append-only，不允许回写修改历史事件。
 
-首轮平票进入 `DAY_VOTE_PK`。平票玩家各一次 PK 发言后重投。PK 重投只能投 PK 台上的存活玩家，PK 台上玩家不参与重投。第二次仍平票则平安日，直接入夜。
+首轮平票进入 `DAY_VOTE_PK`。平票玩家各一次 PK 发言后重投。PK 重投只能投 PK 台上的存活玩家，PK 台上玩家不参与重投。首轮或 PK 重投全员弃票均直接平安日；PK 第二次仍平票则平安日，直接入夜。
 
 白天被正常投票或 PK 重投放逐的玩家在 `DAY_EXILE` 后进入 `DAY_LAST_WORDS`，遗言完成后再执行白天胜负检查。二次平票或无人可投导致的平安日不触发遗言。
 
@@ -220,6 +222,8 @@ GAME_END
 - 系统：`win_check`, `agent_timeout`, `agent_invalid_action`, `agent_fallback_triggered`, `agent_budget_warning`
 - 元数据：`llm_call`
 
+`vote_cast` 只在投票 phase 结算时公开追加；投票收集过程中不得提前写入 EventLog。弃票 `vote_cast` 使用 `{target: null, abstain: true}`。`vote_result` 仍然 public，`counts` 只统计非弃票目标，并通过 `abstain_count` / `abstentions` 暴露弃票数量与座位，继续作为前端直方图与叙事票型来源。
+
 `llm_call` 包含 `prompt_hash`、`raw_response_hash`、`storage_ref`、`model`、`prompt_tokens`、`completion_tokens`、`cost_usd`、`prompt_version`，但仅写入存储层，不进入 PlayerView。完整 raw response 仅写入私有存储；`llm_call` payload 不得包含 raw response 原文。
 
 `role_reveal` 仅在 `GAME_END` 后由 Referee 生成，公开可见，payload 固定为 `{winner, seats: [{seat, role, alive}], highlights}`。`pacing_tick` 是未来保留事件；STEP-07 不写入事件日志，避免污染 replay hash。
@@ -239,6 +243,7 @@ GAME_END
 - 狼队事件：`wolf_kill_vote`、`wolf_kill_decided`、`wolf_tie_random` 仅狼队 seat 可见；`wolf_chat_message` 对狼队 seat 和 STEP-07 spectator 上帝视角可见。
 - 私有事件：仅 actor 或白名单 seat 可见。
 - `llm_call`、raw response 存储引用默认不进入任何 PlayerView。完整 `role_assignment` 只允许进入 spectator 上帝视角和存储/调试工具，不进入普通玩家 PlayerView。
+- 狼人白天 prompt 额外执行上下文隔离：`DAY_SPEECH`、`DAY_VOTE`、`DAY_VOTE_PK`、`DAY_LAST_WORDS` 中，wolf seat 的 prompt payload `visible_events` 必须剔除 `wolf_chat_message`、`wolf_kill_vote`、`wolf_kill_decided`、`wolf_tie_random`，且不得注入 `wolf_private_context`。`NIGHT_WOLF_CHAT` / `NIGHT_WOLF_VOTE` 中，wolf seat 可通过独立 `wolf_private_context` 字段接收这些狼队私有事件，同类事件不得重复出现在 `visible_events`。
 
 PlayerView 中的 `game_start` 必须脱敏：
 
@@ -270,7 +275,7 @@ Referee 是唯一权限边界。核心规则和 Agent 不得自行拼接越权�
 | `NIGHT_WITCH` | 默认跳过，不消耗药品 |
 | `NIGHT_SEER` | 随机选一个非自己玩家 |
 | `DAY_SPEECH` | 基于 Referee 过滤后 PlayerView 的确定性公开发言模板 `contextual_public_speech` |
-| `DAY_VOTE` | 随机选一个存活玩家，允许自己 |
+| `DAY_VOTE` | 随机选一个存活玩家，允许自己，fallback 不主动弃票 |
 | `DAY_VOTE_PK` | 台下玩家随机投一个 PK 台上存活玩家；如无台下玩家可投，直接平安日 |
 | `DAY_LAST_WORDS` | 默认模板 `我没有遗言` |
 
@@ -309,10 +314,10 @@ configs/prompts/zh/seer/night_action.v3.md
 提示词渲染顺序固定为：
 
 ```text
-[system.v1.md] + [role/phase.v1.md] + [JSON payload] + [retry_error?]
+[system.{version}.md] + [role/phase.{version}.md] + [JSON payload] + [retry_error?]
 ```
 
-`system.v1.md` 是全员统一系统提示词，包含规则摘要、信息边界和 JSON-only 输出契约。角色/phase 模板来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context 和 output_schema。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff`，当前固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制。`speech_context` 用于 DAY_SPEECH 的发言归属约束，固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。LLM 重试时只在末尾追加结构化错误说明。
+`system.v3.md` 是当前默认全员统一系统提示词，旧 `v1` / `v2` 文件保留用于回放兼容，包含规则摘要、信息边界、JSON-only 输出契约和 `text` 输出质量约束。`v3` 只要求文本高信息密度、禁止占位废话、不能把“信息有限/等大家发完”作为主要内容，白天发言优先控制在 2-4 句且不为凑满 `max_chars` 扩写；它不改变输出 JSON schema、事件 schema、fallback 或 replay hash。角色/phase 模板来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context、output_schema，以及仅 wolf 夜聊/狼刀阶段允许出现的 `wolf_private_context`。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff` 与 `can_abstain`，当前 `vote_sheriff` 固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制；`can_abstain` 控制 `DAY_VOTE` / `DAY_VOTE_PK` 是否允许输出 `target: null` 弃票。`speech_context` 用于 DAY_SPEECH 的发言归属约束，固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。LLM 重试时只在末尾追加结构化错误说明。
 
 输入侧：
 
@@ -325,7 +330,7 @@ configs/prompts/zh/seer/night_action.v3.md
 
 - 所有 LLM 输出走结构化 schema 校验。
 - 校验失败进入重试与 fallback。
-- 输出 JSON schema 按 phase 固定为：`NIGHT_GUARD {target}`、`NIGHT_WOLF_CHAT {text}`、`NIGHT_WOLF_VOTE {target}`、`NIGHT_WITCH {action, target?}`、`NIGHT_SEER {target}`、`DAY_SPEECH {text}`、`DAY_VOTE {target}`、`DAY_VOTE_PK {target}`、`DAY_LAST_WORDS {text}`。
+- 输出 JSON schema 按 phase 固定为：`NIGHT_GUARD {target}`、`NIGHT_WOLF_CHAT {text}`、`NIGHT_WOLF_VOTE {target}`、`NIGHT_WITCH {action, target?}`、`NIGHT_SEER {target}`、`DAY_SPEECH {text}`、`DAY_VOTE {target: int | null}`、`DAY_VOTE_PK {target: int | null}`、`DAY_LAST_WORDS {text}`。
 
 PlayerView 大小控制 / 上下文管理策略：
 
@@ -432,7 +437,7 @@ STEP-06 环境变量统一由 `src/wolven_hunt/config/settings.py` 的 `pydantic
 必须覆盖：
 
 - 预言家查活人、死人、重复查验、死亡后停用、不能查自己。
-- 胜负三条规则和每个检查点。
+- 狼严格人数优势、村民边全灭、神职边全灭、狼全灭和每个检查点。
 - 首夜狼刀/双奶死亡遗言、首夜毒药死亡无遗言、第二夜后夜死无遗言、守卫平安夜、女巫救人、女巫毒人、双奶死亡、同夜双死、PK、二次平票。
 - 死亡 Agent 停用但仍接收公开事件。
 - LLM 异常、重试、fallback。
@@ -462,6 +467,8 @@ STEP-07 新增观赛特效投影 `SpectatorEffect`，它从完整 EventLog 派�
 - `witch_action(save|poison)` 派生 `witch_potion`，从女巫座位飞向目标座位；`skip` 不派生特效。
 - `day_announce` 中的死亡列表派生 `death_reveal`，前端在白天公布后再灰化头像。
 
+`guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` 是现场观赛 transient effects，只能在非终局阶段播放；进入 `GAME_END` / `role_reveal` 后前端必须抑制并清空这类未完成动效，不得集中补播积压特效。复盘或 REST 回补中已发生的非死亡 transient effects 默认视为历史并标记为过期；`death_reveal` / `out_badge` 和 `role_reveal` 仍可在终局保留。
+
 `GET /games/{id}/effects?after=<seq>` 返回 spectator-only effects。SSE 使用 `event: spectator_effect` 推送同一投影；这不允许前端绕过 Referee 获取可用于玩家决策的私有事件原文。
 
 ## 17.2 STEP-08 Playable Distribution
@@ -471,8 +478,8 @@ STEP-08 目标是 10 个 AI 自动对局从前端开局后可无卡点观赛到�
 - 部署拓扑：dev 使用 Vite `7001` + proxy，prod 使用 FastAPI `7002` 挂载 `dist/` 静态文件；前端 API base 默认空字符串，即同源相对路径。
 - 历史复盘：`GET /games` 从 `runs/` 读取 manifest 汇总；`GET /games/{id}/events` 在线返回 session spectator events，离线从 `events.jsonl` 读取并按 spectator 过滤。不得读取或暴露 `raw_responses.jsonl`，但可保留身份表、狼人夜聊和 `seat_presentation` 供观众复盘。
 - `seat_presentation` 是纯 UI 展示元数据，只用于历史复盘恢复游玩时头像和昵称；它不改变身份来源、胜负判定、行动合法性、ack、EventLog、replay hash、resimulate 或 LLM 输入。
-- 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。
-- replay 恢复：STEP-08 起 manifest 必须写入 `config_path`；`replay_resimulate` 在未显式传入 config 时从同目录 manifest 恢复配置，兼容旧 run 回退 classic_8；新 run 默认使用 classic_10。
+- 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。终局定格态不得继续播放或补播 `guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` transient spectator effects。
+- replay 恢复：STEP-08 起 manifest 必须写入 `config_path` 与 `prompt_pack_version`；`replay_resimulate` 在未显式传入 config 时从同目录 manifest 恢复配置和 prompt 版本，兼容旧 run 回退 classic_8 与 prompt `v1`；新 run 默认使用 classic_10 与 prompt `v3`。
 - 前端健壮性：SSE 客户端必须使用 `Last-Event-ID` 断点续传，最多 5 次带 jitter 重连；失败后显示错误状态。倒计时归零后显示等待状态，避免误判为卡死。
 - 模型测试：前端只调用后端 `POST /models/test`；测试失败不能永久阻止开始游戏，用户可继续开局，运行期由 LLM 重试和 fallback 保证收敛。
 - 模型联网：正式对局 LLM 调用、`POST /models/test` 与真实 LLM smoke test 均强制直连，忽略系统代理环境变量。

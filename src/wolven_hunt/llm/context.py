@@ -58,7 +58,7 @@ def build_prompt_visible_events(
         events = tuple(event for event in events if _event_type(event) not in exclude_types)
     if len(events) <= summary_threshold:
         return tuple(
-            _event_to_prompt_dict(event)
+            event_to_prompt_dict(event)
             for event in select_events_for_prompt(events, max_count=max_count)
         )
 
@@ -66,17 +66,17 @@ def build_prompt_visible_events(
         raise ValueError("head_count and recent_count must be non-negative")
     if head_count + recent_count >= len(events):
         return tuple(
-            _event_to_prompt_dict(event)
+            event_to_prompt_dict(event)
             for event in select_events_for_prompt(events, max_count=max_count)
         )
 
     head = events[:head_count]
     middle = events[head_count:-recent_count] if recent_count else events[head_count:]
     recent = events[-recent_count:] if recent_count else ()
-    rows = [_event_to_prompt_dict(event) for event in head]
+    rows = [event_to_prompt_dict(event) for event in head]
     if middle:
         rows.append(summarize_events_for_prompt(middle))
-    rows.extend(_event_to_prompt_dict(event) for event in recent)
+    rows.extend(event_to_prompt_dict(event) for event in recent)
     return tuple(rows)
 
 
@@ -174,7 +174,7 @@ def _trim_force_keep(events: tuple[Event, ...], *, max_count: int) -> tuple[Even
     return tuple(sorted(selected, key=lambda event: event.seq))
 
 
-def _event_to_prompt_dict(event: Event) -> dict[str, Any]:
+def event_to_prompt_dict(event: Event) -> dict[str, Any]:
     row = event.model_dump(mode="json", exclude={"event_id", "timestamp"})
     payload = dict(row.get("payload") or {})
     for internal_key in ("role_assignment", "rng_stream", "candidates", "selected"):

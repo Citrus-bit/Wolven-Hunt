@@ -12,6 +12,11 @@ def test_loads_classic_10_config() -> None:
     assert config.role_pack.roles["wolf"].count == 3
     assert config.role_pack.roles["villager"].count == 4
     assert config.rule_set.first_night_can_die is True
+    assert config.rule_set.vote.can_abstain is True
+    assert config.rule_set.name == "majority_or_side_elimination"
+    assert "alive_villagers_eq_0" in config.rule_set.win_conditions.wolf_wins_when
+    assert "alive_gods_eq_0" in config.rule_set.win_conditions.wolf_wins_when
+    assert "alive_good_players_eq_0" not in config.rule_set.win_conditions.wolf_wins_when
     assert config.rule_set.fallback.actions["DAY_SPEECH"] == "contextual_public_speech"
     assert config.rule_set.fallback.retry_backoff_base_seconds == 1
     assert config.rule_set.fallback.retry_backoff_multiplier == 2

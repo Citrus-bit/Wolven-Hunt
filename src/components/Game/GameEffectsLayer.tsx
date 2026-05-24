@@ -17,6 +17,7 @@ type GameEffectsLayerProps = {
   nowMs: number;
   seenAtByKey: EffectSeenAtMap;
   recentEffects: RecentSpectatorEffect[];
+  terminal?: boolean;
 };
 
 type PotionFlight = {
@@ -44,13 +45,16 @@ export function GameEffectsLayer({
   nowMs,
   seenAtByKey,
   recentEffects,
+  terminal = false,
 }: GameEffectsLayerProps) {
   const layerRef = useRef<HTMLDivElement | null>(null);
   const seenFlightIdsRef = useRef(new Set<string>());
   const renderedAnnouncementIdsRef = useRef(new Set<string>());
   const [flights, setFlights] = useState<PotionFlight[]>([]);
   const [bursts, setBursts] = useState<PotionBurst[]>([]);
-  const announcements = activeRecentEffectAnnouncements(recentEffects, nowMs).slice(-4);
+  const announcements = activeRecentEffectAnnouncements(recentEffects, nowMs, {
+    terminal,
+  }).slice(-4);
 
   useEffect(() => {
     if (!import.meta.env.DEV || import.meta.env.MODE === 'test') {
@@ -70,6 +74,11 @@ export function GameEffectsLayer({
   }, [announcements]);
 
   useEffect(() => {
+    if (terminal) {
+      setFlights([]);
+      setBursts([]);
+      return;
+    }
     const activeEffects = activePotionEffects(effects, currentPhase, {
       currentDay,
       nowMs,
@@ -103,7 +112,7 @@ export function GameEffectsLayer({
         setFlights((current) => current.filter((item) => item.id !== id));
       }, flight.durationMs + 220);
     }
-  }, [currentDay, currentPhase, effects, nowMs, seenAtByKey]);
+  }, [currentDay, currentPhase, effects, nowMs, seenAtByKey, terminal]);
 
   return (
     <div ref={layerRef} className="game-effects-layer" aria-hidden="true">

@@ -70,7 +70,7 @@ describe('GameEffectsLayer', () => {
       <GameEffectsLayer
         effects={[wolf]}
         currentDay={2}
-        currentPhase="GAME_END"
+        currentPhase="DAY_SPEECH"
         nowMs={1800}
         seenAtByKey={seenAtByKey}
         recentEffects={appendRecentSpectatorEffects([], [wolf], 1000)}
@@ -79,6 +79,35 @@ describe('GameEffectsLayer', () => {
 
     expect(html).toContain('狼人袭击：4号');
     expect(html).not.toContain('missing_asset');
+  });
+
+  it('suppresses transient announcements in terminal mode', () => {
+    const wolf = effect(2, 'wolf_attack', 4, 'wolf_attack', {}, 0, 'NIGHT_WOLF_VOTE');
+    const guard = effect(1, 'guard_shield', 8, 'guard_shield', {}, 0, 'NIGHT_GUARD');
+    const seer = effect(3, 'seer_vision', 7, 'seer_vision', {}, 1800, 'NIGHT_SEER');
+    const potion = effect(4, 'witch_potion', 5, 'potion_antidote', { action: 'save' }, 1200, 'NIGHT_WITCH', 9);
+    const effects = [guard, wolf, seer, potion];
+    const seenAtByKey: EffectSeenAtMap = Object.fromEntries(
+      effects.map((item) => [effectIdentity(item), 1000]),
+    );
+
+    const html = renderToStaticMarkup(
+      <GameEffectsLayer
+        effects={effects}
+        currentDay={1}
+        currentPhase="GAME_END"
+        nowMs={1800}
+        seenAtByKey={seenAtByKey}
+        recentEffects={appendRecentSpectatorEffects([], effects, 1000)}
+        terminal
+      />,
+    );
+
+    expect(html).not.toContain('守卫护盾');
+    expect(html).not.toContain('狼人袭击');
+    expect(html).not.toContain('预言查验');
+    expect(html).not.toContain('女巫解药');
+    expect(html).not.toContain('game-effect-announcement');
   });
 
   it('does not render expired transient or death reveal announcements', () => {
