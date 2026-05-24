@@ -108,7 +108,7 @@ def test_api_game_agent_spec_passes_thinking_enabled_to_provider(
                     "1": {
                         "kind": "llm",
                         "provider": "litellm",
-                        "model": "qwen3.6-plus",
+                        "model": "qwen3.6-flash",
                         "api_key": "test-secret",
                         "thinking_enabled": True,
                     }
@@ -119,7 +119,7 @@ def test_api_game_agent_spec_passes_thinking_enabled_to_provider(
         assert created.status_code == 200
 
     assert any(
-        getattr(config, "model", "") == "qwen3.6-plus"
+        getattr(config, "model", "") == "qwen3.6-flash"
         and getattr(config, "thinking_enabled", False) is True
         for config in captured
     )
@@ -227,7 +227,7 @@ def test_model_test_litellm_receives_thinking_extra_body(monkeypatch, tmp_path) 
             "/models/test",
             json={
                 "provider": "litellm",
-                "model": "qwen3.6-plus",
+                "model": "qwen3.6-flash",
                 "base_url": "https://example.test/v1",
                 "api_key": "test-secret",
                 "thinking_enabled": True,
@@ -236,7 +236,7 @@ def test_model_test_litellm_receives_thinking_extra_body(monkeypatch, tmp_path) 
 
     assert response.status_code == 200
     assert response.json() == {"ok": True, "message": None}
-    assert captured["model"] == "custom_openai/qwen3.6-plus"
+    assert captured["model"] == "custom_openai/qwen3.6-flash"
     assert captured["api_base"] == "https://example.test/v1"
     assert captured["extra_body"] == {"enable_thinking": True}
     assert litellm.client_session._trust_env is False
@@ -267,7 +267,7 @@ def test_model_test_litellm_defaults_thinking_off(monkeypatch, tmp_path) -> None
             "/models/test",
             json={
                 "provider": "litellm",
-                "model": "qwen3.6-plus",
+                "model": "qwen3.6-flash",
                 "base_url": "https://example.test/v1",
                 "api_key": "test-secret",
             },

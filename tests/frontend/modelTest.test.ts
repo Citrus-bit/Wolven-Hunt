@@ -21,7 +21,7 @@ describe('modelTest', () => {
     const result = await testModelConnection({
       baseUrl: 'https://example.test/v1',
       apiKey: 'secret',
-      modelName: 'qwen3.6-plus',
+      modelName: 'qwen3.6-flash',
       thinkingEnabled: false,
     });
 
@@ -29,7 +29,7 @@ describe('modelTest', () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
       provider: 'litellm',
-      model: 'qwen3.6-plus',
+      model: 'qwen3.6-flash',
       base_url: 'https://example.test/v1',
       api_key: 'secret',
       timeout_seconds: 15,

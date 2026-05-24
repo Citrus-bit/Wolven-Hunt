@@ -15,10 +15,16 @@ export type SeatEffectMap = Record<number, SeatEffectState>;
 export type EffectSeenAtMap = Record<string, number>;
 export type EffectAnnouncement = {
   id: string;
+  seq: number;
   kind: SpectatorEffect['kind'];
   assetKey: string;
   text: string;
   targetSeat: number;
+};
+export type RecentSpectatorEffect = {
+  id: string;
+  effect: SpectatorEffect;
+  seenAtMs: number;
 };
 
 type BuildSeatEffectOptions = {
@@ -31,7 +37,7 @@ const GUARD_SETTLE_GRACE_MS = 3000;
 const WOLF_ATTACK_MS = 4000;
 const SEER_VISION_MS = 3500;
 const POTION_EFFECT_MS = 3000;
-const EFFECT_ANNOUNCEMENT_MS = 5000;
+const EFFECT_ANNOUNCEMENT_MS = 8000;
 
 const PHASE_ORDER: Record<string, number> = {
   GAME_START: 0,
@@ -116,7 +122,7 @@ export function activePotionEffects(
   const currentDay = options.currentDay ?? latestEffectDay(effects);
   const nowMs = options.nowMs ?? Number.POSITIVE_INFINITY;
   return effects.filter((effect) => {
-    if (effect.kind !== 'witch_potion') {
+    if (effect.kind !== 'witch_potion' || !isWitchPotionAction(effect)) {
       return false;
     }
     const ageMs = effectAgeMs(effect, options.seenAtByKey, nowMs);
@@ -158,6 +164,7 @@ export function activeEffectAnnouncements(
     }
     announcements.push({
       id: effectIdentity(effect),
+      seq: effect.seq,
       kind: effect.kind,
       assetKey: effect.asset_key,
       text: label,
@@ -204,6 +211,68 @@ export function appendUniqueSpectatorEffects(
     next.push(effect);
   }
   return next.length === current.length ? current : next;
+}
+
+export function appendRecentSpectatorEffects(
+  current: RecentSpectatorEffect[],
+  incoming: SpectatorEffect[],
+  nowMs: number,
+) {
+  if (incoming.length === 0) {
+    return current;
+  }
+  const next = pruneRecentSpectatorEffects(current, nowMs);
+  const seen = new Set(next.map((item) => item.id));
+  for (const effect of incoming) {
+    if (effect.kind === 'death_reveal' || !effectAnnouncementText(effect)) {
+      continue;
+    }
+    const id = effectIdentity(effect);
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    next.push({ id, effect, seenAtMs: nowMs });
+  }
+  const limited = next.slice(-24);
+  return limited.length === current.length &&
+    limited.every((item, index) => item === current[index])
+    ? current
+    : limited;
+}
+
+export function pruneRecentSpectatorEffects(
+  current: RecentSpectatorEffect[],
+  nowMs: number,
+) {
+  return current.filter((item) =>
+    within(nowMs - item.seenAtMs, effectAnnouncementDurationMs(item.effect)),
+  );
+}
+
+export function activeRecentEffectAnnouncements(
+  recentEffects: RecentSpectatorEffect[],
+  nowMs: number,
+): EffectAnnouncement[] {
+  const announcements: EffectAnnouncement[] = [];
+  for (const item of recentEffects) {
+    const label = effectAnnouncementText(item.effect);
+    if (!label) {
+      continue;
+    }
+    if (!within(nowMs - item.seenAtMs, effectAnnouncementDurationMs(item.effect))) {
+      continue;
+    }
+    announcements.push({
+      id: item.id,
+      seq: item.effect.seq,
+      kind: item.effect.kind,
+      assetKey: item.effect.asset_key,
+      text: label,
+      targetSeat: item.effect.target_seat,
+    });
+  }
+  return announcements;
 }
 
 export function effectIdentity(effect: SpectatorEffect) {
@@ -398,11 +467,18 @@ function effectAnnouncementText(effect: SpectatorEffect) {
     return `预言查验：${effect.target_seat}号`;
   }
   if (effect.kind === 'witch_potion') {
-    return effect.meta.action === 'save'
-      ? `女巫解药：${effect.target_seat}号`
-      : `女巫毒药：${effect.target_seat}号`;
+    if (isWitchPotionAction(effect) && effect.meta.action === 'save') {
+      return `女巫解药：${effect.target_seat}号`;
+    }
+    if (isWitchPotionAction(effect) && effect.meta.action === 'poison') {
+      return `女巫毒药：${effect.target_seat}号`;
+    }
   }
   return '';
+}
+
+function isWitchPotionAction(effect: SpectatorEffect) {
+  return effect.meta.action === 'save' || effect.meta.action === 'poison';
 }
 
 function hasEffectSeenAt(

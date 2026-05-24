@@ -85,7 +85,7 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
   {
     baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
     apiKey: 'sk-sp-D.HDXRM.WBYB.MEUCIQDsTRWgINcmA5E+3jY2ESrb/zPm3LwWcbPBQ6HxCxq6lAIgLWMi8mhr+FFH3q6fQxCqWSp4UUQEOLWLK1zHgnCQKj0=',
-    modelName: 'qwen3.6-plus',
+    modelName: 'qwen3.6-flash',
     thinkingEnabled: false,
   },
   {

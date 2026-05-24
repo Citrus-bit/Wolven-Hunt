@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { gameEffectAssetPath, type GameEffectAssetKey } from '../../lib/effectAssets';
 import {
-  activeEffectAnnouncements,
+  activeRecentEffectAnnouncements,
   activePotionEffects,
   effectDisplayDurationMs,
   effectIdentity,
   type EffectSeenAtMap,
+  type RecentSpectatorEffect,
 } from '../../lib/gameEffects';
 import type { SpectatorEffect } from '../../lib/gameApi';
 
@@ -15,6 +16,7 @@ type GameEffectsLayerProps = {
   currentPhase: string | null;
   nowMs: number;
   seenAtByKey: EffectSeenAtMap;
+  recentEffects: RecentSpectatorEffect[];
 };
 
 type PotionFlight = {
@@ -41,16 +43,31 @@ export function GameEffectsLayer({
   currentPhase,
   nowMs,
   seenAtByKey,
+  recentEffects,
 }: GameEffectsLayerProps) {
   const layerRef = useRef<HTMLDivElement | null>(null);
   const seenFlightIdsRef = useRef(new Set<string>());
+  const renderedAnnouncementIdsRef = useRef(new Set<string>());
   const [flights, setFlights] = useState<PotionFlight[]>([]);
   const [bursts, setBursts] = useState<PotionBurst[]>([]);
-  const announcements = activeEffectAnnouncements(effects, currentPhase, {
-    currentDay,
-    nowMs,
-    seenAtByKey,
-  }).slice(-4);
+  const announcements = activeRecentEffectAnnouncements(recentEffects, nowMs).slice(-4);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || import.meta.env.MODE === 'test') {
+      return;
+    }
+    for (const announcement of announcements) {
+      if (renderedAnnouncementIdsRef.current.has(announcement.id)) {
+        continue;
+      }
+      renderedAnnouncementIdsRef.current.add(announcement.id);
+      console.info('[spectator_effect rendered]', {
+        kind: announcement.kind,
+        seq: announcement.seq,
+        target: announcement.targetSeat,
+      });
+    }
+  }, [announcements]);
 
   useEffect(() => {
     const activeEffects = activePotionEffects(effects, currentPhase, {

@@ -105,7 +105,7 @@ def test_merge_provider_config_reads_thinking_enabled() -> None:
         {
             "kind": "llm",
             "provider": "litellm",
-            "model": "qwen3.6-plus",
+            "model": "qwen3.6-flash",
             "thinking_enabled": True,
         },
     )
@@ -115,15 +115,15 @@ def test_merge_provider_config_reads_thinking_enabled() -> None:
 
 def test_litellm_model_with_base_url_uses_custom_openai_prefix() -> None:
     assert (
-        normalize_litellm_model(model="qwen3.6-plus", base_url="https://example.test/v1")
-        == "custom_openai/qwen3.6-plus"
+        normalize_litellm_model(model="qwen3.6-flash", base_url="https://example.test/v1")
+        == "custom_openai/qwen3.6-flash"
     )
     assert (
         normalize_litellm_model(
-            model="custom_openai/qwen3.6-plus",
+            model="custom_openai/qwen3.6-flash",
             base_url="https://example.test/v1",
         )
-        == "custom_openai/qwen3.6-plus"
+        == "custom_openai/qwen3.6-flash"
     )
 
 
@@ -139,7 +139,7 @@ def test_litellm_provider_uses_phase_timeout_override(monkeypatch: pytest.Monkey
         lambda: SimpleNamespace(completion=fake_completion),
     )
     provider = LiteLLMProvider(
-        model="qwen3.6-plus",
+        model="qwen3.6-flash",
         api_key="test-key",
         timeout_seconds=30,
         phase_timeout_seconds={"DAY_SPEECH": 20},
@@ -171,7 +171,7 @@ def test_build_provider_from_config_applies_thinking_extra_body(
     provider = build_provider_from_config(
         ProviderConfig(
             provider="litellm",
-            model="qwen3.6-plus",
+            model="qwen3.6-flash",
             api_key="test-key",
             thinking_enabled=True,
         )

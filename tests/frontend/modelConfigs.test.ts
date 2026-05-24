@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EMPTY_USER_INPUT,
   MODEL_CONFIG_DEFAULTS,
+  MODEL_SLOTS,
 } from '../../src/lib/modelConfigs';
 
 describe('modelConfigs', () => {
@@ -11,5 +12,13 @@ describe('modelConfigs', () => {
     expect(
       MODEL_CONFIG_DEFAULTS.every((config) => config.thinkingEnabled === false),
     ).toBe(true);
+  });
+
+  it('uses qwen3.6-flash for the Qwen model slot', () => {
+    const slot = MODEL_SLOTS.find((candidate) => candidate.nickname === '万问');
+    expect(slot).toBeDefined();
+    expect(MODEL_CONFIG_DEFAULTS[slot?.slot ?? -1]?.modelName).toBe(
+      'qwen3.6-flash',
+    );
   });
 });

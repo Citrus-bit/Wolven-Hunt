@@ -17,12 +17,15 @@ import { buildAgentSpecs } from '../../lib/agentSpecs';
 import { preloadGameEffectAssets } from '../../lib/effectAssets';
 import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
 import {
+  appendRecentSpectatorEffects,
   appendUniqueSpectatorEffects,
   buildSeatEffectMap,
+  pruneRecentSpectatorEffects,
   publicEliminatedSeats,
   seedExpiredEffectSeenAt,
   seedEffectSeenAt,
   type EffectSeenAtMap,
+  type RecentSpectatorEffect,
 } from '../../lib/gameEffects';
 import {
   deriveLastPlayablePhase,
@@ -99,6 +102,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const [narrativeRows, setNarrativeRows] = useState<NarrativeRow[]>([]);
   const narrativeSeqRef = useRef(0);
   const [spectatorEffects, setSpectatorEffects] = useState<SpectatorEffect[]>([]);
+  const [recentEffects, setRecentEffects] = useState<RecentSpectatorEffect[]>([]);
   const effectSeenAtRef = useRef<EffectSeenAtMap>({});
   const [effectClockMs, setEffectClockMs] = useState(() => Date.now());
   const effectSeqRef = useRef(0);
@@ -168,12 +172,16 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   }, []);
 
   useEffect(() => {
-    if (spectatorEffects.length === 0) {
+    if (spectatorEffects.length === 0 && recentEffects.length === 0) {
       return undefined;
     }
-    const timer = window.setInterval(() => setEffectClockMs(Date.now()), 250);
+    const timer = window.setInterval(() => {
+      const nowMs = Date.now();
+      setEffectClockMs(nowMs);
+      setRecentEffects((current) => pruneRecentSpectatorEffects(current, nowMs));
+    }, 250);
     return () => window.clearInterval(timer);
-  }, [spectatorEffects.length]);
+  }, [recentEffects.length, spectatorEffects.length]);
 
   useEffect(() => {
     if (!isReplay || !replayGameId) {
@@ -196,6 +204,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         seedExpiredEffectSeenAt(loadedEffects, effectSeenAtRef.current, nowMs);
         setEffectClockMs(nowMs);
         setSpectatorEffects(loadedEffects);
+        setRecentEffects([]);
         effectSeqRef.current = loadedEffects.reduce(
           (max, effect) => Math.max(max, effect.seq),
           0,
@@ -242,6 +251,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     setNarrativeRows([]);
     narrativeSeqRef.current = 0;
     setSpectatorEffects([]);
+    setRecentEffects([]);
     effectSeenAtRef.current = {};
     setEffectClockMs(Date.now());
     effectSeqRef.current = 0;
@@ -298,6 +308,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
               const nowMs = Date.now();
               ingestLiveSpectatorEffects(
                 setSpectatorEffects,
+                setRecentEffects,
                 effects,
                 effectSeenAtRef.current,
                 nowMs,
@@ -334,6 +345,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           const nowMs = Date.now();
           ingestLiveSpectatorEffects(
             setSpectatorEffects,
+            setRecentEffects,
             [effect],
             effectSeenAtRef.current,
             nowMs,
@@ -694,6 +706,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         currentPhase={currentPhase}
         nowMs={effectClockMs}
         seenAtByKey={effectSeenAtRef.current}
+        recentEffects={recentEffects}
       />
       {!gameStarted && !isReplay && (
         <div className="game-quick-assign-helper">
@@ -823,6 +836,7 @@ function appendNarrativeRow(
 
 function ingestLiveSpectatorEffects(
   setEffects: Dispatch<SetStateAction<SpectatorEffect[]>>,
+  setRecentEffects: Dispatch<SetStateAction<RecentSpectatorEffect[]>>,
   effects: SpectatorEffect[],
   seenAtByKey: EffectSeenAtMap,
   nowMs: number,
@@ -830,8 +844,26 @@ function ingestLiveSpectatorEffects(
   if (effects.length === 0) {
     return;
   }
+  logSpectatorEffectsReceived(effects);
   seedEffectSeenAt(effects, seenAtByKey, nowMs);
   setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
+  setRecentEffects((prev) => appendRecentSpectatorEffects(prev, effects, nowMs));
+}
+
+function logSpectatorEffectsReceived(effects: SpectatorEffect[]) {
+  if (!import.meta.env.DEV || import.meta.env.MODE === 'test') {
+    return;
+  }
+  for (const effect of effects) {
+    if (effect.kind === 'death_reveal') {
+      continue;
+    }
+    console.info('[spectator_effect received]', {
+      kind: effect.kind,
+      seq: effect.seq,
+      target: effect.target_seat,
+    });
+  }
 }
 
 function deriveSeatRoles(events: GameEvent[]): Partial<Record<number, SeatRole>> {

@@ -60,7 +60,7 @@ ROLE_PHASES = (
 
 MODEL_NAMES_AND_NICKNAMES = {
     "MiniMax-M2.7-highspeed",
-    "qwen3.6-plus",
+    "qwen3.6-flash",
     "kimi-k2.5",
     "mimo-v2.5-pro",
     "glm-5.1",

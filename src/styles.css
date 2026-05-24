@@ -2058,14 +2058,14 @@ button {
 
 .game-effect-announcements {
   position: absolute;
-  top: clamp(124px, 15vh, 154px);
+  top: clamp(112px, 14vh, 148px);
   left: 50%;
   z-index: 9;
   display: flex;
   flex-direction: column;
   gap: 8px;
   align-items: center;
-  width: min(420px, calc(100vw - 32px));
+  width: min(560px, calc(100vw - 28px));
   transform: translateX(-50%);
 }
 
@@ -2073,15 +2073,15 @@ button {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  min-height: 38px;
-  padding: 6px 12px 6px 8px;
+  min-height: 46px;
+  padding: 8px 16px 8px 10px;
   color: #fff7df;
-  font-size: clamp(13px, 1.15vw, 15px);
+  font-size: clamp(15px, 1.35vw, 18px);
   font-weight: 800;
   line-height: 1.2;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.92);
-  background: rgba(8, 8, 12, 0.78);
-  border: 1px solid rgba(255, 235, 180, 0.34);
+  background: rgba(8, 8, 12, 0.88);
+  border: 1px solid rgba(255, 235, 180, 0.52);
   border-radius: 999px;
   box-shadow:
     0 10px 28px rgba(0, 0, 0, 0.42),
@@ -2091,9 +2091,9 @@ button {
 
 .game-effect-announcement-icon {
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  margin-right: 7px;
+  width: 34px;
+  height: 34px;
+  margin-right: 9px;
   object-fit: contain;
   filter:
     drop-shadow(0 2px 6px rgba(0, 0, 0, 0.74))

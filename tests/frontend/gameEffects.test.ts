@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   activeEffectAnnouncements,
   activePotionEffects,
+  activeRecentEffectAnnouncements,
+  appendRecentSpectatorEffects,
   appendUniqueSpectatorEffects,
   buildSeatEffectMap,
   deathRevealSeats,
@@ -321,6 +323,60 @@ describe('gameEffects', () => {
     ).toEqual([]);
   });
 
+  it('keeps live recent announcements visible independent of current day and phase', () => {
+    const effects = [
+      effect(1, 'guard_shield', 8, 'guard_shield', {}, 0, 'NIGHT_GUARD'),
+      effect(2, 'wolf_attack', 9, 'wolf_attack', { blocked_by_guard: true }, 3000, 'NIGHT_WOLF_VOTE'),
+      effect(3, 'seer_vision', 5, 'seer_vision', {}, 1800, 'NIGHT_SEER'),
+      effect(4, 'witch_potion', 6, 'potion_antidote', { action: 'save' }, 1200, 'NIGHT_WITCH', 3),
+      effect(5, 'death_reveal', 6, 'out_badge', {}, 0, 'DAY_ANNOUNCE'),
+    ];
+
+    const recent = appendRecentSpectatorEffects([], effects, 1000);
+    const active = activeRecentEffectAnnouncements(recent, 8999);
+    const expired = activeRecentEffectAnnouncements(recent, 9001);
+
+    expect(recent.map((item) => item.effect.kind)).toEqual([
+      'guard_shield',
+      'wolf_attack',
+      'seer_vision',
+      'witch_potion',
+    ]);
+    expect(active.map((item) => item.text)).toEqual([
+      '守卫护盾：8号',
+      '狼人袭击：9号',
+      '预言查验：5号',
+      '女巫解药：6号',
+    ]);
+    expect(expired).toEqual([]);
+  });
+
+  it('does not create a recent announcement for witch skip payloads', () => {
+    const skip = effect(
+      4,
+      'witch_potion',
+      6,
+      'potion_antidote',
+      { action: 'skip' },
+      1200,
+      'NIGHT_WITCH',
+      3,
+    );
+
+    const recent = appendRecentSpectatorEffects([], [skip], 1000);
+    const seenAtByKey = { [effectIdentity(skip)]: 1000 };
+
+    expect(recent).toEqual([]);
+    expect(activeRecentEffectAnnouncements(recent, 1200)).toEqual([]);
+    expect(
+      activePotionEffects([skip], 'NIGHT_WITCH', {
+        currentDay: 1,
+        nowMs: 1200,
+        seenAtByKey,
+      }),
+    ).toEqual([]);
+  });
+
   it('deduplicates spectator effects without resetting first-seen timestamps', () => {
     const wolf = effect(2, 'wolf_attack', 4, 'wolf_attack', {}, 0, 'NIGHT_WOLF_VOTE');
     const duplicate = { ...wolf };
@@ -371,7 +427,7 @@ describe('gameEffects', () => {
       ),
     ).toBe(3000);
     expect(effectDisplayDurationMs(effect(5, 'wolf_attack', 4, 'wolf_attack', {}, 5000))).toBe(5000);
-    expect(effectAnnouncementDurationMs(effect(6, 'seer_vision', 4, 'seer_vision'))).toBe(5000);
+    expect(effectAnnouncementDurationMs(effect(6, 'seer_vision', 4, 'seer_vision'))).toBe(8000);
   });
 });
 
