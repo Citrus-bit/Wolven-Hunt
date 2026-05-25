@@ -479,7 +479,7 @@ STEP-07 新增观赛特效投影 `SpectatorEffect`，它从完整 EventLog 派�
 - `witch_action(save|poison)` 派生 `witch_potion`，从女巫座位飞向目标座位；`skip` 不派生特效。
 - `day_announce` 中的死亡列表派生 `death_reveal`，前端在白天公布后再灰化头像。
 
-`guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` 是现场观赛 transient effects，只能在非终局阶段播放；live pacing 中它们是动作完成后的可见节奏点，后端发布对应投影后可等待前端 `spectator_effect_rendered:<seq>` ack 或超时，再推进下一阶段。前端必须在座位叠层/药水动画挂载并短暂可见后再发送该 ack，不能在收到 SSE 的同一刻抢跑推进。前端新建观赛对局必须显式使用 `live` pacing，并采用 `start_paused=true -> 建立 SSE -> 座位与特效层挂载 -> POST /run` 的启动握手，确保首个夜晚现场 effect 不会在前端订阅前被写成历史。SSE 中收到的 live transient effect 是现场座位叠层动画的唯一触发来源，REST narrative/effects 回补只能更新历史 UI 状态，不得推进 `Last-Event-ID` cursor 或吞掉后续同 seq live effect。live SSE cursor 必须以“已发布投影”的 raw seq 为准；服务端不得让客户端 cursor 越过尚未发布 `spectator_effect` 的 private action seq。进入 `GAME_END` / `role_reveal` 后前端必须抑制并清空这类未完成动效，不得集中补播积压特效。复盘或 REST 回补中已发生的非死亡 transient effects 默认视为历史并标记为过期；`death_reveal` / `out_badge` 和 `role_reveal` 仍可在终局保留。
+`guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` 是现场观赛 transient effects，只能在非终局阶段播放；live pacing 中它们是动作完成后的可见节奏点，后端发布对应投影后可等待前端 `spectator_effect_rendered:<seq>` ack 或超时，再推进下一阶段。前端必须在座位叠层/药水动画挂载并短暂可见后再发送该 ack，不能在收到 SSE 的同一刻抢跑推进。前端新建观赛对局必须显式使用 `live` pacing，并采用 `start_paused=true -> 建立 SSE -> 座位与特效层挂载 -> POST /run` 的启动握手，确保首个夜晚现场 effect 不会在前端订阅前被写成历史。SSE 中收到的 live transient effect 是现场座位叠层动画的唯一触发来源，REST narrative/effects 回补只能更新历史 UI 状态，不得推进 `Last-Event-ID` cursor、不得清空或过期正在播放的 live transient effect，也不得吞掉后续同 seq live effect；narrative-only 回调不得把 cursor 推过同 seq 尚未消费的 `spectator_effect`。live SSE cursor 必须以“已发布投影”的 raw seq 为准；服务端不得让客户端 cursor 越过尚未发布 `spectator_effect` 的 private action seq。进行中的 live 观赛对局允许写入 UI-only `localStorage` 快照，用于刷新、HMR 或页面重载后恢复 `gameId`、席位分配、`seat_presentation`、启动状态、SSE raw cursor、effects cursor 与尚在可见窗口内的 recent transient effect queue，并重新订阅 SSE；该快照必须在退出、终局或复盘入口清理，不进入 EventLog、manifest、narrative、SSE、replay/resimulate 或 Referee/RuleEngine 边界。进入 `GAME_END` / `role_reveal` 后前端必须抑制并清空这类未完成动效，不得集中补播积压特效。复盘或 REST 回补中已发生的非死亡 transient effects 默认视为历史并标记为过期；`death_reveal` / `out_badge` 和 `role_reveal` 仍可在终局保留。
 
 `GET /games/{id}/effects?after=<seq>` 返回 spectator-only effects。SSE 使用 `event: spectator_effect` 推送同一投影；这不允许前端绕过 Referee 获取可用于玩家决策的私有事件原文。
 
@@ -597,7 +597,7 @@ STEP-08 目标是 10 个 AI 自动对局从前端开局后可无卡点观赛到�
   - 已分配态：圆形模型头像 + 外侧加粗昵称文字；点击头像同样触发 picker，可重新选择。昵称需带增强文字阴影，避免白天背景下可读性不足。
 - 席位编号是 `<GameSeat />` 的纯 UI 徽标：基于 `seatIndex + 1` 显示 1–10，左列编号位于圆圈左下角，右列编号位于圆圈右下角；编号不写入 `assignments`，也不进入 Referee / FSM / RuleEngine 边界。
 - 模型选择 `<ModelPicker />`：使用游戏页自有弹窗外壳（不复用大厅 `LobbyModal` 或 `settings_panel_bg.png`），渲染 `MODEL_SLOTS` 10 张卡片网格；已被其他席位占用的卡片主体 `disabled` + 灰度滤镜，但卡片右下角保留图标型「交换」按钮，用于把当前席位模型与该模型所在席位互换。当前席位已选卡片黄色边框高亮。
-- 分配状态 `assignments: (number | null)[]`（长度 10）保存在 `<GamePage />` 内部 state；不写 `localStorage`，刷新页面恢复初态。每个 model slot 在 10 席位中至多出现一次。
+- 分配状态 `assignments: (number | null)[]`（长度 10）保存在 `<GamePage />` 内部 state；未开局准备态不写 `localStorage`，刷新页面恢复初态。点击「夜深了...」创建 live 观赛对局后，可按 §17.1.1 写入进行中对局恢复快照；退出或终局后必须清理。每个 model slot 在 10 席位中至多出现一次。
 - 模型交换只调换 `assignments` 中两个 seat index 的 slot 值，不写 `localStorage` / 事件日志 / replay，不触发 Referee / FSM / RuleEngine，也不清空按 model slot 记录的 `testResults`；测试徽标随模型头像移动。
 - 「一键分配」是游戏准备页的纯 UI 快捷操作：入口位于左下角，由 `quick_assign_raccoon.png` 装饰图与按钮组成；点击后用 Fisher-Yates 洗牌 `MODEL_SLOTS` 的 0–9 索引并一次性写入 `assignments`。该随机不写事件日志、不参与 replay、不进入 Referee / FSM / RuleEngine；触发后必须清空旧 `testResults` 与测试提示，避免旧连通性标记误用于新席位。
 - 席位身份占位 `.game-seat-role` 本步骤 `display: none`，作为 `身份分配 / 标识展示` 的扩展点，**不进入** Referee 边界；后续与游戏阶段同步显示分配结果时仍由 Referee 提供脱敏视角，不绕过 §18.1 单一权限边界。

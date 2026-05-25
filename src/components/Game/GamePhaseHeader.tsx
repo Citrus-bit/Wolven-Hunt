@@ -13,6 +13,8 @@ type GamePhaseHeaderProps = {
   timings: GameTimings | null;
   speakerSeat?: number | null;
   speechComplete?: boolean;
+  startupPending?: boolean;
+  startupMessage?: string;
 };
 
 export function GamePhaseHeader({
@@ -20,6 +22,8 @@ export function GamePhaseHeader({
   timings,
   speakerSeat,
   speechComplete = false,
+  startupPending = false,
+  startupMessage = '后端服务正在启动，请耐心等待',
 }: GamePhaseHeaderProps) {
   const durationMs = useMemo(() => phaseDurationMs(phase, timings), [phase, timings]);
   const [remainingMs, setRemainingMs] = useState(durationMs);
@@ -28,7 +32,10 @@ export function GamePhaseHeader({
   useEffect(() => {
     setRemainingMs(durationMs);
     setElapsedMs(0);
-    if ((durationMs <= 0 && !phaseShowsWaitingFeedback(phase)) || speechComplete) {
+    if (
+      !startupPending &&
+      ((durationMs <= 0 && !phaseShowsWaitingFeedback(phase)) || speechComplete)
+    ) {
       return undefined;
     }
     const startedAt = window.performance.now();
@@ -38,17 +45,28 @@ export function GamePhaseHeader({
       setRemainingMs(Math.max(0, durationMs - elapsed));
     }, 250);
     return () => window.clearInterval(timer);
-  }, [durationMs, phase, speakerSeat, speechComplete]);
+  }, [durationMs, phase, speakerSeat, speechComplete, startupPending]);
 
   const countdownText = phaseCountdownText(phase, durationMs, remainingMs, {
     speakerSeat,
     speechComplete,
   });
-  const waitingText = phaseWaitingText(phase, elapsedMs, { speechComplete });
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const waitingText = startupPending
+    ? `${startupMessage} · 已等待 ${elapsedSeconds}s`
+    : phaseWaitingText(phase, elapsedMs, { speechComplete });
 
   return (
-    <div className="game-phase-header" aria-live="polite">
-      <span className="game-phase-countdown">{countdownText}</span>
+    <div
+      className={[
+        'game-phase-header',
+        startupPending ? 'game-phase-header--startup' : '',
+      ].join(' ')}
+      aria-live="polite"
+    >
+      <span className="game-phase-countdown">
+        {startupPending ? <span className="game-phase-spinner" aria-hidden="true" /> : countdownText}
+      </span>
       <span className="game-phase-status">
         {phaseStatusText(phase, speakerSeat, speechComplete)}
       </span>

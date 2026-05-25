@@ -473,6 +473,11 @@ describe('gameEffects', () => {
       nowMs: 11000,
       seenAtByKey,
     })[4].wolfAttack).toBe(true);
+
+    const recent = appendRecentSpectatorEffects([], [wolf], 11000);
+    expect(activeRecentTransientEffects(recent, 11100).map((item) => item.id)).toEqual([
+      effectIdentity(wolf),
+    ]);
   });
 
   it('builds recent effect announcements without private result details', () => {

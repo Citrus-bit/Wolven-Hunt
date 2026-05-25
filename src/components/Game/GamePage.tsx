@@ -1,6 +1,12 @@
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
 import { INITIAL_STAGE, type GameStage } from '../../lib/gameStage';
 import {
+  isPendingRunLaunchState,
+  isStartupPendingLaunchState,
+  launchStateAfterPhase,
+  type LaunchState,
+} from '../../lib/gameLaunchState';
+import {
   createGame,
   getEffects,
   getEvents,
@@ -18,6 +24,11 @@ import {
 import { buildAgentSpecs } from '../../lib/agentSpecs';
 import { preloadGameEffectAssets } from '../../lib/effectAssets';
 import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
+import {
+  clearLiveGameSession,
+  readLiveGameSession,
+  writeLiveGameSession,
+} from '../../lib/liveGameSession';
 import {
   appendRecentSpectatorEffects,
   appendUniqueSpectatorEffects,
@@ -71,6 +82,7 @@ const AUDIO_ACK_TIMEOUT_MS = 6000;
 const leftSeats = [0, 1, 2, 3, 4];
 const rightSeats = [5, 6, 7, 8, 9];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
+const EMPTY_ASSIGNMENTS = Array.from({ length: SEAT_COUNT }, () => null);
 
 type GamePageProps = {
   onExitGame: () => void;
@@ -103,11 +115,19 @@ function withModelTestTiming(
 }
 
 export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
-  const [gameId, setGameId] = useState<string | null>(replayGameId);
-  const [assignments, setAssignments] = useState<(number | null)[]>(() =>
-    Array.from({ length: SEAT_COUNT }, () => null),
+  const restoredLiveSessionRef = useRef(
+    replayGameId === null ? readLiveGameSession() : null,
   );
-  const [seatPresentation, setSeatPresentation] = useState<SeatPresentationMap>({});
+  const restoredLiveSession = restoredLiveSessionRef.current;
+  const [gameId, setGameId] = useState<string | null>(
+    replayGameId ?? restoredLiveSession?.gameId ?? null,
+  );
+  const [assignments, setAssignments] = useState<(number | null)[]>(() =>
+    restoredLiveSession?.assignments ?? EMPTY_ASSIGNMENTS,
+  );
+  const [seatPresentation, setSeatPresentation] = useState<SeatPresentationMap>(
+    () => restoredLiveSession?.seatPresentation ?? {},
+  );
   const [pickerSeat, setPickerSeat] = useState<number | null>(null);
   const [stage, setStage] = useState<GameStage>(INITIAL_STAGE);
   const [bgPhase, setBgPhase] = useState<BgPhase>('idle');
@@ -124,14 +144,21 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const [narrativeRows, setNarrativeRows] = useState<NarrativeRow[]>([]);
   const narrativeSeqRef = useRef(0);
   const [spectatorEffects, setSpectatorEffects] = useState<SpectatorEffect[]>([]);
-  const [recentEffects, setRecentEffects] = useState<RecentSpectatorEffect[]>([]);
+  const [recentEffects, setRecentEffects] = useState<RecentSpectatorEffect[]>(() =>
+    restoredLiveSession?.recentEffects ?? [],
+  );
   const effectSeenAtRef = useRef<EffectSeenAtMap>({});
   const [effectClockMs, setEffectClockMs] = useState(() => Date.now());
-  const effectSeqRef = useRef(0);
+  const effectSeqRef = useRef(restoredLiveSession?.effectSeq ?? 0);
   const effectAckSeqRef = useRef(new Set<number>());
   const terminalRef = useRef(false);
-  const streamCursorRef = useRef(0);
-  const pendingRunGameIdRef = useRef<string | null>(null);
+  const streamCursorRef = useRef(restoredLiveSession?.streamCursor ?? 0);
+  const pendingStreamCursorSeqRef = useRef(restoredLiveSession?.streamCursor ?? 0);
+  const pendingRunGameIdRef = useRef<string | null>(
+    restoredLiveSession && isPendingRunLaunchState(restoredLiveSession.launchState)
+      ? restoredLiveSession.gameId
+      : null,
+  );
   const runStartedGameIdsRef = useRef(new Set<string>());
   const [timings, setTimings] = useState<GameTimings | null>(null);
   const [currentPhase, setCurrentPhase] = useState<string | null>(null);
@@ -139,11 +166,22 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     'idle' | 'connecting' | 'open' | 'error' | 'failed'
   >('idle');
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
-  const [isStartingGame, setIsStartingGame] = useState(false);
+  const [launchState, setLaunchState] = useState<LaunchState>(
+    restoredLiveSession?.launchState ?? 'idle',
+  );
   const [allowStartWithWarnings, setAllowStartWithWarnings] = useState(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const gameAudioControls = useGameAudioControls();
   const isReplay = replayGameId !== null;
+  const liveSessionSnapshotRef = useRef({
+    gameId,
+    assignments,
+    seatPresentation,
+    launchState,
+    streamCursor: streamCursorRef.current,
+    effectSeq: effectSeqRef.current,
+    recentEffects,
+  });
 
   const allSeatsAssigned = assignments.every(
     (assignment) => assignment !== null,
@@ -165,8 +203,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     stage.phase === 'day' ? '/assets/game/day_bg.png' : '/assets/game/night_bg.png';
   const gameStarted = gameId !== null;
   const finished = isGameFinished(events);
+  const isStartingGame = ['creating', 'connecting_stream', 'starting_backend'].includes(
+    launchState,
+  );
+  const startupPending =
+    isStartupPendingLaunchState(launchState, { isReplay, gameStarted, finished });
   const freezePhase = deriveLastPlayablePhase(events);
   const renderPhase = finished ? freezePhase : currentPhase;
+  const phaseHeaderPhase = startupPending && renderPhase === null ? 'GAME_START' : renderPhase;
   const effectPhase = finished ? 'GAME_END' : currentPhase;
   const speechProgress = deriveDaySpeechProgress(events, renderPhase);
   const currentSpeakerSeat = finished ? null : speechProgress.nextSpeakerSeat;
@@ -225,6 +269,69 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           .filter((row): row is ModelTestTimingRow => row !== null)
       : [];
 
+  const persistLiveSessionSnapshot = (
+    overrides: Partial<{
+      gameId: string | null;
+      assignments: (number | null)[];
+      seatPresentation: SeatPresentationMap;
+      launchState: LaunchState;
+      streamCursor: number;
+      effectSeq: number;
+      recentEffects: RecentSpectatorEffect[];
+    }> = {},
+  ) => {
+    const next = { ...liveSessionSnapshotRef.current, ...overrides };
+    liveSessionSnapshotRef.current = next;
+    if (
+      isReplay ||
+      terminalRef.current ||
+      !next.gameId ||
+      next.launchState === 'idle' ||
+      next.launchState === 'failed'
+    ) {
+      return;
+    }
+    writeLiveGameSession({
+      gameId: next.gameId,
+      assignments: next.assignments,
+      seatPresentation: next.seatPresentation,
+      launchState: next.launchState,
+      streamCursor: next.streamCursor,
+      effectSeq: next.effectSeq,
+      recentEffects: next.recentEffects,
+    });
+  };
+
+  const updateStreamCursor = (seq: number) => {
+    const next = Math.max(streamCursorRef.current, seq);
+    if (next === streamCursorRef.current) {
+      return;
+    }
+    streamCursorRef.current = next;
+    persistLiveSessionSnapshot({ streamCursor: next });
+  };
+
+  const updateEffectSeq = (seq: number) => {
+    const next = Math.max(effectSeqRef.current, seq);
+    if (next === effectSeqRef.current) {
+      return;
+    }
+    effectSeqRef.current = next;
+    persistLiveSessionSnapshot({ effectSeq: next });
+  };
+
+  const updateLaunchState = (
+    next:
+      | LaunchState
+      | ((current: LaunchState) => LaunchState),
+  ) => {
+    setLaunchState((current) => {
+      const value = typeof next === 'function' ? next(current) : next;
+      persistLiveSessionSnapshot({ launchState: value });
+      return value;
+    });
+  };
+
   useEffect(() => {
     gameAudio.preload();
     preloadGameEffectAssets();
@@ -232,15 +339,35 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   }, []);
 
   useEffect(() => {
+    liveSessionSnapshotRef.current = {
+      gameId,
+      assignments,
+      seatPresentation,
+      launchState,
+      streamCursor: streamCursorRef.current,
+      effectSeq: effectSeqRef.current,
+      recentEffects,
+    };
+  }, [assignments, gameId, launchState, recentEffects, seatPresentation]);
+
+  useEffect(() => {
     terminalRef.current = finished;
     if (!finished) {
       return;
     }
+    clearLiveGameSession(gameId);
+    liveSessionSnapshotRef.current = {
+      ...liveSessionSnapshotRef.current,
+      recentEffects: [],
+    };
     const nowMs = Date.now();
     expireTransientEffectSeenAt(spectatorEffects, effectSeenAtRef.current, nowMs);
     setEffectClockMs(nowMs);
-    setRecentEffects((current) => (current.length === 0 ? current : []));
-  }, [finished, spectatorEffects]);
+    setRecentEffects((current) => {
+      const next = current.length === 0 ? current : [];
+      return next;
+    });
+  }, [finished, gameId, spectatorEffects]);
 
   useEffect(() => {
     if (spectatorEffects.length === 0 && recentEffects.length === 0) {
@@ -249,7 +376,11 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     const timer = window.setInterval(() => {
       const nowMs = Date.now();
       setEffectClockMs(nowMs);
-      setRecentEffects((current) => pruneRecentSpectatorEffects(current, nowMs));
+      setRecentEffects((current) => {
+        const next = pruneRecentSpectatorEffects(current, nowMs);
+        persistLiveSessionSnapshot({ recentEffects: next });
+        return next;
+      });
     }, 250);
     return () => window.clearInterval(timer);
   }, [recentEffects.length, spectatorEffects.length]);
@@ -258,6 +389,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     if (!isReplay || !replayGameId) {
       return undefined;
     }
+    clearLiveGameSession();
     let cancelled = false;
     setStreamStatus('connecting');
     Promise.all([getGame(replayGameId), getEvents(replayGameId), getEffects(replayGameId)])
@@ -276,7 +408,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         terminalRef.current = isGameFinished(loadedEvents);
         setEffectClockMs(nowMs);
         setSpectatorEffects(loadedEffects);
-        setRecentEffects([]);
+        setRecentEffects((current) => (current.length === 0 ? current : []));
         effectSeqRef.current = loadedEffects.reduce(
           (max, effect) => Math.max(max, effect.seq),
           0,
@@ -315,6 +447,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     if (!gameId) {
       setStreamStatus('idle');
       setCurrentPhase(null);
+      updateLaunchState('idle');
       return undefined;
     }
 
@@ -323,13 +456,32 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     setNarrativeRows([]);
     narrativeSeqRef.current = 0;
     setSpectatorEffects([]);
-    setRecentEffects([]);
+    const restoredRecentEffects = restoredLiveSession?.gameId === gameId
+      ? restoredLiveSession.recentEffects
+      : [];
+    setRecentEffects(restoredRecentEffects);
+    liveSessionSnapshotRef.current = {
+      ...liveSessionSnapshotRef.current,
+      recentEffects: restoredRecentEffects,
+    };
     effectSeenAtRef.current = {};
+    if (restoredLiveSession?.gameId === gameId) {
+      seedLiveEffectSeenAt(
+        restoredLiveSession.recentEffects.map((item) => item.effect),
+        effectSeenAtRef.current,
+        Date.now(),
+      );
+    }
     setEffectClockMs(Date.now());
-    effectSeqRef.current = 0;
+    effectSeqRef.current = restoredLiveSession?.gameId === gameId
+      ? restoredLiveSession.effectSeq
+      : 0;
     effectAckSeqRef.current = new Set();
     terminalRef.current = false;
-    streamCursorRef.current = 0;
+    streamCursorRef.current = restoredLiveSession?.gameId === gameId
+      ? restoredLiveSession.streamCursor
+      : 0;
+    pendingStreamCursorSeqRef.current = streamCursorRef.current;
     runStartedGameIdsRef.current.delete(gameId);
     setCurrentPhase(null);
     setStreamStatus('connecting');
@@ -341,21 +493,42 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       source = subscribeGameEvents(
         gameId,
         () => {
+          if (closed) {
+            return;
+          }
           setStreamStatus('open');
           setReconnectAttempts(0);
+          if (pendingRunGameIdRef.current === gameId) {
+            updateLaunchState('starting_backend');
+          }
           void startPausedGameWhenReady(gameId);
         },
         (event) => {
+          if (closed) {
+            return;
+          }
           setStreamStatus('open');
           setReconnectAttempts(0);
-          streamCursorRef.current = Math.max(streamCursorRef.current, event.seq);
+          pendingStreamCursorSeqRef.current = Math.max(
+            pendingStreamCursorSeqRef.current,
+            event.seq,
+          );
           if (isTerminalGameEvent(event)) {
             terminalRef.current = true;
-            setRecentEffects((current) => (current.length === 0 ? current : []));
+            updateStreamCursor(event.seq);
+            setRecentEffects((current) => {
+              const next = current.length === 0 ? current : [];
+              persistLiveSessionSnapshot({ recentEffects: next });
+              return next;
+            });
             setEffectClockMs(Date.now());
           }
           if (event.type === 'phase_enter') {
             setCurrentPhase(String(event.payload.phase ?? event.phase));
+            const phase = String(event.payload.phase ?? event.phase);
+            updateLaunchState((current) => launchStateAfterPhase(current, phase));
+          } else if (event.phase !== 'GAME_START') {
+            updateLaunchState((current) => launchStateAfterPhase(current, event.phase));
           }
           setEvents((prev) => {
             if (prev.some((existing) => existing.seq === event.seq)) {
@@ -374,12 +547,30 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         },
         () => {
           source?.close();
+          if (closed) {
+            return;
+          }
+          if (terminalRef.current) {
+            setStreamStatus('open');
+            return;
+          }
           void getGame(gameId).then((summary) => {
+            if (closed) {
+              return;
+            }
             setCurrentPhase(summary.phase);
             setTimings(summary.timings);
             if (summary.status === 'finished') {
               terminalRef.current = true;
-              setRecentEffects((current) => (current.length === 0 ? current : []));
+              setRecentEffects((current) => {
+                const next = current.length === 0 ? current : [];
+                return next;
+              });
+              liveSessionSnapshotRef.current = {
+                ...liveSessionSnapshotRef.current,
+                recentEffects: [],
+              };
+              clearLiveGameSession(gameId);
             }
             if (summary.status === 'failed') {
               setStreamStatus('failed');
@@ -387,24 +578,28 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           }).catch(() => undefined);
           void getNarrative(gameId, narrativeSeqRef.current)
             .then((rows) => rows.forEach((row) => {
+              if (closed) {
+                return;
+              }
               narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
               appendNarrativeRow(setNarrativeRows, row);
             }))
             .catch(() => undefined);
           void getEffects(gameId, effectSeqRef.current)
             .then((effects) => {
+              if (closed) {
+                return;
+              }
               const nowMs = Date.now();
-              ingestLiveSpectatorEffects(
+              ingestHistoricalSpectatorEffects(
                 setSpectatorEffects,
-                setRecentEffects,
                 effects,
                 effectSeenAtRef.current,
                 nowMs,
                 terminalRef.current,
-                false,
               );
               effects.forEach((effect) => {
-                effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
+                updateEffectSeq(effect.seq);
               });
               if (effects.length > 0) {
                 setEffectClockMs(nowMs);
@@ -418,6 +613,11 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           setReconnectAttempts(nextAttempt);
           setStreamStatus('error');
           if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
+            updateLaunchState((current) =>
+              current === 'connecting_stream' || current === 'starting_backend'
+                ? 'failed'
+                : current,
+            );
             return;
           }
           reconnectTimer = window.setTimeout(() => {
@@ -425,11 +625,16 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           }, RECONNECT_DELAYS_MS[nextAttempt - 1]);
         },
         (row) => {
+          if (closed) {
+            return;
+          }
           narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
-          streamCursorRef.current = Math.max(streamCursorRef.current, row.seq);
           appendNarrativeRow(setNarrativeRows, row);
         },
         (effect) => {
+          if (closed) {
+            return;
+          }
           const nowMs = Date.now();
           ingestLiveSpectatorEffects(
             setSpectatorEffects,
@@ -438,15 +643,17 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             effectSeenAtRef.current,
             nowMs,
             terminalRef.current,
+            (nextRecentEffects) => {
+              persistLiveSessionSnapshot({ recentEffects: nextRecentEffects });
+            },
           );
           setEffectClockMs(nowMs);
-          effectSeqRef.current = Math.max(effectSeqRef.current, effect.seq);
-          streamCursorRef.current = Math.max(streamCursorRef.current, effect.seq);
+          updateEffectSeq(effect.seq);
         },
         lastSeq,
       );
     };
-    connect(0, 0);
+    connect(streamCursorRef.current, 0);
 
     return () => {
       closed = true;
@@ -469,6 +676,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         if (!cancelled) {
           setCurrentPhase(summary.phase);
           setTimings(summary.timings);
+          updateLaunchState((current) =>
+            summary.status === 'failed'
+              ? 'failed'
+              : launchStateAfterPhase(current, summary.phase),
+          );
+          if (summary.status === 'finished') {
+            clearLiveGameSession(gameId);
+          }
           if (Object.keys(summary.seat_presentation ?? {}).length > 0) {
             setSeatPresentation(summary.seat_presentation);
           }
@@ -733,26 +948,48 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       return;
     }
     setPickerSeat(null);
-    setIsStartingGame(true);
+    updateLaunchState('creating');
     setTestMessage('正在创建对局并接入模型');
     try {
       void gameAudioControls.unlock();
       const agents = buildAgentSpecs(assignments);
       const presentation = buildSeatPresentation(assignments);
       setSeatPresentation(presentation);
+      liveSessionSnapshotRef.current = {
+        gameId: null,
+        assignments,
+        seatPresentation: presentation,
+        launchState: 'creating',
+        streamCursor: 0,
+        effectSeq: 0,
+        recentEffects: [],
+      };
       const created = await createGame({
         agents,
         pacing: 'live',
         startPaused: true,
         seatPresentation: presentation,
       });
+      streamCursorRef.current = 0;
+      effectSeqRef.current = 0;
       pendingRunGameIdRef.current = created.game_id;
+      const createdSnapshot = {
+        gameId: created.game_id,
+        assignments,
+        seatPresentation: presentation,
+        launchState: 'connecting_stream' as const,
+        streamCursor: 0,
+        effectSeq: 0,
+        recentEffects: [],
+      };
+      liveSessionSnapshotRef.current = createdSnapshot;
+      writeLiveGameSession(createdSnapshot);
+      setLaunchState('connecting_stream');
       setGameId(created.game_id);
       transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
     } catch (caught) {
+      updateLaunchState('failed');
       setTestMessage(caught instanceof Error ? caught.message : '创建游戏失败');
-    } finally {
-      setIsStartingGame(false);
     }
   };
 
@@ -764,6 +1001,12 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       return;
     }
     effectAckSeqRef.current.add(effect.seq);
+    updateEffectSeq(effect.seq);
+    updateStreamCursor(effect.seq);
+    pendingStreamCursorSeqRef.current = Math.max(
+      pendingStreamCursorSeqRef.current,
+      effect.seq,
+    );
     void sendAck(gameId, effect.phase, spectatorEffectAckEvent(effect.seq)).catch(
       () => undefined,
     );
@@ -788,10 +1031,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       setTimings(summary.timings);
       setCurrentPhase(summary.phase);
       if (summary.status === 'failed') {
+        updateLaunchState('failed');
         setStreamStatus('failed');
+      } else {
+        updateLaunchState((current) => launchStateAfterPhase(current, summary.phase));
       }
     } catch (error) {
       runStartedGameIdsRef.current.delete(id);
+      updateLaunchState('failed');
       setStreamStatus('error');
       setTestMessage(error instanceof Error ? error.message : '启动游戏失败');
     }
@@ -799,6 +1046,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
 
   const handleConfirmExit = () => {
     gameAudio.stopAll();
+    clearLiveGameSession(gameId);
     setExitConfirmOpen(false);
     onExitGame();
   };
@@ -847,10 +1095,12 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       <StageIndicator stage={stage} />
       {gameStarted && (
         <GamePhaseHeader
-          phase={renderPhase}
+          phase={phaseHeaderPhase}
           timings={timings}
           speakerSeat={currentSpeakerSeat}
           speechComplete={finished || speechProgress.complete}
+          startupPending={startupPending}
+          startupMessage="后端服务正在启动，请耐心等待"
         />
       )}
       <GameChat
@@ -1013,6 +1263,7 @@ function ingestLiveSpectatorEffects(
   seenAtByKey: EffectSeenAtMap,
   nowMs: number,
   terminal: boolean,
+  onRecentEffectsChange?: (effects: RecentSpectatorEffect[]) => void,
   live = true,
 ) {
   if (effects.length === 0) {
@@ -1022,12 +1273,38 @@ function ingestLiveSpectatorEffects(
   if (terminal || !live) {
     expireTransientEffectSeenAt(effects, seenAtByKey, nowMs);
     setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
-    setRecentEffects((prev) => (prev.length === 0 ? prev : []));
+    setRecentEffects((prev) => {
+      const next = prev.length === 0 ? prev : [];
+      onRecentEffectsChange?.(next);
+      return next;
+    });
     return;
   }
   seedLiveEffectSeenAt(effects, seenAtByKey, nowMs);
   setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
-  setRecentEffects((prev) => appendRecentSpectatorEffects(prev, effects, nowMs));
+  setRecentEffects((prev) => {
+    const next = appendRecentSpectatorEffects(prev, effects, nowMs);
+    onRecentEffectsChange?.(next);
+    return next;
+  });
+}
+
+function ingestHistoricalSpectatorEffects(
+  setEffects: Dispatch<SetStateAction<SpectatorEffect[]>>,
+  effects: SpectatorEffect[],
+  seenAtByKey: EffectSeenAtMap,
+  nowMs: number,
+  terminal: boolean,
+) {
+  if (effects.length === 0) {
+    return;
+  }
+  if (terminal) {
+    expireTransientEffectSeenAt(effects, seenAtByKey, nowMs);
+  } else {
+    seedExpiredEffectSeenAt(effects, seenAtByKey, nowMs);
+  }
+  setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
 }
 
 function isTerminalGameEvent(event: GameEvent) {
