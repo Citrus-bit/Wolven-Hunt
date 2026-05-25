@@ -63,7 +63,7 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 - `WH_LLM_BASE_URL`：LiteLLM base URL，可选
 - `WH_LLM_MODEL`：默认模型名，可选（roster.yaml 可覆盖）
 - `WH_LLM_TIMEOUT_SECONDS`：单次调用超时，默认 30
-- `WH_LLM_MAX_RETRIES`：重试预算，默认 2
+- `WH_LLM_MAX_RETRIES`：重试预算，默认 4；已加载 RuleSet 的 `fallback.max_retries` 优先
 - `WH_LLM_BUDGET_PER_GAME`：单局 token 上限，默认 100000
 - `WH_RUNS_DIR`：落盘根目录，默认 `./runs`
 - `WH_API_HOST`：FastAPI 监听地址，默认 `0.0.0.0`

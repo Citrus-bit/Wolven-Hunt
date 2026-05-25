@@ -1,5 +1,7 @@
 import { BookOpen, Volume2, VolumeX, X } from 'lucide-react';
 
+const MAX_RECONNECT_ATTEMPTS = 4;
+
 type GameTopBarProps = {
   onClickRules: () => void;
   onClickExit: () => void;
@@ -92,10 +94,10 @@ function statusMessage(
   reconnectAttempts: number,
 ) {
   if (status === 'connecting' && reconnectAttempts > 0) {
-    return `事件流断开，正在重连 ${reconnectAttempts}/5`;
+    return `事件流断开，正在重连 ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`;
   }
   if (status === 'error') {
-    return reconnectAttempts >= 5
+    return reconnectAttempts > MAX_RECONNECT_ATTEMPTS
       ? '连接失败，请检查后端服务或刷新页面'
       : '事件流断开，正在重连...';
   }

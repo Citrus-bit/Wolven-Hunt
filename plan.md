@@ -241,9 +241,9 @@ GAME_END
 
 ### 4.2 重试策略
 
-- 每阶段每 Agent 最多重试 `fallback.max_retries` 次（默认 2 次，可配置）；若 RuleSet 配置了 `fallback.phase_max_retries[phase]` 则该阶段覆盖默认值。运行时必须优先使用 RuleSet 中的 retry 配置，环境变量只能作为 provider/default 配置来源，不能覆盖已加载 RuleSet 的阶段重试契约。
+- 每阶段每 Agent 最多重试 `fallback.max_retries` 次（默认 4 次，可配置）；若 RuleSet 配置了 `fallback.phase_max_retries[phase]` 则该阶段覆盖默认值。当前默认配置不再设置阶段级重试覆盖，确保正式对局 LLM 失败后按统一节奏重测。运行时必须优先使用 RuleSet 中的 retry 配置，环境变量只能作为 provider/default 配置来源，不能覆盖已加载 RuleSet 的阶段重试契约。
 - 重试时在 prompt 末尾附加错误说明（仅本人可见），格式固定为：`上一次输出未被接受：{error_type}: {message}。请只返回符合 schema 的 JSON。`
-- 失败后若仍有重试预算，按 RuleSet 中的指数退避参数等待：`delay = min(retry_backoff_base_seconds * retry_backoff_multiplier ** attempt, retry_backoff_max_seconds)`，其中首次失败后的 `attempt=0`。当前默认 `retry_backoff_jitter: false`，不得引入未记录或不可复现的随机 jitter。
+- 失败后若仍有重试预算，按 RuleSet 中的固定退避序列 `retry_backoff_delays_seconds` 等待；当前默认序列为 `[1, 3, 5, 10]`，其中首次失败后的 `attempt=0` 使用 1 秒。超过序列长度的额外重试复用最后一个延迟。旧的指数退避字段仅作为旧配置兼容输入，不得覆盖显式固定序列。当前默认 `retry_backoff_jitter: false`，不得引入未记录或不可复现的随机 jitter。
 - 通过 schema 但被 Referee 行动校验或文本事实一致性 hook 拒绝时，记录 `agent_invalid_action`，按同一阶段重试预算要求 Agent 重选/重写；重试仍失败 → 触发 fallback 并记录 `agent_fallback_triggered` 事件。
 
 ### 4.3 各阶段 Fallback 行为（默认）
@@ -263,8 +263,8 @@ GAME_END
 - 所有 fallback 行为均**写入 RuleSet**，黄金测试必须覆盖。
 - 所有 fallback 随机均使用 deterministic RNG，并在对应事件 payload 中记录候选集、选中值与 fallback 原因。
 - `contextual_public_speech` 只能读取当前 seat 的 PlayerView、公开/本人可见事件与 rule summary；不得读取 raw response、provider 配置、spectator-only 投影或任何未授权私有事件。
-- 默认指数退避配置：`retry_backoff_base_seconds: 1`、`retry_backoff_multiplier: 2`、`retry_backoff_max_seconds: 8`、`retry_backoff_jitter: false`。
-- 默认阶段覆盖：`DAY_SPEECH` 使用 25 秒超时、1 次重试；`NIGHT_WOLF_CHAT` 使用 15 秒超时、1 次重试；`NIGHT_WOLF_VOTE`、`DAY_VOTE` 与 `DAY_VOTE_PK` 使用 8 秒超时、0 次重试；其他阶段沿用 provider timeout 与默认 `fallback.max_retries`。
+- 默认固定退避配置：`retry_backoff_delays_seconds: [1, 3, 5, 10]`、`retry_backoff_jitter: false`。
+- 默认阶段覆盖：`DAY_SPEECH` 使用 25 秒超时；`NIGHT_WOLF_CHAT` 使用 15 秒超时；`NIGHT_WOLF_VOTE`、`DAY_VOTE` 与 `DAY_VOTE_PK` 使用 8 秒超时；所有阶段默认沿用 `fallback.max_retries: 4`。
 
 ### 4.4 上下文管理策略
 
@@ -492,7 +492,7 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 - `WH_LLM_BASE_URL`：LiteLLM base URL，可选
 - `WH_LLM_MODEL`：默认模型名，可选（roster.yaml 可覆盖）
 - `WH_LLM_TIMEOUT_SECONDS`：单次调用超时，默认 30
-- `WH_LLM_MAX_RETRIES`：重试预算，默认 2
+- `WH_LLM_MAX_RETRIES`：重试预算，默认 4；已加载 RuleSet 的 `fallback.max_retries` 优先
 - `WH_LLM_BUDGET_PER_GAME`：单局 token 上限，默认 100000
 - `WH_LLM_PROVIDER_MAP`：空字符串或 YAML 路径；非空时按座位路由 provider，缺失座位回退到全局 `WH_LLM_*`
 - `WH_PACING_PROFILE`：`live | fast | off`，默认 `live`；CI / replay / resimulate 强制 `off`
@@ -647,14 +647,14 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 - 本阶段范围固定为「10 个 AI 自动对局 + spectator 观赛」，不实现真人入座、多人房间或玩家私有视角。
 - 默认开发端口为前端 Vite `7001`、后端 FastAPI `7002`。前端运行时 API base 默认空字符串，即同源相对路径；开发模式通过 Vite proxy 转发 `/games`、`/models`、`/healthz`。
 - 生产模式由 `wolven-hunt serve-prod` 设置 `WH_SERVE_STATIC=true`，FastAPI 在 API 路由之后挂载 `dist/`，单端口 `7002` 同时服务前端和 API。
-- 前端模型连通性测试必须走后端 `POST /models/test`。浏览器不得再直接向第三方模型 base URL 发请求；连通性测试失败不能永久阻止开局，用户可选择继续开局，运行期失败由 LLM 重试与 fallback 兜底。测试请求与正式游戏 `AgentSpecLLM` 均允许携带 `thinking_enabled`，未携带时默认为 `false`；Qwen 系列必须把 `thinking_enabled` 显式映射为 provider 请求中的 `enable_thinking: true/false`，其他模型仅在 `true` 时追加 provider 兼容的 thinking 参数。正式游戏中的 `thinking_enabled` 只影响 provider 调用参数，不进入 EventLog、PlayerView、narrative、spectator API、manifest 或 SSE，不影响 replay hash。
+- 前端模型连通性测试必须走后端 `POST /models/test`。浏览器不得再直接向第三方模型 base URL 发请求；连通性测试失败后前端按固定序列 `1s → 3s → 5s → 10s` 自动重测，任一尝试成功即视为通过；全部失败后展示最后一次脱敏错误。连通性测试失败不能永久阻止开局，用户可选择继续开局，运行期失败由 LLM 重试与 fallback 兜底。测试请求使用 30 秒超时；正式游戏 `AgentSpecLLM` 继续使用阶段 RuleSet timeout。测试请求与正式游戏 `AgentSpecLLM` 均允许携带 `thinking_enabled`，未携带时默认为 `false`；Qwen 系列必须把 `thinking_enabled` 显式映射为 provider 请求中的 `enable_thinking: true/false`，其他模型仅在 `true` 时追加 provider 兼容的 thinking 参数。OpenAI-compatible provider 若明确拒绝非流式请求并要求 `stream`，后端可用同一请求参数自动重试 `stream: true` 并聚合 delta 文本；该兼容重试不进入 EventLog、PlayerView、narrative、spectator API、manifest 或 SSE，不影响 replay hash。正式游戏中的 `thinking_enabled` 只影响 provider 调用参数，不进入 EventLog、PlayerView、narrative、spectator API、manifest 或 SSE，不影响 replay hash。
 - `POST /models/test` 只做临时 provider 调用，不写入 `runs/`、EventLog、raw response、cost 或 narrative，不返回或记录 API key；失败响应只返回脱敏后的短错误摘要，供前端展示诊断信息。
 - 所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 - 历史复盘只消费 Referee 过滤后的 spectator 上帝视角。`GET /games` 从 `runs/` 汇总 manifest；`GET /games/{id}/events` 在线时返回 session spectator events，离线历史从 `events.jsonl` 读取并按 spectator 过滤，不读取 `raw_responses.jsonl`。
 - `seat_presentation` 是历史复盘恢复游玩时头像和昵称的展示快照，必须只包含本地 `/assets/lobby/` 头像路径和有限长度昵称；它不改变身份来源、胜负判定、行动合法性、ack、EventLog、replay hash 或 LLM 输入。
 - 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。终局定格态不得继续播放或补播 `guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` transient spectator effects。
 - `manifest.json` 从 STEP-08 起必须包含 `config_path` 与 `prompt_pack_version`，用于 `replay_resimulate(config_path=None)` 恢复原配置与 prompt 版本。缺失时只能回退 classic_8 与 prompt `v1`，并需保持旧 run 兼容；新 run 默认使用 classic_10 与 prompt `v3`。
-- 前端 SSE 必须支持断线重连、`Last-Event-ID` 续传、最多 5 次带 jitter 的重试；超过上限显示可操作错误，不静默停住。断线时通过 REST 拉取 narrative/effects 只能作为历史补齐，不得更新用于 `Last-Event-ID` 的 raw event cursor；cursor 只能由 SSE raw event id 推进，避免私有动作派生的 live effect 被回补吞掉。
+- 前端 SSE 必须支持断线重连、`Last-Event-ID` 续传、最多 4 次固定延迟重试，延迟序列为 `1s → 3s → 5s → 10s`，不使用 jitter；超过上限显示可操作错误，不静默停住。断线时通过 REST 拉取 narrative/effects 只能作为历史补齐，不得更新用于 `Last-Event-ID` 的 raw event cursor；cursor 只能由 SSE raw event id 推进，避免私有动作派生的 live effect 被回补吞掉。
 - ack 仍只控制现场 pacing，不写 EventLog，不影响 replay hash。localStorage key `wolven_hunt.pacing_mode` 仅影响新建对局传入的 pacing profile。游戏内阶段语音使用独立于大厅 BGM 的本地状态与右上角开关，不能复用 `wolven_hunt.lobby.muted` 导致观赛语音被静音；阶段音频播放失败、effect 渲染 ack 丢失或浏览器阻止自动播放时，前端必须在超时内发送 ack，后端也必须按 `WH_PACING_ACK_TIMEOUT_MS` 超时继续推进。
 - 默认硬编码模型 key 保留为产品策略：作者自费轮换，用户可在设置里覆盖。README、StartModal 与 ModelConfigList 必须明确该策略。
 
@@ -800,7 +800,7 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
   - "测试模型连通性" 按钮：10 席全部分配前 disabled；填满后启用，点击触发并行 LLM 测试。
   - "夜深了…" 按钮：10 席全部分配且全部测试 ✓ 前 disabled；点击触发 `transitionToStage({ dayNumber, phase: 'night' })`。
 - **席位测试态**：`<GameSeat />` 新增 `testStatus?: ModelTestStatus` prop。`testing` 显示头像灰度 + 三点 pulse 动画（JSX 实现）；`pass` 显示绿色 ✓ 徽标（lucide `Check`）；`fail` 显示红色 ✗ 徽标（lucide `X`）。徽标位于圆圈右上角。
-- **测试逻辑**：`src/lib/modelTest.ts` 提供 `testModelConnection(req)` 与 `readModelConfig(slot)`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`，并兼容旧缓存的 `thinkingEnabled` 默认回退。GamePage `testResults: Record<number, ModelTestResult>` 与测试状态提示仅在内存（不写 localStorage）。改 `assignments` 时清除被覆盖 slot 的测试结果。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要；失败时在摘要下显示模型昵称与后端返回的脱敏短错误。
+- **测试逻辑**：`src/lib/modelTest.ts` 提供 `testModelConnection(req)` 与 `readModelConfig(slot)`。`readModelConfig(slot)` 优先读取 `localStorage` 用户覆盖；没有用户覆盖时使用 `MODEL_CONFIG_DEFAULTS[slot]`，仅当有效 `baseUrl` / `apiKey` / `modelName` 缺失时返回 `null`，并兼容旧缓存的 `thinkingEnabled` 默认回退。GamePage `testResults: Record<number, ModelTestResult>` 与测试状态提示仅在内存（不写 localStorage）。改 `assignments` 时清除被覆盖 slot 的测试结果。测试中按钮文案显示为「正在测试中」，并至少展示一次可感知的 loading 态；测试完成后每个已分配 slot 必须落成 `pass` 或 `fail`，底部显示通过数量摘要；失败时在摘要下显示模型昵称与后端返回的脱敏短错误。单个 slot 的连通性测试失败后自动按 `1s → 3s → 5s → 10s` 重测，任一尝试成功即落成 `pass`，全部失败才落成 `fail`；取消信号触发后必须立即返回“已取消”，不得继续排队重试。每轮模型连通性测试可在前端为各 slot 记录 UI-only 墙钟耗时（开始偏移、结束偏移、总耗时），并在测试完成后按耗时从慢到快展示诊断表、标记最慢模型；该耗时只用于当前浏览器 UI 诊断，不写 `localStorage`、EventLog、`runs/`、raw response、narrative、SSE、manifest 或 replay hash，也不得包含 API key、provider raw response 或任何后端私有响应。
 - **退出流程**：点退出图标 → `ExitConfirmModal`（游戏页自有紧凑确认面板，不复用大厅 `settings_panel_bg.png`；含取消/确认两按钮）→ 确认后调 `onExitGame`（来自 App 层）→ App 反向过渡（600ms 黑屏 → `setPage('lobby')` → 800ms 亮起）。退出后不自动还原 BGM 静音状态；用户可手动取消静音。
 - **倒计时**：本步骤暂不实现，留给后续步骤（如需要可由 GamePage 透传一个 `seconds` prop 给后续 `<CountdownBar />`）。
 - **DEV-only [debug] 推进按钮**：`import.meta.env.DEV` 守卫；点击 `transitionToStage(...)` 切换白天/黑夜并自增 dayNumber，仅供开发期预览，生产 build tree-shake 掉。

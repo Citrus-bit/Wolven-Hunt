@@ -106,6 +106,10 @@ class FallbackRules(BaseModel):
     max_retries: int
     phase_timeout_seconds: dict[str, float] = Field(default_factory=dict)
     phase_max_retries: dict[str, int] = Field(default_factory=dict)
+    retry_backoff_delays_seconds: tuple[float, ...] = Field(
+        default=(1.0, 3.0, 5.0, 10.0),
+        min_length=1,
+    )
     retry_backoff_base_seconds: float = Field(default=1.0, ge=0)
     retry_backoff_multiplier: float = Field(default=2.0, ge=1)
     retry_backoff_max_seconds: float = Field(default=8.0, ge=0)

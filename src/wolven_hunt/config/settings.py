@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_model: str = "mock/deterministic"
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
-    llm_max_retries: int = Field(default=2, ge=0)
+    llm_max_retries: int = Field(default=4, ge=0)
     llm_budget_per_game: int = Field(default=100_000, ge=0)
     llm_provider_map: str = ""
     pacing_profile: Literal["live", "fast", "off"] = "live"

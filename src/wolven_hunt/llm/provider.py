@@ -123,21 +123,88 @@ class LiteLLMProvider:
             kwargs["api_base"] = self.base_url
         if self.extra_body:
             kwargs["extra_body"] = dict(self.extra_body)
-        response = litellm.completion(**kwargs)
-        choice = response["choices"][0]
-        message = choice["message"]
-        usage_raw = response.get("usage") or {}
-        usage = TokenUsage(
-            prompt_tokens=int(usage_raw.get("prompt_tokens") or 0),
-            completion_tokens=int(usage_raw.get("completion_tokens") or 0),
-        )
-        cost_usd = float(response.get("_hidden_params", {}).get("response_cost") or 0.0)
-        return ProviderResponse(
-            content=str(message.get("content") or ""),
-            model=str(response.get("model") or self.model),
-            usage=usage,
-            cost_usd=cost_usd,
-        )
+        try:
+            response = litellm.completion(**kwargs)
+        except Exception as exc:
+            if not _requires_stream_retry(exc):
+                raise
+            response = litellm.completion(**{**kwargs, "stream": True})
+            return _provider_response_from_stream(response, model=self.model)
+        return _provider_response_from_completion(response, model=self.model)
+
+
+def _provider_response_from_completion(response: Any, *, model: str) -> ProviderResponse:
+    choice = response["choices"][0]
+    message = choice["message"]
+    usage_raw = response.get("usage") or {}
+    usage = TokenUsage(
+        prompt_tokens=int(usage_raw.get("prompt_tokens") or 0),
+        completion_tokens=int(usage_raw.get("completion_tokens") or 0),
+    )
+    cost_usd = float(response.get("_hidden_params", {}).get("response_cost") or 0.0)
+    return ProviderResponse(
+        content=str(message.get("content") or ""),
+        model=str(response.get("model") or model),
+        usage=usage,
+        cost_usd=cost_usd,
+    )
+
+
+def _provider_response_from_stream(chunks: Any, *, model: str) -> ProviderResponse:
+    parts: list[str] = []
+    response_model = model
+    prompt_tokens = 0
+    completion_tokens = 0
+    cost_usd = 0.0
+    for chunk in chunks:
+        chunk_model = _get_response_value(chunk, "model")
+        if chunk_model:
+            response_model = str(chunk_model)
+        hidden = _get_response_value(chunk, "_hidden_params") or {}
+        if isinstance(hidden, dict):
+            cost_usd += float(hidden.get("response_cost") or 0.0)
+        usage_raw = _get_response_value(chunk, "usage") or {}
+        if isinstance(usage_raw, dict):
+            prompt_tokens = max(prompt_tokens, int(usage_raw.get("prompt_tokens") or 0))
+            completion_tokens = max(
+                completion_tokens,
+                int(usage_raw.get("completion_tokens") or 0),
+            )
+        choices = _get_response_value(chunk, "choices") or []
+        if not choices:
+            continue
+        choice = choices[0]
+        delta = _get_response_value(choice, "delta") or {}
+        content = _get_response_value(delta, "content")
+        if content:
+            parts.append(str(content))
+    return ProviderResponse(
+        content="".join(parts),
+        model=response_model,
+        usage=TokenUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        ),
+        cost_usd=cost_usd,
+    )
+
+
+def _requires_stream_retry(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "stream" in message and (
+        "only support" in message
+        or "support stream mode" in message
+        or "enable the stream" in message
+    )
+
+
+def _get_response_value(value: object, key: str) -> object:
+    if isinstance(value, dict):
+        return value.get(key)
+    getter = getattr(value, "get", None)
+    if callable(getter):
+        return getter(key)
+    return getattr(value, key, None)
 
 
 def _litellm_module() -> Any:

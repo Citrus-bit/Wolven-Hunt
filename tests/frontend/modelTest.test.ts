@@ -6,6 +6,7 @@ import {
 
 describe('modelTest', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -32,73 +33,161 @@ describe('modelTest', () => {
       model: 'qwen3.6-flash',
       base_url: 'https://example.test/v1',
       api_key: 'secret',
-      timeout_seconds: 15,
+      timeout_seconds: 30,
       thinking_enabled: false,
     });
   });
 
-  it('preserves backend failure messages for display', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
+  it('retries failed backend responses on the fixed schedule before passing', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: false, message: 'temporary' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: false, message: 'still down' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, message: null }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = testModelConnection({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'secret',
+      modelName: 'mimo-v2.5-pro',
+      thinkingEnabled: true,
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    await expect(promise).resolves.toEqual({ status: 'pass' });
+  });
+
+  it('preserves the last backend failure message after all retries are exhausted', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: false, message: 'fail-1' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: false, message: 'fail-2' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: false, message: 'fail-3' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: false, message: 'fail-4' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: false, message: 'final failure' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = testModelConnection({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'secret',
+      modelName: 'mimo-v2.5-pro',
+      thinkingEnabled: true,
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    for (const [index, delay] of [1000, 3000, 5000, 10000].entries()) {
+      await vi.advanceTimersByTimeAsync(delay);
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(index + 2));
+    }
+
+    await expect(promise).resolves.toEqual({
+      status: 'fail',
+      errorMessage: 'final failure',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('preserves backend failure messages for display when retries are disabled by success absence', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
         jsonResponse({
           ok: false,
           message: 'quota exhausted',
         }),
       ),
     );
+    vi.stubGlobal('fetch', fetchMock);
 
-    await expect(
-      testModelConnection({
-        baseUrl: 'https://example.test/v1',
-        apiKey: 'secret',
-        modelName: 'mimo-v2.5-pro',
-        thinkingEnabled: true,
-      }),
-    ).resolves.toEqual({
+    const promise = testModelConnection({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'secret',
+      modelName: 'mimo-v2.5-pro',
+      thinkingEnabled: true,
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitForModelTestRetries();
+    await expect(promise).resolves.toEqual({
       status: 'fail',
       errorMessage: 'quota exhausted',
     });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it('uses a clear backend unavailable message for network failures', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', fetchMock);
 
-    await expect(
-      testModelConnection({
-        baseUrl: 'https://example.test/v1',
-        apiKey: 'secret',
-        modelName: 'glm-4.5-air',
-        thinkingEnabled: true,
-      }),
-    ).resolves.toEqual({
+    vi.useFakeTimers();
+    const promise = testModelConnection({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'secret',
+      modelName: 'glm-4.5-air',
+      thinkingEnabled: true,
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitForModelTestRetries();
+    await expect(promise).resolves.toEqual({
       status: 'fail',
       errorMessage: '后端连通性测试接口不可用',
     });
   });
 
   it('uses a clear backend unavailable message for malformed responses', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
+    const fetchMock = vi.fn().mockResolvedValue(
         new Response('not json', {
           status: 200,
           headers: { 'Content-Type': 'text/plain' },
         }),
-      ),
     );
+    vi.stubGlobal('fetch', fetchMock);
 
-    await expect(
-      testModelConnection({
-        baseUrl: 'https://example.test/v1',
-        apiKey: 'secret',
-        modelName: 'glm-4.5-air',
-        thinkingEnabled: true,
-      }),
-    ).resolves.toEqual({
+    vi.useFakeTimers();
+    const promise = testModelConnection({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'secret',
+      modelName: 'glm-4.5-air',
+      thinkingEnabled: true,
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitForModelTestRetries();
+    await expect(promise).resolves.toEqual({
       status: 'fail',
       errorMessage: '后端连通性测试接口不可用',
     });
+  });
+
+  it('returns cancelled immediately and does not queue retries', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      testModelConnection(
+        {
+          baseUrl: 'https://example.test/v1',
+          apiKey: 'secret',
+          modelName: 'glm-4.5-air',
+          thinkingEnabled: true,
+        },
+        controller.signal,
+      ),
+    ).resolves.toEqual({
+      status: 'fail',
+      errorMessage: '已取消',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('keeps the shared missing config result text', () => {
@@ -108,6 +197,12 @@ describe('modelTest', () => {
     });
   });
 });
+
+async function waitForModelTestRetries() {
+  for (const delay of [1000, 3000, 5000, 10000]) {
+    await vi.advanceTimersByTimeAsync(delay);
+  }
+}
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {

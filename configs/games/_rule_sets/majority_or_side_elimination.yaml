@@ -58,10 +58,8 @@ last_words:
     - night_death_after_first_night
     - poison_death
 fallback:
-  max_retries: 2
-  retry_backoff_base_seconds: 1
-  retry_backoff_multiplier: 2
-  retry_backoff_max_seconds: 8
+  max_retries: 4
+  retry_backoff_delays_seconds: [1, 3, 5, 10]
   retry_backoff_jitter: false
   phase_timeout_seconds:
     NIGHT_WOLF_CHAT: 15
@@ -69,12 +67,6 @@ fallback:
     DAY_SPEECH: 25
     DAY_VOTE: 8
     DAY_VOTE_PK: 8
-  phase_max_retries:
-    NIGHT_WOLF_CHAT: 1
-    NIGHT_WOLF_VOTE: 0
-    DAY_SPEECH: 1
-    DAY_VOTE: 0
-    DAY_VOTE_PK: 0
   actions:
     NIGHT_GUARD: random_legal_target_excluding_previous_guard
     NIGHT_WOLF_CHAT: silence_message

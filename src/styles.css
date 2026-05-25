@@ -1698,12 +1698,104 @@ button {
   margin-top: 4px;
 }
 
+.game-test-timings {
+  width: min(640px, 88vw);
+  max-height: 184px;
+  overflow: auto;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  line-height: 1.35;
+  background: rgba(8, 13, 24, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.78);
+}
+
+.game-test-timings-header,
+.game-test-timings-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1.7fr) 54px 54px 54px minmax(72px, 0.8fr);
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+}
+
+.game-test-timings-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(8, 13, 24, 0.94);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.game-test-timings-row + .game-test-timings-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.game-test-timings-model {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.game-test-timings-model span,
+.game-test-timings-model small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-test-timings-model small {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 11px;
+}
+
+.game-test-timings-result {
+  font-weight: 700;
+}
+
+.game-test-timings-result--pass {
+  color: #9ff0b3;
+}
+
+.game-test-timings-result--fail {
+  color: #ff9a9a;
+}
+
+.game-test-timings-duration {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: #f5d36b;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.game-test-timings-duration b {
+  padding: 1px 5px;
+  color: #2f2100;
+  font-size: 10px;
+  line-height: 1.4;
+  background: #f5d36b;
+  border-radius: 999px;
+  text-shadow: none;
+}
+
 .game-page:has(.game-test-status) .game-chat {
   top: clamp(260px, 30vh, 308px);
 }
 
 .game-page:has(.game-test-failures) .game-chat {
   top: clamp(360px, 43vh, 430px);
+}
+
+.game-page:has(.game-test-timings) .game-chat {
+  top: clamp(410px, 49vh, 500px);
 }
 
 .game-bottom-btn {
@@ -1776,6 +1868,21 @@ button {
 
   .game-page:has(.game-test-status) .game-chat {
     top: clamp(290px, 36vh, 324px);
+  }
+
+  .game-test-timings {
+    max-height: 152px;
+  }
+
+  .game-test-timings-header,
+  .game-test-timings-row {
+    grid-template-columns: minmax(108px, 1.6fr) 44px 46px 46px minmax(66px, 0.8fr);
+    gap: 6px;
+    padding: 6px 8px;
+  }
+
+  .game-page:has(.game-test-timings) .game-chat {
+    top: clamp(440px, 56vh, 520px);
   }
 }
 

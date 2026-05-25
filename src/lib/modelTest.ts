@@ -10,6 +10,9 @@ export type ModelTestStatus = 'idle' | 'testing' | 'pass' | 'fail';
 export type ModelTestResult = {
   status: ModelTestStatus;
   errorMessage?: string;
+  durationMs?: number;
+  startedOffsetMs?: number;
+  finishedOffsetMs?: number;
 };
 
 export type ModelTestRequest = {
@@ -20,6 +23,8 @@ export type ModelTestRequest = {
 };
 
 const MODEL_CONFIG_STORAGE_PREFIX = 'wolven' + '_hunt.lobby.model_config.';
+const MODEL_TEST_TIMEOUT_SECONDS = 30;
+const MODEL_TEST_RETRY_DELAYS_MS = [1000, 3000, 5000, 10000] as const;
 
 function isCompleteConfig(
   config: Partial<ModelConfigUserInput>,
@@ -40,6 +45,32 @@ export async function testModelConnection(
   req: ModelTestRequest,
   signal?: AbortSignal,
 ): Promise<ModelTestResult> {
+  let lastResult: ModelTestResult = {
+    status: 'fail',
+    errorMessage: '模型测试失败',
+  };
+  for (let attempt = 0; attempt <= MODEL_TEST_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (signal?.aborted) {
+      return { status: 'fail', errorMessage: '已取消' };
+    }
+    lastResult = await testModelConnectionOnce(req, signal);
+    if (lastResult.status === 'pass' || signal?.aborted) {
+      return signal?.aborted
+        ? { status: 'fail', errorMessage: '已取消' }
+        : lastResult;
+    }
+    const delay = MODEL_TEST_RETRY_DELAYS_MS[attempt];
+    if (delay !== undefined) {
+      await sleep(delay, signal);
+    }
+  }
+  return lastResult;
+}
+
+async function testModelConnectionOnce(
+  req: ModelTestRequest,
+  signal?: AbortSignal,
+): Promise<ModelTestResult> {
   try {
     if (signal?.aborted) {
       return { status: 'fail', errorMessage: '已取消' };
@@ -49,7 +80,7 @@ export async function testModelConnection(
       model: req.modelName,
       base_url: req.baseUrl,
       api_key: req.apiKey,
-      timeout_seconds: 15,
+      timeout_seconds: MODEL_TEST_TIMEOUT_SECONDS,
       thinking_enabled: req.thinkingEnabled,
     }, signal);
     if (typeof result.ok !== 'boolean') {
@@ -73,6 +104,23 @@ export async function testModelConnection(
         : formatModelTestError(message),
     };
   }
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const timer = globalThis.setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        globalThis.clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 }
 
 function isModelTestInterfaceError(message: string) {

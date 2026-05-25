@@ -44,6 +44,22 @@ describe('GameTopBar', () => {
     (button?.props as { onClick?: () => void }).onClick?.();
     expect(onToggleAutoScroll).toHaveBeenCalledTimes(1);
   });
+
+  it('renders the fixed reconnect attempt limit', () => {
+    const html = renderToStaticMarkup(
+      topBar({ streamStatus: 'connecting', reconnectAttempts: 3 }),
+    );
+
+    expect(html).toContain('事件流断开，正在重连 3/4');
+  });
+
+  it('renders a failed connection message after fixed retries are exhausted', () => {
+    const html = renderToStaticMarkup(
+      topBar({ streamStatus: 'error', reconnectAttempts: 5 }),
+    );
+
+    expect(html).toContain('连接失败，请检查后端服务或刷新页面');
+  });
 });
 
 function topBar(overrides: Partial<ComponentProps<typeof GameTopBar>> = {}) {

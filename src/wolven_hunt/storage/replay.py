@@ -80,6 +80,8 @@ def replay_resimulate(
         provider=provider,
         max_retries=config.rule_set.fallback.max_retries,
         phase_max_retries=config.rule_set.fallback.phase_max_retries,
+        retry_backoff_delays_seconds=config.rule_set.fallback.retry_backoff_delays_seconds,
+        sleep_fn=lambda _: None,
         prompt_version=prompt_version,
     )
     renderer = PromptRenderer(config.prompt_pack_root, version=prompt_version)

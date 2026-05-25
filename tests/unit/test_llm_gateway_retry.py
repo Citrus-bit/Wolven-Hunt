@@ -107,16 +107,14 @@ def test_gateway_phase_retry_override_can_disable_retries() -> None:
 
 
 @pytest.mark.llm
-def test_gateway_exponential_backoff_before_success() -> None:
+def test_gateway_fixed_backoff_before_success() -> None:
     rows: list[dict[str, object]] = []
     delays: list[float] = []
     provider = TimeoutThenSuccessProvider(failures=2)
     gateway = LLMGateway(
         provider=provider,
         max_retries=2,
-        retry_backoff_base_seconds=1,
-        retry_backoff_multiplier=2,
-        retry_backoff_max_seconds=8,
+        retry_backoff_delays_seconds=(1, 3, 5, 10),
         sleep_fn=delays.append,
         raw_response_sink=rows.append,
     )
@@ -131,7 +129,7 @@ def test_gateway_exponential_backoff_before_success() -> None:
 
     assert isinstance(result.parsed, GuardOutput)
     assert provider.calls == 3
-    assert delays == [1, 2]
+    assert delays == [1, 3]
     assert [row["error"] for row in rows] == ["timeout", "timeout", None]
 
 
@@ -157,10 +155,8 @@ def test_gateway_records_each_attempt_when_retries_exhausted() -> None:
     delays: list[float] = []
     gateway = LLMGateway(
         provider=TimeoutProvider(),
-        max_retries=2,
-        retry_backoff_base_seconds=1,
-        retry_backoff_multiplier=2,
-        retry_backoff_max_seconds=8,
+        max_retries=4,
+        retry_backoff_delays_seconds=(1, 3, 5, 10),
         sleep_fn=delays.append,
         raw_response_sink=rows.append,
     )
@@ -175,6 +171,34 @@ def test_gateway_records_each_attempt_when_retries_exhausted() -> None:
 
     assert result.error is not None
     assert result.error.type is LLMErrorType.TIMEOUT
-    assert delays == [1, 2]
-    assert [row["attempt"] for row in rows] == [0, 1, 2]
-    assert [row["error"] for row in rows] == ["timeout", "timeout", "timeout"]
+    assert delays == [1, 3, 5, 10]
+    assert [row["attempt"] for row in rows] == [0, 1, 2, 3, 4]
+    assert [row["error"] for row in rows] == [
+        "timeout",
+        "timeout",
+        "timeout",
+        "timeout",
+        "timeout",
+    ]
+
+
+@pytest.mark.llm
+def test_gateway_fixed_backoff_reuses_last_delay_for_extra_retries() -> None:
+    delays: list[float] = []
+    gateway = LLMGateway(
+        provider=TimeoutProvider(),
+        max_retries=5,
+        retry_backoff_delays_seconds=(1, 3),
+        sleep_fn=delays.append,
+    )
+
+    result = gateway.call(
+        seat=Seat(1),
+        phase="DAY_SPEECH",
+        prompt="{}",
+        output_model=GuardOutput,
+        rng=DeterministicRNG("gateway-backoff-reuse"),
+    )
+
+    assert result.error is not None
+    assert delays == [1, 3, 3, 3, 3]

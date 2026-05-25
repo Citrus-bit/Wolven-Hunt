@@ -509,6 +509,9 @@ class GameRegistry:
                     ),
                     max_retries=config.rule_set.fallback.max_retries,
                     phase_max_retries=config.rule_set.fallback.phase_max_retries,
+                    retry_backoff_delays_seconds=(
+                        config.rule_set.fallback.retry_backoff_delays_seconds
+                    ),
                     retry_backoff_base_seconds=(
                         config.rule_set.fallback.retry_backoff_base_seconds
                     ),

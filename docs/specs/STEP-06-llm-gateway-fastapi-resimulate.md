@@ -122,7 +122,7 @@ def call(
 
 ### 5.3 重试 + fallback（落 plan §4.1–§4.3）
 1. 单次调用：超时 = `WH_LLM_TIMEOUT_SECONDS`（默认 30s）；超时 / RateLimit / Network / InvalidJSON / SchemaViolation 都计入"重试预算"。
-2. 最多 `WH_LLM_MAX_RETRIES`（默认 2）次重试，重试 prompt 末尾追加错误说明（仅本人可见）。
+2. 最多 `WH_LLM_MAX_RETRIES`（默认 4）次重试，重试 prompt 末尾追加错误说明（仅本人可见）。
 3. 重试耗尽 → `LLMAgent` 抛 `LLMFallbackRequired`；`_decide_with_fallback` 触发现有 fallback 路径并发出 `agent_fallback_triggered` 事件。
 4. 错误子类到事件类型的映射写在 plan.md §4.1（本 spec §2 已列），`agent_timeout` 与 `agent_invalid_action` 是仅有的两类外显事件。
 
@@ -337,6 +337,5 @@ python -m wolven_hunt resimulate --events runs/<id>/events.jsonl --raw runs/<id>
 pnpm dev
 # 浏览器：assignments → 开始游戏 → 看到事件时间线滚动 → 在 DAY_SPEECH 提交一句发言 → 出现在时间线
 ```
-
 
 

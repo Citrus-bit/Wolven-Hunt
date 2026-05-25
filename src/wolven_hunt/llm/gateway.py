@@ -4,7 +4,7 @@ import hashlib
 import json
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import TypeVar
@@ -78,6 +78,7 @@ class LLMGateway:
         provider: LLMProvider,
         max_retries: int,
         phase_max_retries: Mapping[str, int] | None = None,
+        retry_backoff_delays_seconds: Sequence[float] | None = None,
         retry_backoff_base_seconds: float = 0.0,
         retry_backoff_multiplier: float = 2.0,
         retry_backoff_max_seconds: float = 0.0,
@@ -95,9 +96,13 @@ class LLMGateway:
             raise ValueError("retry_backoff_max_seconds must be non-negative")
         if retry_backoff_jitter:
             raise ValueError("retry_backoff_jitter must be false for deterministic retries")
+        retry_backoff_delays = tuple(float(delay) for delay in (retry_backoff_delays_seconds or ()))
+        if any(delay < 0 for delay in retry_backoff_delays):
+            raise ValueError("retry_backoff_delays_seconds must be non-negative")
         self.provider = provider
         self.max_retries = max_retries
         self.phase_max_retries = dict(phase_max_retries or {})
+        self.retry_backoff_delays_seconds = retry_backoff_delays
         self.retry_backoff_base_seconds = retry_backoff_base_seconds
         self.retry_backoff_multiplier = retry_backoff_multiplier
         self.retry_backoff_max_seconds = retry_backoff_max_seconds
@@ -182,6 +187,10 @@ class LLMGateway:
         return last_result
 
     def _retry_delay(self, attempt: int) -> float:
+        if self.retry_backoff_delays_seconds:
+            return self.retry_backoff_delays_seconds[
+                min(attempt, len(self.retry_backoff_delays_seconds) - 1)
+            ]
         if self.retry_backoff_base_seconds <= 0 or self.retry_backoff_max_seconds <= 0:
             return 0.0
         delay = self.retry_backoff_base_seconds * (self.retry_backoff_multiplier**attempt)

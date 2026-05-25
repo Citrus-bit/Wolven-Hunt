@@ -261,14 +261,14 @@ def test_real_llm_full_game():
 `src/components/Game/GamePage.tsx:150-166` 当前 SSE `onerror` 只做一次 poll，不重连。
 
 **修复方案**：
-- 增加 `reconnectAttempts` 状态（最多 5 次）
-- `onerror` 时，延迟 2s → 重新调用 `subscribeGameEvents`
-- 如果 5 次都失败，显示"连接失败，请刷新页面"
+- 增加 `reconnectAttempts` 状态（最多 4 次）
+- `onerror` 时，按固定延迟 `1s → 3s → 5s → 10s` 重新调用 `subscribeGameEvents`
+- 如果 4 次都失败，显示"连接失败，请刷新页面"
 
 #### 4.2 网络错误 UI 反馈
 在 `GameTopBar.tsx` 中增加一个 `<Alert>` 组件：
 - `streamStatus === 'error'` 时显示："事件流断开，正在重连..."
-- `reconnectAttempts >= 5` 时显示："连接失败，请检查网络或刷新页面"
+- `reconnectAttempts > 4` 时显示："连接失败，请检查网络或刷新页面"
 
 #### 4.3 Pacing 模式切换 UI
 `GamePage.tsx:419` 当前硬编码 `pacing: 'live'`。
@@ -417,7 +417,7 @@ MIT
 - [ ] ModelConfigList 每个 slot 有"留空则使用作者预填的轮换 key"提示
 
 ### 批次 4 验证
-- [ ] SSE 断线后自动重连（最多 5 次）
+- [ ] SSE 断线后自动重连（最多 4 次，固定延迟 1s/3s/5s/10s）
 - [ ] 重连失败后显示错误提示
 - [ ] Pacing 模式可在 UI 切换（live/fast/off）
 - [ ] Countdown 到 0 后显示"等待中..."
@@ -477,8 +477,8 @@ MIT
 **风险**：如果后端崩溃，所有客户端同时重连，可能造成雪崩。
 
 **缓解**：
-- 重连延迟加入 jitter：`2s + random(0, 1s)`
-- 最多 5 次重连后放弃
+- 重连延迟使用固定序列：`1s → 3s → 5s → 10s`
+- 最多 4 次重连后放弃
 
 ### 风险 3：真实 LLM smoke test 成本
 **风险**：每次 CI 运行都调用真实 LLM，成本高。

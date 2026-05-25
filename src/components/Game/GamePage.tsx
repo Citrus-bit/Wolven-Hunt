@@ -43,7 +43,10 @@ import {
 } from '../../lib/modelTest';
 import { ExitConfirmModal } from './ExitConfirmModal';
 import { FinalFreezeChrome } from './FinalFreezeChrome';
-import { GameBottomActions } from './GameBottomActions';
+import {
+  GameBottomActions,
+  type ModelTestTimingRow,
+} from './GameBottomActions';
 import { GameChat } from './GameChat';
 import { GameEffectsLayer } from './GameEffectsLayer';
 import { GamePhaseHeader } from './GamePhaseHeader';
@@ -61,7 +64,8 @@ import {
 
 const SEAT_COUNT = 10;
 const MIN_TESTING_MS = 800;
-const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAYS_MS = [1000, 3000, 5000, 10000] as const;
+const MAX_RECONNECT_ATTEMPTS = RECONNECT_DELAYS_MS.length;
 const AUDIO_ACK_TIMEOUT_MS = 6000;
 const leftSeats = [0, 1, 2, 3, 4];
 const rightSeats = [5, 6, 7, 8, 9];
@@ -81,6 +85,20 @@ function shuffledModelSlots() {
   }
 
   return slots;
+}
+
+function withModelTestTiming(
+  result: ModelTestResult,
+  startedAt: number,
+  finishedAt: number,
+  batchStartedAt: number,
+): ModelTestResult {
+  return {
+    ...result,
+    startedOffsetMs: startedAt - batchStartedAt,
+    finishedOffsetMs: finishedAt - batchStartedAt,
+    durationMs: finishedAt - startedAt,
+  };
 }
 
 export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
@@ -168,6 +186,40 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
               testResults[slotIndex]?.errorMessage?.trim() || '模型测试失败';
             return `${nickname}: ${message}`;
           })
+      : [];
+  const modelTestTimings: ModelTestTimingRow[] =
+    !gameStarted && allTestsCompleted
+      ? assignments
+          .map((slotIndex, seatIndex): ModelTestTimingRow | null => {
+            if (slotIndex === null) {
+              return null;
+            }
+            const result = testResults[slotIndex];
+            if (
+              !result ||
+              result.durationMs === undefined ||
+              result.startedOffsetMs === undefined ||
+              result.finishedOffsetMs === undefined ||
+              !['pass', 'fail'].includes(result.status)
+            ) {
+              return null;
+            }
+            const nickname = MODEL_SLOTS[slotIndex]?.nickname ?? `模型 ${slotIndex + 1}`;
+            const modelName =
+              readModelConfig(slotIndex)?.modelName || `slot-${slotIndex + 1}`;
+
+            return {
+              seat: seatIndex + 1,
+              nickname,
+              modelName,
+              status: result.status,
+              errorMessage: result.errorMessage,
+              durationMs: result.durationMs,
+              startedOffsetMs: result.startedOffsetMs,
+              finishedOffsetMs: result.finishedOffsetMs,
+            };
+          })
+          .filter((row): row is ModelTestTimingRow => row !== null)
       : [];
 
   useEffect(() => {
@@ -359,10 +411,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
             return;
           }
-          const jitter = Math.floor(Math.random() * 1000);
           reconnectTimer = window.setTimeout(() => {
             connect(streamCursorRef.current || lastSeq, nextAttempt);
-          }, 2000 + jitter);
+          }, RECONNECT_DELAYS_MS[nextAttempt - 1]);
         },
         (row) => {
           narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
@@ -564,49 +615,77 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     setTestResults(initial);
 
     let completedCount = 0;
-    const startedAt = window.performance.now();
+    const batchStartedAt = window.performance.now();
 
     const testTasks = assignedSlots.map(async (slotIndex) => {
+      const requestStartedAt = window.performance.now();
       try {
         const config = readModelConfig(slotIndex);
         if (!config) {
+          const finishedAt = window.performance.now();
           return {
             slotIndex,
-            result: missingModelConfigResult(),
+            result: withModelTestTiming(
+              missingModelConfigResult(),
+              requestStartedAt,
+              finishedAt,
+              batchStartedAt,
+            ),
           };
         }
 
         const result = await testModelConnection(config);
-        return { slotIndex, result };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '未知错误';
+        const finishedAt = window.performance.now();
         return {
           slotIndex,
-          result: {
-            status: 'fail',
-            errorMessage: message.slice(0, 80),
-          } satisfies ModelTestResult,
+          result: withModelTestTiming(
+            result,
+            requestStartedAt,
+            finishedAt,
+            batchStartedAt,
+          ),
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误';
+        const finishedAt = window.performance.now();
+        return {
+          slotIndex,
+          result: withModelTestTiming(
+            {
+              status: 'fail',
+              errorMessage: message.slice(0, 80),
+            },
+            requestStartedAt,
+            finishedAt,
+            batchStartedAt,
+          ),
         };
       } finally {
         completedCount += 1;
         setTestMessage(`正在测试 ${completedCount}/${assignedSlots.length}`);
       }
-      });
+    });
 
     const settledResults = await Promise.allSettled(testTasks);
-    const elapsed = window.performance.now() - startedAt;
+    const elapsed = window.performance.now() - batchStartedAt;
     if (elapsed < MIN_TESTING_MS) {
       await new Promise((resolve) =>
         window.setTimeout(resolve, MIN_TESTING_MS - elapsed),
       );
     }
 
+    const settledAt = window.performance.now();
     const nextResults: Record<number, ModelTestResult> = {};
     assignedSlots.forEach((slotIndex) => {
-      nextResults[slotIndex] = {
-        status: 'fail',
-        errorMessage: '测试未返回结果',
-      };
+      nextResults[slotIndex] = withModelTestTiming(
+        {
+          status: 'fail',
+          errorMessage: '测试未返回结果',
+        },
+        batchStartedAt,
+        settledAt,
+        batchStartedAt,
+      );
     });
     settledResults.forEach((settled) => {
       if (settled.status === 'fulfilled') {
@@ -838,6 +917,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           isStartingGame={isStartingGame}
           testMessage={testMessage}
           testFailures={failedModelSummaries}
+          testTimings={modelTestTimings}
           onClickTest={handleClickTest}
           onClickEnterNight={handleClickEnterNight}
         />

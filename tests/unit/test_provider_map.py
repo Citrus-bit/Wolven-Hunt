@@ -155,6 +155,53 @@ def test_litellm_provider_uses_phase_timeout_override(monkeypatch: pytest.Monkey
     assert captured["timeout"] == 20
 
 
+def test_litellm_provider_retries_stream_when_upstream_requires_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_completion(**kwargs: object) -> object:
+        calls.append(kwargs)
+        if not kwargs.get("stream"):
+            raise RuntimeError("This model only support stream mode, please enable the stream")
+        return (
+            {
+                "model": kwargs["model"],
+                "choices": [{"delta": {"content": '{"target"'}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 1},
+            },
+            {
+                "model": kwargs["model"],
+                "choices": [{"delta": {"content": ":1}"}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 2},
+            },
+        )
+
+    monkeypatch.setattr(
+        "wolven_hunt.llm.provider._litellm_module",
+        lambda: SimpleNamespace(completion=fake_completion),
+    )
+    provider = LiteLLMProvider(
+        model="glm-4.5-air",
+        api_key="test-key",
+        base_url="https://example.test/v1",
+    )
+
+    response = provider.complete(
+        seat=Seat(1),
+        phase="NIGHT_GUARD",
+        prompt="{}",
+        rng=DeterministicRNG("stream-retry"),
+    )
+
+    assert calls[0].get("stream") is None
+    assert calls[1]["stream"] is True
+    assert calls[1]["model"] == "custom_openai/glm-4.5-air"
+    assert response.content == '{"target":1}'
+    assert response.usage.prompt_tokens == 11
+    assert response.usage.completion_tokens == 2
+
+
 @pytest.mark.parametrize("thinking_enabled", [False, True])
 def test_build_provider_from_config_applies_qwen_thinking_extra_body(
     monkeypatch: pytest.MonkeyPatch, thinking_enabled: bool
