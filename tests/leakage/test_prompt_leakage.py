@@ -24,7 +24,7 @@ from wolven_hunt.llm.schemas import (
 from wolven_hunt.referee.view import build_view
 
 PROMPT_PAYLOAD_MARKER = "以下 JSON payload 是你本次决策唯一可用的结构化上下文:"
-DEFAULT_PROMPT_VERSION = "v3"
+DEFAULT_PROMPT_VERSION = "v4"
 
 PHASE_SCHEMAS = {
     "NIGHT_GUARD": GuardOutput,
@@ -267,7 +267,7 @@ def test_wolf_night_prompt_declares_self_kill_rule(game_config: GameConfig) -> N
 
 
 @pytest.mark.leakage
-def test_prompt_v3_template_pack_is_complete(game_config: GameConfig) -> None:
+def test_prompt_v4_template_pack_is_complete(game_config: GameConfig) -> None:
     root = game_config.prompt_pack_root
     expected_paths = [root / f"system.{DEFAULT_PROMPT_VERSION}.md"]
     for role_name in ("guard", "seer", "villager", "witch", "wolf"):
@@ -281,7 +281,7 @@ def test_prompt_v3_template_pack_is_complete(game_config: GameConfig) -> None:
 
 @pytest.mark.leakage
 @pytest.mark.parametrize("role", [Role.VILLAGER, Role.WOLF, Role.SEER, Role.WITCH, Role.GUARD])
-def test_day_speech_prompt_v3_contains_density_constraints(
+def test_day_speech_prompt_v4_contains_density_constraints(
     game_config: GameConfig,
     role: Role,
 ) -> None:
@@ -319,6 +319,40 @@ def test_wolf_day_prompt_payload_excludes_wolf_private_context(
     assert wolf_chat_text not in visible_events_json
     for event_type in WOLF_PRIVATE_EVENT_TYPES:
         assert event_type not in visible_events_json
+
+
+@pytest.mark.leakage
+def test_wolf_night_prompt_v4_contains_refined_attack_strategy(
+    game_config: GameConfig,
+) -> None:
+    prompt, _ = _render_prompt(game_config, role=Role.WOLF, phase="NIGHT_WOLF_VOTE")
+
+    assert "允许自刀" in prompt
+    assert "不要机械刀明跳预言家" in prompt
+    assert "守卫大概率守预言家" in prompt
+    assert "优先换刀女巫、守卫、强民或外置神" in prompt
+
+
+@pytest.mark.leakage
+def test_witch_night_prompt_v4_warns_against_blind_first_save(
+    game_config: GameConfig,
+) -> None:
+    prompt, _ = _render_prompt(game_config, role=Role.WITCH, phase="NIGHT_WITCH")
+
+    assert "首夜默认救" in prompt
+    assert "不要无脑救" in prompt
+    assert "银水不等于铁好" in prompt
+    assert "留解药能逼狼刀" in prompt
+
+
+@pytest.mark.leakage
+def test_guard_night_prompt_v4_warns_against_mechanical_seer_guard(
+    game_config: GameConfig,
+) -> None:
+    prompt, _ = _render_prompt(game_config, role=Role.GUARD, phase="NIGHT_GUARD")
+
+    assert "不能机械连续守明预" in prompt
+    assert "按规则换守女巫、强民、外置神或自守" in prompt
 
 
 @pytest.mark.leakage

@@ -1,4 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { GameEffectsLayer } from '../../src/components/Game/GameEffectsLayer';
 import {
@@ -40,6 +42,7 @@ describe('GameEffectsLayer', () => {
     expect(html).toContain('预言查验：7号');
     expect(html).toContain('女巫解药：5号');
     expect(html).toContain('/assets/game/effects/wolf_attack.png');
+    expect(html).toContain('data-layout="side-stack"');
     expect(html).toContain('game-effect-announcement--wolf_attack');
     expect(html).toContain('game-effect-seat-overlay--guard_shield');
     expect(html).toContain('game-effect-seat-overlay--wolf_attack');
@@ -144,6 +147,30 @@ describe('GameEffectsLayer', () => {
     expect(html).not.toContain('狼人袭击');
     expect(html).not.toContain('死亡');
     expect(html).not.toContain('game-effect-announcement');
+  });
+
+  it('keeps live announcement layout away from the phase countdown area', () => {
+    const css = readFileSync(join(process.cwd(), 'src/styles.css'), 'utf8');
+    const announcementsRules = [
+      ...css.matchAll(/\.game-effect-announcements\s*\{(?<body>[^}]+)\}/g),
+    ].map((match) => match.groups?.body ?? '');
+    const baseAnnouncementsRule = announcementsRules.find((body) =>
+      body.includes('right: max(20px'),
+    );
+    const mobileAnnouncementsRule = announcementsRules.find((body) =>
+      body.includes('top: clamp(182px'),
+    );
+    const phaseHeaderRule = css.match(/\.game-phase-header\s*\{(?<body>[^}]+)\}/)
+      ?.groups?.body;
+
+    expect(baseAnnouncementsRule).toBeDefined();
+    expect(mobileAnnouncementsRule).toBeDefined();
+    expect(phaseHeaderRule).toBeDefined();
+    expect(baseAnnouncementsRule).toContain('right:');
+    expect(baseAnnouncementsRule).not.toContain('left: 50%');
+    expect(baseAnnouncementsRule).not.toContain('transform: translateX(-50%)');
+    expect(mobileAnnouncementsRule).toContain('top: clamp(182px, 24vh, 228px)');
+    expect(phaseHeaderRule).toContain('z-index: 7');
   });
 });
 

@@ -158,7 +158,7 @@ def test_api_persists_spectator_safe_seat_presentation(monkeypatch, tmp_path) ->
         "nickname": "GPT",
         "icon_path": "/assets/lobby/model_icon_gpt.png",
     }
-    assert manifest["prompt_pack_version"] == "v3"
+    assert manifest["prompt_pack_version"] == "v4"
     assert "seat_presentation" in manifest_text
     assert "api_key" not in manifest_text
     assert "base_url" not in manifest_text

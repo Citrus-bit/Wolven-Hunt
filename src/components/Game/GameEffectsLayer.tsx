@@ -241,7 +241,7 @@ export function GameEffectsLayer({
         />
       ))}
       {announcements.length > 0 && (
-        <div className="game-effect-announcements">
+        <div className="game-effect-announcements" data-layout="side-stack">
           {announcements.map((announcement) => (
             <span
               key={announcement.id}

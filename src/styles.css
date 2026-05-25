@@ -1587,7 +1587,7 @@ button {
   position: absolute;
   top: clamp(104px, 12vh, 132px);
   left: 50%;
-  z-index: 5;
+  z-index: 7;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2269,27 +2269,28 @@ button {
 
 .game-effect-announcements {
   position: absolute;
-  top: clamp(112px, 14vh, 148px);
-  left: 50%;
-  z-index: 9;
+  top: clamp(136px, 16vh, 176px);
+  right: max(20px, calc(env(safe-area-inset-right) + 3vw));
+  z-index: 8;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  align-items: center;
-  width: min(560px, calc(100vw - 28px));
-  transform: translateX(-50%);
+  align-items: flex-end;
+  width: min(330px, 28vw);
 }
 
 .game-effect-announcement {
   display: inline-flex;
   align-items: center;
+  gap: 9px;
   max-width: 100%;
-  min-height: 46px;
-  padding: 8px 16px 8px 10px;
+  min-height: 42px;
+  padding: 7px 13px 7px 9px;
   color: #fff7df;
-  font-size: clamp(15px, 1.35vw, 18px);
+  font-size: clamp(14px, 1.12vw, 16px);
   font-weight: 800;
   line-height: 1.2;
+  overflow-wrap: anywhere;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.92);
   background: rgba(8, 8, 12, 0.88);
   border: 1px solid rgba(255, 235, 180, 0.52);
@@ -2302,13 +2303,38 @@ button {
 
 .game-effect-announcement-icon {
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  margin-right: 9px;
+  width: 30px;
+  height: 30px;
   object-fit: contain;
   filter:
     drop-shadow(0 2px 6px rgba(0, 0, 0, 0.74))
     drop-shadow(0 0 12px rgba(255, 232, 168, 0.44));
+}
+
+.game-effect-announcement span {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .game-effect-announcements {
+    top: clamp(182px, 24vh, 228px);
+    right: auto;
+    left: 50%;
+    align-items: center;
+    width: min(320px, calc(100vw - 32px));
+    transform: translateX(-50%);
+  }
+
+  .game-effect-announcement {
+    min-height: 40px;
+    padding: 6px 12px 6px 8px;
+    font-size: 14px;
+  }
+
+  .game-effect-announcement-icon {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 @keyframes game-effect-guard-pulse {

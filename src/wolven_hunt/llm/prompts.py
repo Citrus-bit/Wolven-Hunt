@@ -37,7 +37,7 @@ SPEECH_COMPRESSED_PHASES = frozenset(
 
 
 class PromptRenderer:
-    def __init__(self, prompt_root: Path, *, version: str = "v3") -> None:
+    def __init__(self, prompt_root: Path, *, version: str = "v4") -> None:
         self.prompt_root = prompt_root
         self.version = version
 
