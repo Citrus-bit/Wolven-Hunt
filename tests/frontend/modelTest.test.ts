@@ -130,7 +130,7 @@ describe('modelTest', () => {
     const promise = testModelConnection({
       baseUrl: 'https://example.test/v1',
       apiKey: 'secret',
-      modelName: 'glm-4.5-air',
+      modelName: 'glm-4.7',
       thinkingEnabled: true,
     });
 
@@ -155,7 +155,7 @@ describe('modelTest', () => {
     const promise = testModelConnection({
       baseUrl: 'https://example.test/v1',
       apiKey: 'secret',
-      modelName: 'glm-4.5-air',
+      modelName: 'glm-4.7',
       thinkingEnabled: true,
     });
 
@@ -178,7 +178,7 @@ describe('modelTest', () => {
         {
           baseUrl: 'https://example.test/v1',
           apiKey: 'secret',
-          modelName: 'glm-4.5-air',
+          modelName: 'glm-4.7',
           thinkingEnabled: true,
         },
         controller.signal,

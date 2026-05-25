@@ -182,7 +182,7 @@ def test_litellm_provider_retries_stream_when_upstream_requires_stream(
         lambda: SimpleNamespace(completion=fake_completion),
     )
     provider = LiteLLMProvider(
-        model="glm-4.5-air",
+        model="glm-4.7",
         api_key="test-key",
         base_url="https://example.test/v1",
     )
@@ -196,7 +196,7 @@ def test_litellm_provider_retries_stream_when_upstream_requires_stream(
 
     assert calls[0].get("stream") is None
     assert calls[1]["stream"] is True
-    assert calls[1]["model"] == "custom_openai/glm-4.5-air"
+    assert calls[1]["model"] == "custom_openai/glm-4.7"
     assert response.content == '{"target":1}'
     assert response.usage.prompt_tokens == 11
     assert response.usage.completion_tokens == 2

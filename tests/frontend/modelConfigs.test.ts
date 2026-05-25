@@ -22,10 +22,21 @@ describe('modelConfigs', () => {
     );
   });
 
-  it('uses glm-4.5-air for the Zhipu model slot', () => {
+  it('uses glm-4-flash for the Zhipu model slot', () => {
     const slot = MODEL_SLOTS.find((candidate) => candidate.nickname === '学霸');
     expect(slot).toBeDefined();
-    expect(MODEL_CONFIG_DEFAULTS[slot?.slot ?? -1]?.modelName).toBe('glm-4.5-air');
+    expect(MODEL_CONFIG_DEFAULTS[slot?.slot ?? -1]?.modelName).toBe('glm-4-flash');
+  });
+
+  it('uses the Ark Doubao endpoint for the Doubao model slot', () => {
+    const slot = MODEL_SLOTS.find((candidate) => candidate.nickname === '小豆包儿');
+    expect(slot).toBeDefined();
+    expect(MODEL_CONFIG_DEFAULTS[slot?.slot ?? -1]?.baseUrl).toBe(
+      'https://ark.cn-beijing.volces.com/api/coding/v3',
+    );
+    expect(MODEL_CONFIG_DEFAULTS[slot?.slot ?? -1]?.modelName).toBe(
+      'doubao-seed-2.0-pro',
+    );
   });
 
   it('uses deepseek-v4-flash for the DeepSeek model slot', () => {

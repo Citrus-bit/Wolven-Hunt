@@ -42,6 +42,7 @@ class CreateGameRequest(BaseModel):
     seed: str = "api-dev-seed"
     agents: dict[int, AgentSpecInput] = Field(default_factory=dict)
     pacing: Literal["live", "fast", "off"] | None = None
+    start_paused: bool = False
     seat_presentation: dict[int, SeatPresentation] = Field(default_factory=dict)
 
 

@@ -33,10 +33,10 @@ type BuildSeatEffectOptions = {
   seenAtByKey?: EffectSeenAtMap;
 };
 
-const GUARD_SETTLE_GRACE_MS = 3000;
-const WOLF_ATTACK_MS = 4000;
-const SEER_VISION_MS = 3500;
-const POTION_EFFECT_MS = 3000;
+const GUARD_SETTLE_GRACE_MS = 4500;
+const WOLF_ATTACK_MS = 4500;
+const SEER_VISION_MS = 4200;
+const POTION_EFFECT_MS = 3800;
 const EFFECT_ANNOUNCEMENT_MS = 8000;
 
 const PHASE_ORDER: Record<string, number> = {
@@ -249,7 +249,7 @@ export function appendRecentSpectatorEffects(
   const next = pruneRecentSpectatorEffects(current, nowMs);
   const seen = new Set(next.map((item) => item.id));
   for (const effect of incoming) {
-    if (effect.kind === 'death_reveal' || !effectAnnouncementText(effect)) {
+    if (!isLiveTransientEffect(effect)) {
       continue;
     }
     const id = effectIdentity(effect);
@@ -284,7 +284,7 @@ export function activeRecentTransientEffects(
     return [];
   }
   return recentEffects.filter((item) => {
-    if (!effectAnnouncementText(item.effect)) {
+    if (!isLiveTransientEffect(item.effect)) {
       return false;
     }
     return within(nowMs - item.seenAtMs, effectDisplayDurationMs(item.effect));
@@ -519,6 +519,17 @@ function isEffectAnnouncementActive(
     durationMs,
     seenAtByKey,
   );
+}
+
+function isLiveTransientEffect(effect: SpectatorEffect) {
+  if (
+    effect.kind === 'guard_shield' ||
+    effect.kind === 'wolf_attack' ||
+    effect.kind === 'seer_vision'
+  ) {
+    return true;
+  }
+  return effect.kind === 'witch_potion' && isWitchPotionAction(effect);
 }
 
 function effectAnnouncementText(effect: SpectatorEffect) {

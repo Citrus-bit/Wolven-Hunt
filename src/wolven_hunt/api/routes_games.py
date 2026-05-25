@@ -51,6 +51,7 @@ async def create_game(
         seed=request.seed,
         agent_specs=request.agents,
         pacing=request.pacing,
+        start_paused=request.start_paused,
         seat_presentation={
             seat: presentation.model_dump(mode="json")
             for seat, presentation in request.seat_presentation.items()

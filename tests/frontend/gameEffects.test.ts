@@ -78,7 +78,7 @@ describe('gameEffects', () => {
     });
     const afterNightMap = buildSeatEffectMap(effects, 'CHECK_WIN_NIGHT', {
       currentDay: 1,
-      nowMs: 4500,
+      nowMs: 5600,
       seenAtByKey,
     });
 
@@ -97,12 +97,12 @@ describe('gameEffects', () => {
 
     const dayMap = buildSeatEffectMap(effects, 'DAY_ANNOUNCE', {
       currentDay: 1,
-      nowMs: 4500,
+      nowMs: 5600,
       seenAtByKey,
     });
     const laterNightMap = buildSeatEffectMap(effects, 'NIGHT_GUARD', {
       currentDay: 2,
-      nowMs: 4500,
+      nowMs: 5600,
       seenAtByKey,
     });
 
@@ -279,7 +279,7 @@ describe('gameEffects', () => {
     );
     const expired = activePotionEffects([save], 'NIGHT_SEER', {
       currentDay: 1,
-      nowMs: 4500,
+      nowMs: 5000,
       seenAtByKey,
     });
 
@@ -382,10 +382,39 @@ describe('gameEffects', () => {
       'seer_vision',
       'witch_potion',
     ]);
-    expect(activeRecentTransientEffects(recent, 4600).map((item) => item.effect.kind)).toEqual([
-      'wolf_attack',
-    ]);
+    expect(activeRecentTransientEffects(recent, 5600).map((item) => item.effect.kind)).toEqual([]);
     expect(activeRecentTransientEffects(recent, 4600, { terminal: true })).toEqual([]);
+  });
+
+  it('queues live transient overlays by effect kind and valid witch action', () => {
+    const skip = effect(
+      5,
+      'witch_potion',
+      6,
+      'potion_antidote',
+      { action: 'skip' },
+      1200,
+      'NIGHT_WITCH',
+      3,
+    );
+    const death = effect(6, 'death_reveal', 6, 'out_badge', {}, 0, 'DAY_ANNOUNCE');
+    const effects = [
+      effect(1, 'guard_shield', 8, 'guard_shield', {}, 0, 'NIGHT_GUARD'),
+      effect(2, 'wolf_attack', 9, 'wolf_attack', {}, 0, 'NIGHT_WOLF_VOTE'),
+      effect(3, 'seer_vision', 5, 'seer_vision', {}, 1800, 'NIGHT_SEER'),
+      effect(4, 'witch_potion', 6, 'potion_antidote', { action: 'save' }, 1200, 'NIGHT_WITCH', 3),
+      skip,
+      death,
+    ];
+    const recent = appendRecentSpectatorEffects([], effects, 1000);
+
+    expect(recent.map((item) => item.effect.kind)).toEqual([
+      'guard_shield',
+      'wolf_attack',
+      'seer_vision',
+      'witch_potion',
+    ]);
+    expect(activeRecentTransientEffects(recent, 1200)).toHaveLength(4);
   });
 
   it('does not create a recent announcement for witch skip payloads', () => {
@@ -475,14 +504,14 @@ describe('gameEffects', () => {
   });
 
   it('uses readable minimum display durations for transient effects', () => {
-    expect(effectDisplayDurationMs(effect(1, 'guard_shield', 4, 'guard_shield'))).toBe(3000);
-    expect(effectDisplayDurationMs(effect(2, 'wolf_attack', 4, 'wolf_attack'))).toBe(4000);
-    expect(effectDisplayDurationMs(effect(3, 'seer_vision', 4, 'seer_vision'))).toBe(3500);
+    expect(effectDisplayDurationMs(effect(1, 'guard_shield', 4, 'guard_shield'))).toBe(4500);
+    expect(effectDisplayDurationMs(effect(2, 'wolf_attack', 4, 'wolf_attack'))).toBe(4500);
+    expect(effectDisplayDurationMs(effect(3, 'seer_vision', 4, 'seer_vision'))).toBe(4200);
     expect(
       effectDisplayDurationMs(
         effect(4, 'witch_potion', 4, 'potion_antidote', { action: 'save' }, 1200),
       ),
-    ).toBe(3000);
+    ).toBe(3800);
     expect(effectDisplayDurationMs(effect(5, 'wolf_attack', 4, 'wolf_attack', {}, 5000))).toBe(5000);
     expect(effectAnnouncementDurationMs(effect(6, 'seer_vision', 4, 'seer_vision'))).toBe(8000);
   });

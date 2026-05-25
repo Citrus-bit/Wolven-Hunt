@@ -2143,7 +2143,7 @@ button {
 .game-effects-layer {
   position: absolute;
   inset: 0;
-  z-index: 7;
+  z-index: 9;
   overflow: hidden;
   pointer-events: none;
 }
@@ -2562,7 +2562,7 @@ button {
   right: max(16px, env(safe-area-inset-right));
   bottom: max(16px, env(safe-area-inset-bottom));
   left: max(16px, env(safe-area-inset-left));
-  z-index: 7;
+  z-index: 10;
   display: grid;
   gap: 10px;
   width: min(820px, calc(100vw - 32px));

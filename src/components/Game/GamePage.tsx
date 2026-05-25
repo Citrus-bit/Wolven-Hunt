@@ -6,6 +6,7 @@ import {
   getEvents,
   getGame,
   getNarrative,
+  runGame,
   sendAck,
   spectatorEffectAckEvent,
   subscribeGameEvents,
@@ -130,6 +131,8 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const effectAckSeqRef = useRef(new Set<number>());
   const terminalRef = useRef(false);
   const streamCursorRef = useRef(0);
+  const pendingRunGameIdRef = useRef<string | null>(null);
+  const runStartedGameIdsRef = useRef(new Set<string>());
   const [timings, setTimings] = useState<GameTimings | null>(null);
   const [currentPhase, setCurrentPhase] = useState<string | null>(null);
   const [streamStatus, setStreamStatus] = useState<
@@ -327,6 +330,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     effectAckSeqRef.current = new Set();
     terminalRef.current = false;
     streamCursorRef.current = 0;
+    runStartedGameIdsRef.current.delete(gameId);
     setCurrentPhase(null);
     setStreamStatus('connecting');
     let closed = false;
@@ -336,6 +340,11 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     const connect = (lastSeq: number, attempt: number) => {
       source = subscribeGameEvents(
         gameId,
+        () => {
+          setStreamStatus('open');
+          setReconnectAttempts(0);
+          void startPausedGameWhenReady(gameId);
+        },
         (event) => {
           setStreamStatus('open');
           setReconnectAttempts(0);
@@ -734,8 +743,10 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       const created = await createGame({
         agents,
         pacing: 'live',
+        startPaused: true,
         seatPresentation: presentation,
       });
+      pendingRunGameIdRef.current = created.game_id;
       setGameId(created.game_id);
       transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
     } catch (caught) {
@@ -756,6 +767,34 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     void sendAck(gameId, effect.phase, spectatorEffectAckEvent(effect.seq)).catch(
       () => undefined,
     );
+  };
+
+  const startPausedGameWhenReady = async (id: string) => {
+    if (pendingRunGameIdRef.current !== id || runStartedGameIdsRef.current.has(id)) {
+      return;
+    }
+    const seatsMounted = document.querySelector('.game-seats') !== null;
+    const effectsLayerMounted = document.querySelector('.game-effects-layer') !== null;
+    if (!seatsMounted || !effectsLayerMounted) {
+      window.setTimeout(() => {
+        void startPausedGameWhenReady(id);
+      }, 50);
+      return;
+    }
+    runStartedGameIdsRef.current.add(id);
+    try {
+      const summary = await runGame(id);
+      pendingRunGameIdRef.current = null;
+      setTimings(summary.timings);
+      setCurrentPhase(summary.phase);
+      if (summary.status === 'failed') {
+        setStreamStatus('failed');
+      }
+    } catch (error) {
+      runStartedGameIdsRef.current.delete(id);
+      setStreamStatus('error');
+      setTestMessage(error instanceof Error ? error.message : '启动游戏失败');
+    }
   };
 
   const handleConfirmExit = () => {

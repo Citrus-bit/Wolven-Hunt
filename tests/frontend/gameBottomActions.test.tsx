@@ -14,7 +14,7 @@ describe('GameBottomActions', () => {
           timing({
             seat: 2,
             nickname: '小豆包儿',
-            modelName: 'doubao-seed-2-0-pro-260215',
+            modelName: 'doubao-seed-2.0-pro',
             status: 'fail',
             durationMs: 8650,
           }),

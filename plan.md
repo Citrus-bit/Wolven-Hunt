@@ -63,7 +63,7 @@
 
 ### 1.6 狼人
 
-- 每晚最多 1 轮夜聊（每狼一句），然后**同时**提交刀人目标。`NIGHT_WOLF_CHAT` 与 `NIGHT_WOLF_VOTE` 均可基于同一份夜晚 snapshot 并发收集各狼决策，结算和事件追加仍按 actor seat 升序执行。
+- 每晚最多 1 轮夜聊（每狼一句），然后**同时**提交刀人目标。`NIGHT_WOLF_CHAT` 必须按存活狼人 seat 升序逐席收集并立即追加 `wolf_chat_message`，后一位狼人通过 Referee 过滤后的狼队视角可看到前序狼聊。`NIGHT_WOLF_VOTE` 可基于同一份夜晚 snapshot 并发收集各狼决策，结算和事件追加仍按 actor seat 升序执行。
 - 多数决定刀人目标；平票时**在被狼队投到的目标中随机**选择，并记录 `wolf_tie_random` 事件。
 - 合法刀人目标 = 所有存活非狼玩家或狼人自己。**允许自刀，不允许刀其他狼队友，不允许空刀**。
 - 狼队夜聊内容对狼队玩家可见；STEP-07 spectator 上帝视角可在狼人聊天框看到真实发言者和内容。
@@ -211,7 +211,7 @@ GAME_END
 - `llm_call` payload 字段固定为：`prompt_hash: str`、`raw_response_hash: str`、`storage_ref: str`、`model: str`、`prompt_tokens: int`、`completion_tokens: int`、`cost_usd: float`、`prompt_version: str`。payload 不得包含 `raw_response` 原文。
 - 随机：涉及平票随机、fallback 随机、角色洗牌的事件 payload 均记录 `rng_stream`、`candidates`、`selected`、`reason`。
 - `role_reveal` 仅在 `GAME_END` 后由 Referee 生成，公开可见，payload 固定为 `{winner, seats: [{seat, role, alive}], highlights}`。`pacing_tick` 作为未来保留事件，STEP-07 不写入事件日志，避免污染 replay hash。
-- `spectator_effect` **不是 EventLog 事件类型**，而是后端从 EventLog 派生的观赛投影：`{seq, day, phase, kind, actor, source_seat, target_seat, asset_key, duration_ms, meta}`。`kind` 固定为 `guard_shield | wolf_attack | seer_vision | witch_potion | death_reveal`。它只通过 spectator API/SSE 下发，不进入玩家视角、prompt、narrative 或 replay hash。`guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` 是现场观赛 transient effects，只能在非终局阶段播放；live pacing 中这些 effect 是动作完成后的可见节奏点，后端发布对应投影后可等待前端 `spectator_effect_rendered:<seq>` ack 或超时，再推进下一阶段。前端必须在座位叠层/药水动画挂载并短暂可见后再发送该 ack，不能在收到 SSE 的同一刻抢跑推进。前端新建观赛对局必须显式使用 `live` pacing；SSE 中收到的 live transient effect 是现场座位叠层动画的唯一触发来源，REST 回补只能更新历史列表，不能推进 SSE cursor 或吞掉后续同 seq live effect。进入 `GAME_END` / `role_reveal` 后不得集中补播积压特效。复盘或 REST 回补中已发生的非死亡 transient effects 默认视为历史并标记为过期；`death_reveal` / `out_badge` 和 `role_reveal` 仍可在终局保留。
+- `spectator_effect` **不是 EventLog 事件类型**，而是后端从 EventLog 派生的观赛投影：`{seq, day, phase, kind, actor, source_seat, target_seat, asset_key, duration_ms, meta}`。`kind` 固定为 `guard_shield | wolf_attack | seer_vision | witch_potion | death_reveal`。它只通过 spectator API/SSE 下发，不进入玩家视角、prompt、narrative 或 replay hash。`guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` 是现场观赛 transient effects，只能在非终局阶段播放；live pacing 中这些 effect 是动作完成后的可见节奏点，后端发布对应投影后可等待前端 `spectator_effect_rendered:<seq>` ack 或超时，再推进下一阶段。前端必须在座位叠层/药水动画挂载并短暂可见后再发送该 ack，不能在收到 SSE 的同一刻抢跑推进。前端新建观赛对局必须显式使用 `live` pacing，并采用 `start_paused=true -> 建立 SSE -> 座位与特效层挂载 -> POST /run` 的启动握手，确保首个夜晚现场 effect 不会在前端订阅前被写成历史。SSE 中收到的 live transient effect 是现场座位叠层动画的唯一触发来源，REST 回补只能更新历史列表，不能推进 SSE cursor 或吞掉后续同 seq live effect。live SSE cursor 必须以“已发布投影”的 raw seq 为准；服务端不得让客户端 cursor 越过尚未发布 `spectator_effect` 的 private action seq。进入 `GAME_END` / `role_reveal` 后不得集中补播积压特效。复盘或 REST 回补中已发生的非死亡 transient effects 默认视为历史并标记为过期；`death_reveal` / `out_badge` 和 `role_reveal` 仍可在终局保留。
 
 ### 3.4 可见性规则
 
@@ -515,6 +515,8 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 - `GET /games/{id}/events`：事件日志（spectator 上帝视角；包含身份表和狼聊，不含 raw response / provider 配置 / 守卫和预言家私有事件 / 狼刀细节）
 - `GET /games`：STEP-08 历史对局列表，从 `runs/{game_id}/manifest.json` 汇总，不能包含 API key 或 raw response
 - `POST /games/{id}/run` / `pause` / `resume`：流程控制
+- `POST /games`：创建对局；`start_paused=true` 时只注册 session 与 manifest，不启动 FSM，供现场观赛前端先建立 SSE 后再 `/run`
+- `POST /games/{id}/run`：启动或恢复已创建对局；对 `start_paused=true` 的 session 负责启动 FSM
 - `POST /games/{id}/replay`：触发 replay（参数：`mode=deterministic|resimulate`）
 - `POST /games/{id}/dev/inject`：dev-only，注入动作
 - `GET /games/{id}/stream`：SSE 流式推送事件
@@ -535,7 +537,7 @@ id: <seq>
 data: <spectator Event JSON>
 ```
 
-STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`，三类事件共享原始 EventLog `seq`。SSE cursor 按 raw EventLog seq 推进；每条 raw event 独立决定是否产生 filtered `game_event`、`narrative_row`、`spectator_effect`。每 30s 发送 `event: heartbeat\ndata: {}`。客户端携带 `Last-Event-ID: <seq>` 时，服务端从 `seq + 1` 续推；请求的 seq 不存在时返回 410。STEP-08 开始前端默认走同源相对路径；dev 由 Vite 7001 proxy 到后端 7002，prod 由 FastAPI 7002 同源服务静态文件和 API。
+STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`，三类事件共享原始 EventLog `seq`。live SSE cursor 按已完成 spectator/narrative/effect 投影发布的 raw seq 推进；每条 raw event 独立决定是否产生 filtered `game_event`、`narrative_row`、`spectator_effect`，但服务端只有在该 raw event 的所有投影都写入 session 后才允许 SSE 消费该 seq。每 30s 发送 `event: heartbeat\ndata: {}`。客户端携带 `Last-Event-ID: <seq>` 时，服务端从 `seq + 1` 续推；请求的 seq 不存在时返回 410。STEP-08 开始前端默认走同源相对路径；dev 由 Vite 7001 proxy 到后端 7002，prod 由 FastAPI 7002 同源服务静态文件和 API。
 
 ---
 

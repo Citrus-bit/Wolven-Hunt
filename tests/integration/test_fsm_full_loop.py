@@ -13,7 +13,9 @@ from wolven_hunt.core.seat import Seat
 from wolven_hunt.core.state import GameState
 from wolven_hunt.orchestration.fsm import (
     _apply_collected_actions,
+    _apply_and_log,
     _collect_actions_from_snapshot,
+    _decide_with_fallback,
     _run_day,
 )
 from wolven_hunt.orchestration.phases import Phase
@@ -156,44 +158,49 @@ def test_day_vote_collects_snapshot_actions_concurrently(game_config: GameConfig
     assert time.perf_counter() - started_at < 0.45
 
 
-def test_night_wolf_chat_collects_snapshot_actions_concurrently(
+def test_night_wolf_chat_collects_and_publishes_in_seat_order(
     game_config: GameConfig,
 ) -> None:
-    seed = "scripted-wolf-chat-concurrent"
+    seed = "scripted-wolf-chat-seat-order"
     state, start_events = build_initial_state(game_config, seed)
     state = state.with_phase(Phase.NIGHT_WOLF_CHAT.value)
     event_log = EventLog(seed=seed)
     event_log.append_all(start_events)
     wolf_seats = state.wolf_seats(alive_only=True)
     agents = {
-        seat.number: ScriptedWolfChatAgent(seat.number, delay_seconds=0.08)
+        seat.number: ScriptedWolfChatAgent(seat.number)
         for seat in wolf_seats
     }
-    started_at = time.perf_counter()
+    rng = DeterministicRNG(seed)
+    expected_seen: list[tuple[int, tuple[int | None, ...]]] = []
+    sorted_wolves = tuple(sorted(wolf_seats, key=lambda seat: seat.number))
 
-    collected = _collect_actions_from_snapshot(
-        state,
-        game_config,
-        agents,
-        event_log.events,
-        wolf_seats,
-        lambda agent, view: agent.decide_wolf_chat(view),
-        DeterministicRNG(seed),
-    )
+    for wolf in sorted_wolves:
+        action = _decide_with_fallback(
+            state,
+            game_config,
+            agents[wolf.number],
+            event_log,
+            wolf,
+            lambda agent, view: agent.decide_wolf_chat(view),
+            rng,
+        )
+        state = _apply_and_log(
+            state,
+            action,
+            game_config,
+            rng,
+            event_log,
+            state_sink=None,
+            control_hook=None,
+        )
+        expected_seen.append(
+            (
+                wolf.number,
+                tuple(seat.number for seat in sorted_wolves if seat.number < wolf.number),
+            )
+        )
 
-    assert time.perf_counter() - started_at < 0.25
-    for agent in agents.values():
-        assert agent.seen_chat_actors == [()]
-
-    state = _apply_collected_actions(
-        state,
-        collected,
-        game_config,
-        DeterministicRNG(seed),
-        event_log,
-        state_sink=None,
-        control_hook=None,
-    )
     del state
     chat_events = [
         event
@@ -203,6 +210,10 @@ def test_night_wolf_chat_collects_snapshot_actions_concurrently(
     assert [event.actor for event in chat_events] == sorted(
         seat.number for seat in wolf_seats
     )
+    assert [
+        (seat_number, agents[seat_number].seen_chat_actors[0])
+        for seat_number in sorted(agents)
+    ] == expected_seen
 
 
 def test_day_vote_all_abstain_is_peaceful_without_last_words(

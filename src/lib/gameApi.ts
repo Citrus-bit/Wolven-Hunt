@@ -94,6 +94,7 @@ export async function createGame(opts: {
   seed?: string;
   agents?: Record<number, AgentSpec>;
   pacing?: 'live' | 'fast' | 'off';
+  startPaused?: boolean;
   seatPresentation?: SeatPresentationMap;
 } = {}): Promise<CreateGameResponse> {
   const res = await fetch(`${API_BASE}/games`, {
@@ -104,10 +105,18 @@ export async function createGame(opts: {
       seed: opts.seed ?? `web-${Date.now()}`,
       agents: opts.agents ?? {},
       pacing: opts.pacing,
+      start_paused: opts.startPaused ?? false,
       seat_presentation: opts.seatPresentation ?? {},
     }),
   });
   return parseJsonResponse<CreateGameResponse>(res);
+}
+
+export async function runGame(gameId: string): Promise<GameSummary> {
+  const res = await fetch(`${API_BASE}/games/${gameId}/run`, {
+    method: 'POST',
+  });
+  return parseJsonResponse<GameSummary>(res);
 }
 
 export async function getGame(gameId: string): Promise<GameSummary> {
@@ -182,6 +191,7 @@ export async function submitWolfChat(
 
 export function subscribeGameEvents(
   gameId: string,
+  onOpen: () => void,
   onEvent: (event: GameEvent) => void,
   onError: () => void,
   onNarrative?: (row: NarrativeRow) => void,
@@ -192,6 +202,7 @@ export function subscribeGameEvents(
     ? `?last_event_id=${encodeURIComponent(String(lastEventId))}`
     : '';
   const source = new EventSource(`${API_BASE}/games/${gameId}/stream${params}`);
+  source.onopen = onOpen;
   source.addEventListener('game_event', (message) => {
     onEvent(JSON.parse((message as MessageEvent<string>).data) as GameEvent);
   });

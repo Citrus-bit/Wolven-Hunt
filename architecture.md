@@ -72,7 +72,7 @@
 
 ### Wolves
 
-- 每晚最多 1 轮夜聊，每狼一句；运行时可基于同一份夜晚 snapshot 并发收集，事件追加仍按 actor seat 升序执行。
+- 每晚最多 1 轮夜聊，每狼一句；运行时必须按存活狼人 seat 升序逐席收集并立即追加 `wolf_chat_message`，后一位狼人通过 Referee 过滤后的狼队视角可看到前序狼聊。
 - 随后同时提交刀人目标；运行时可基于同一份夜晚 snapshot 并发收集，结算仍按 actor seat 升序执行。
 - 多数决定刀人目标。
 - 平票时在被狼队投到的目标中 deterministic random 选择，并记录 `wolf_tie_random`。
@@ -404,7 +404,7 @@ FastAPI 在 STEP-06 实现，所有读取接口默认返回 Referee 过滤后的
 
 错误体统一为 `{code, message, details?}`。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。`POST /models/test` 只做临时连通性测试，请求允许携带 `thinking_enabled`，未携带时默认为 `false`；正式游戏的 `AgentSpecLLM` 同样允许携带 `thinking_enabled`。Qwen 系列必须把 `thinking_enabled` 显式映射为 provider 请求中的 `enable_thinking: true/false`，其他模型仅在 `true` 时追加 provider 兼容的 thinking 参数。OpenAI-compatible provider 若明确拒绝非流式请求并要求 `stream`，后端可用同一请求参数自动重试 `stream: true` 并聚合 delta 文本。前端模型连通性测试失败后按 `1s → 3s → 5s → 10s` 自动重测；该重测只重复临时 `/models/test` 调用，不写入 EventLog、runs、raw response、cost、narrative、manifest 或 SSE。`thinking_enabled` 与 stream 兼容重试仅用于 provider 调用参数，不进入 EventLog、PlayerView、narrative、spectator API、manifest 或 SSE，不影响 replay hash。不写 EventLog、不落盘、不返回 API key；失败响应只返回脱敏后的短错误摘要。所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 
-SSE 线协议固定为 `event: game_event`、`id: <seq>`、`data: <spectator Event JSON>`；STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`，三类事件共享原始 EventLog `seq`。SSE cursor 按 raw EventLog seq 推进；每条 raw event 独立决定是否产生 filtered `game_event`、`narrative_row`、`spectator_effect`。每 30s 发送 `event: heartbeat`。`Last-Event-ID` 表示从 `seq + 1` 续推，不存在则返回 410。STEP-08 起前端默认同源相对路径；开发模式 Vite `7001` proxy 到 FastAPI `7002`，生产模式 FastAPI `7002` 服务 `dist/` 和 API。
+SSE 线协议固定为 `event: game_event`、`id: <seq>`、`data: <spectator Event JSON>`；STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`，三类事件共享原始 EventLog `seq`。live SSE cursor 按已完成 spectator/narrative/effect 投影发布的 raw seq 推进；每条 raw event 独立决定是否产生 filtered `game_event`、`narrative_row`、`spectator_effect`，但服务端只有在该 raw event 的所有投影都写入 session 后才允许 SSE 消费该 seq。每 30s 发送 `event: heartbeat`。`Last-Event-ID` 表示从 `seq + 1` 续推，不存在则返回 410。STEP-08 起前端默认同源相对路径；开发模式 Vite `7001` proxy 到 FastAPI `7002`，生产模式 FastAPI `7002` 服务 `dist/` 和 API。
 
 STEP-06 环境变量统一由 `src/wolven_hunt/config/settings.py` 的 `pydantic-settings.BaseSettings` 读取：
 
@@ -472,7 +472,7 @@ STEP-07 新增观赛特效投影 `SpectatorEffect`，它从完整 EventLog 派�
 - `witch_action(save|poison)` 派生 `witch_potion`，从女巫座位飞向目标座位；`skip` 不派生特效。
 - `day_announce` 中的死亡列表派生 `death_reveal`，前端在白天公布后再灰化头像。
 
-`guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` 是现场观赛 transient effects，只能在非终局阶段播放；live pacing 中它们是动作完成后的可见节奏点，后端发布对应投影后可等待前端 `spectator_effect_rendered:<seq>` ack 或超时，再推进下一阶段。前端必须在座位叠层/药水动画挂载并短暂可见后再发送该 ack，不能在收到 SSE 的同一刻抢跑推进。前端新建观赛对局必须显式使用 `live` pacing；SSE 中收到的 live transient effect 是现场座位叠层动画的唯一触发来源，REST narrative/effects 回补只能更新历史 UI 状态，不得推进 `Last-Event-ID` cursor 或吞掉后续同 seq live effect。进入 `GAME_END` / `role_reveal` 后前端必须抑制并清空这类未完成动效，不得集中补播积压特效。复盘或 REST 回补中已发生的非死亡 transient effects 默认视为历史并标记为过期；`death_reveal` / `out_badge` 和 `role_reveal` 仍可在终局保留。
+`guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` 是现场观赛 transient effects，只能在非终局阶段播放；live pacing 中它们是动作完成后的可见节奏点，后端发布对应投影后可等待前端 `spectator_effect_rendered:<seq>` ack 或超时，再推进下一阶段。前端必须在座位叠层/药水动画挂载并短暂可见后再发送该 ack，不能在收到 SSE 的同一刻抢跑推进。前端新建观赛对局必须显式使用 `live` pacing，并采用 `start_paused=true -> 建立 SSE -> 座位与特效层挂载 -> POST /run` 的启动握手，确保首个夜晚现场 effect 不会在前端订阅前被写成历史。SSE 中收到的 live transient effect 是现场座位叠层动画的唯一触发来源，REST narrative/effects 回补只能更新历史 UI 状态，不得推进 `Last-Event-ID` cursor 或吞掉后续同 seq live effect。live SSE cursor 必须以“已发布投影”的 raw seq 为准；服务端不得让客户端 cursor 越过尚未发布 `spectator_effect` 的 private action seq。进入 `GAME_END` / `role_reveal` 后前端必须抑制并清空这类未完成动效，不得集中补播积压特效。复盘或 REST 回补中已发生的非死亡 transient effects 默认视为历史并标记为过期；`death_reveal` / `out_badge` 和 `role_reveal` 仍可在终局保留。
 
 `GET /games/{id}/effects?after=<seq>` 返回 spectator-only effects。SSE 使用 `event: spectator_effect` 推送同一投影；这不允许前端绕过 Referee 获取可用于玩家决策的私有事件原文。
 

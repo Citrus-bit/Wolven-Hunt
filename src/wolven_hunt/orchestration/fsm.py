@@ -150,23 +150,25 @@ def _run_night(
             state_sink,
             control_hook,
         )
-        state = _apply_collected_actions(
-            state,
-            _collect_actions_from_snapshot(
+        for wolf in sorted(wolf_seats, key=lambda seat: seat.number):
+            action = _decide_with_fallback(
                 state,
                 config,
-                agents,
-                event_log.events,
-                wolf_seats,
+                agents[wolf.number],
+                event_log,
+                wolf,
                 lambda agent, view: agent.decide_wolf_chat(view),
                 rng,
-            ),
-            config,
-            rng,
-            event_log,
-            state_sink,
-            control_hook,
-        )
+            )
+            state = _apply_and_log(
+                state,
+                action,
+                config,
+                rng,
+                event_log,
+                state_sink,
+                control_hook,
+            )
         event_log.append_all(phase_exit(state))
 
         state = _enter_phase(

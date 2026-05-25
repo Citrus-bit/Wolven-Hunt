@@ -190,10 +190,12 @@ class GameSession:
     pacing: PacingController
     started_at: str
     seat_presentation: dict[int, dict[str, str]]
+    agents: dict[int, PlayerInterface]
     task: asyncio.Task[None] | None = None
     error: str | None = None
     final_reveal: dict[str, object] | None = None
     _lock: threading.RLock = field(default_factory=threading.RLock)
+    _stream_events: list[Event] = field(default_factory=list)
     _narrative_rows: list[dict[str, object]] = field(default_factory=list)
     _effect_rows: list[dict[str, object]] = field(default_factory=list)
     _wake_tasks: set[asyncio.Task[None]] = field(default_factory=set)
@@ -211,15 +213,16 @@ class GameSession:
     def publish_event(self, event: Event) -> None:
         self.store.append_event(event)
         row = event_to_narrative(event)
-        if row is not None:
-            row_dict = row.to_dict()
-            with self._lock:
-                self._narrative_rows.append(row_dict)
-            self.store.append_narrative(row_dict)
+        row_dict = None if row is None else row.to_dict()
         effects = event_to_spectator_effects(event, self.event_log.events)
-        if effects:
-            with self._lock:
+        if row is not None:
+            self.store.append_narrative(row_dict)
+        with self._lock:
+            if row_dict is not None:
+                self._narrative_rows.append(row_dict)
+            if effects:
                 self._effect_rows.extend(effect.to_dict() for effect in effects)
+            self._stream_events.append(event)
         self.notify_event_loop()
         self.pacing.on_event(event)
 
@@ -261,7 +264,7 @@ class GameSession:
 
     def raw_events_after(self, seq: int) -> tuple[Event, ...]:
         with self._lock:
-            return tuple(event for event in self.event_log.events if event.seq > seq)
+            return tuple(event for event in self._stream_events if event.seq > seq)
 
     def spectator_event_for_seq(self, seq: int) -> dict[str, object] | None:
         for event in self.spectator_events_after(seq - 1):
@@ -307,6 +310,7 @@ class GameRegistry:
         seed: str,
         agent_specs: Mapping[int, AgentSpecValue],
         pacing: PacingName | None = None,
+        start_paused: bool = False,
         seat_presentation: SeatPresentationValue | None = None,
     ) -> GameSession:
         config = load_game_config(config_path)
@@ -331,6 +335,14 @@ class GameRegistry:
         def on_append(event: Event) -> None:
             session_ref["session"].publish_event(event)
 
+        pending = PendingTextActions()
+        agents = self._build_agents(
+            config=config,
+            seed=seed,
+            specs=agent_specs,
+            store=store,
+            pending=pending,
+        )
         session = GameSession(
             game_id=game_id,
             config=config,
@@ -338,26 +350,21 @@ class GameRegistry:
             store=store,
             state=initial_state,
             event_log=EventLog(seed=seed, on_append=on_append),
-            status="starting",
+            status="paused" if start_paused else "starting",
             loop=asyncio.get_running_loop(),
             condition=asyncio.Condition(),
             control=RuntimeControl(),
-            pending=PendingTextActions(),
+            pending=pending,
             pacing=PacingController(profile_from_settings(self.settings, override=pacing)),
             started_at=started_at,
             seat_presentation=normalized_presentation,
+            agents=agents,
         )
         session_ref["session"] = session
-        agents = self._build_agents(
-            config=config,
-            seed=seed,
-            specs=agent_specs,
-            store=store,
-            pending=session.pending,
-        )
         with self._lock:
             self._sessions[game_id] = session
-        session.task = asyncio.create_task(self._run_game_task(session, agents))
+        if not start_paused:
+            session.task = asyncio.create_task(self._run_game_task(session, agents))
         return session
 
     def get(self, game_id: str) -> GameSession | None:
@@ -380,10 +387,18 @@ class GameRegistry:
 
     def run(self, game_id: str) -> GameSession:
         session = self.require(game_id)
+        if session.task is None and not session.is_terminal():
+            session.loop.call_soon_threadsafe(self._start_session_task, session)
         if session.status == "paused":
             session.control.resume()
             session.set_status("running")
         return session
+
+    def _start_session_task(self, session: GameSession) -> None:
+        if session.task is None and not session.is_terminal():
+            session.task = session.loop.create_task(
+                self._run_game_task(session, session.agents)
+            )
 
     def pause(self, game_id: str) -> GameSession:
         session = self.require(game_id)
