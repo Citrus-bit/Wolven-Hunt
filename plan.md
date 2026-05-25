@@ -303,9 +303,10 @@ manifest.json
 cost.jsonl
 narrative.jsonl
 final_reveal.json
+review_report.json
 ```
 
-`events.jsonl` 与 EventLog 一一对应；`narrative.jsonl` 每行记录 spectator-safe 中文叙事；`final_reveal.json` 记录终局身份揭晓。`manifest.json` 可记录 spectator-safe 的 `seat_presentation` 展示快照，仅允许包含 `{seat, nickname, icon_path}` 这类本地 UI 展示信息，不得包含 provider、model name、base URL、API key、raw response、prompt 或任何私有行动结果；该字段不进入 EventLog，不参与 replay hash 或 resimulate。`raw_responses.jsonl` 每行记录 `{storage_ref, seat, phase, day, seq, model, prompt_hash, raw_response_hash, raw_response, prompt_tokens, completion_tokens, cost_usd, prompt_version}`。`raw_responses.jsonl` 不保存 prompt 原文，只保存 `prompt_hash` 与 `prompt_version`；prompt 内容正确性通过测试捕获 provider 入参验证。所有文件权限为 `0600`。JSON/JSONL 写入必须采用 tmp + fsync + atomic rename 或行级 fsync；恢复时若末行损坏，截断到最后一条可解析完整 JSONL。
+`events.jsonl` 与 EventLog 一一对应；`narrative.jsonl` 每行记录 spectator-safe 中文叙事；`final_reveal.json` 记录终局身份揭晓；`review_report.json` 记录赛后 AI 复盘报告。`review_report.json` 是从 Referee 过滤后的 spectator events、`narrative.jsonl`、`final_reveal.json` 和 manifest 中的 `seat_presentation` 派生的赛后产物，不进入 EventLog、PlayerView、narrative、SSE、prompt 或 replay/resimulate 校验，不影响 replay hash。`manifest.json` 可记录 spectator-safe 的 `seat_presentation` 展示快照，仅允许包含 `{seat, nickname, icon_path}` 这类本地 UI 展示信息，不得包含 provider、model name、base URL、API key、raw response、prompt 或任何私有行动结果；该字段不进入 EventLog，不参与 replay hash 或 resimulate。`raw_responses.jsonl` 每行记录 `{storage_ref, seat, phase, day, seq, model, prompt_hash, raw_response_hash, raw_response, prompt_tokens, completion_tokens, cost_usd, prompt_version}`。`raw_responses.jsonl` 不保存 prompt 原文，只保存 `prompt_hash` 与 `prompt_version`；prompt 内容正确性通过测试捕获 provider 入参验证。所有文件权限为 `0600`。JSON/JSONL 写入必须采用 tmp + fsync + atomic rename 或行级 fsync；恢复时若末行损坏，截断到最后一条可解析完整 JSONL。
 
 ### 5.3 Prompt 模板版本号
 
@@ -495,6 +496,11 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 - `WH_LLM_MAX_RETRIES`：重试预算，默认 4；已加载 RuleSet 的 `fallback.max_retries` 优先
 - `WH_LLM_BUDGET_PER_GAME`：单局 token 上限，默认 100000
 - `WH_LLM_PROVIDER_MAP`：空字符串或 YAML 路径；非空时按座位路由 provider，缺失座位回退到全局 `WH_LLM_*`
+- `WH_REVIEW_PROVIDER`：赛后 AI 复盘报告 provider，`mock | litellm`，默认 `mock`
+- `WH_REVIEW_API_KEY`：赛后报告真实 provider 的 API key；仅 `WH_REVIEW_PROVIDER=litellm` 且触发报告生成时需要
+- `WH_REVIEW_BASE_URL`：赛后报告 LiteLLM base URL，默认 `https://yunwu.ai/v1`
+- `WH_REVIEW_MODEL`：赛后报告模型名，默认 `gpt-5.5`
+- `WH_REVIEW_TIMEOUT_SECONDS`：赛后报告单次调用超时，默认 60
 - `WH_PACING_PROFILE`：`live | fast | off`，默认 `live`；CI / replay / resimulate 强制 `off`
 - `WH_PACING_PHASE_MS`：phase 切换基础停顿，默认 600
 - `WH_PACING_SPEECH_MS`：speech / wolf_chat / last_words 后停顿，默认 400
@@ -523,6 +529,8 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 - `GET /games/{id}/narrative`：返回 spectator-safe 中文叙事行，支持 `?after=<seq>`
 - `GET /games/{id}/effects`：返回从完整 EventLog 派生的 spectator-only 特效行，支持 `?after=<seq>`；不得包含 raw response、provider 配置、prompt、模型名或玩家不可见事件原文。
 - `GET /games/{id}/reveal`：仅游戏结束后返回 `final_reveal.json`；未结束返回 `404 {code: "game_not_finished"}`
+- `GET /games/{id}/review-report`：返回已生成的赛后 AI 复盘报告；未生成返回 `404 {code: "report_not_generated"}`
+- `POST /games/{id}/review-report`：仅游戏结束后生成或返回缓存的赛后 AI 复盘报告。报告 prompt 只能使用 spectator-safe events、narrative、role reveal 与 `seat_presentation`，不得读取 `raw_responses.jsonl`、provider 配置、API key、prompt 原文或未授权私有事件；生成失败不改变 EventLog、replay hash 或历史列表。
 - `POST /games/{id}/ack`：前端音频或现场 transient effect 渲染完成后解除 pacing 等待；effect ack event 名称为 `spectator_effect_rendered:<seq>`；ack 不进事件日志、不影响 replay hash
 - `POST /games/{id}/speech`：提交公开发言文本，仍走 Referee `validate_action`
 - `POST /games/{id}/wolf_chat`：提交狼聊文本，仍走 Referee `validate_action`
@@ -655,6 +663,7 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 - 历史复盘只消费 Referee 过滤后的 spectator 上帝视角。`GET /games` 从 `runs/` 汇总 manifest；`GET /games/{id}/events` 在线时返回 session spectator events，离线历史从 `events.jsonl` 读取并按 spectator 过滤，不读取 `raw_responses.jsonl`。
 - `seat_presentation` 是历史复盘恢复游玩时头像和昵称的展示快照，必须只包含本地 `/assets/lobby/` 头像路径和有限长度昵称；它不改变身份来源、胜负判定、行动合法性、ack、EventLog、replay hash 或 LLM 输入。
 - 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。终局定格态不得继续播放或补播 `guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` transient spectator effects。
+- STEP-08 起终局定格态的复盘入口文案为「AI一键生成复盘报告」：点击后按钮禁用变灰并显示 spinner 与「正在生成中」，生成成功后变为「查阅报告」。报告抽屉展示战局摘要、Leaderboard、每名玩家发言/投票/技能/综合分可视化、关键决策复盘、反事实推演与对应建议。大厅「历史复盘」入口和列表内「复盘」按钮不改名、不接入报告生成。
 - `manifest.json` 从 STEP-08 起必须包含 `config_path` 与 `prompt_pack_version`，用于 `replay_resimulate(config_path=None)` 恢复原配置与 prompt 版本。缺失时只能回退 classic_8 与 prompt `v1`，并需保持旧 run 兼容；新 run 默认使用 classic_10 与 prompt `v4`。
 - 前端 SSE 必须支持断线重连、`Last-Event-ID` 续传、最多 4 次固定延迟重试，延迟序列为 `1s → 3s → 5s → 10s`，不使用 jitter；超过上限显示可操作错误，不静默停住。断线时通过 REST 拉取 narrative/effects 只能作为历史补齐，不得更新用于 `Last-Event-ID` 的 raw event cursor；cursor 只能由 SSE raw event id 推进，避免私有动作派生的 live effect 被回补吞掉。
 - ack 仍只控制现场 pacing，不写 EventLog，不影响 replay hash。localStorage key `wolven_hunt.pacing_mode` 仅影响新建对局传入的 pacing profile。游戏内阶段语音使用独立于大厅 BGM 的本地状态与右上角开关，不能复用 `wolven_hunt.lobby.muted` 导致观赛语音被静音；阶段音频播放失败、effect 渲染 ack 丢失或浏览器阻止自动播放时，前端必须在超时内发送 ack，后端也必须按 `WH_PACING_ACK_TIMEOUT_MS` 超时继续推进。

@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createGame, runGame } from '../../src/lib/gameApi';
+import {
+  createGame,
+  generateReviewReport,
+  getReviewReport,
+  runGame,
+} from '../../src/lib/gameApi';
 
 describe('gameApi', () => {
   afterEach(() => {
@@ -44,6 +49,34 @@ describe('gameApi', () => {
     await expect(runGame('game-1')).resolves.toEqual(summary);
 
     expect(fetchMock).toHaveBeenCalledWith('/games/game-1/run', { method: 'POST' });
+  });
+
+  it('uses review report endpoints for reading and generation', async () => {
+    const report = {
+      schema_version: '1.0',
+      game_id: 'game-1',
+      generated_at: '2026-01-01T00:00:00Z',
+      summary: {
+        winner: 'good',
+        verdict: '好人胜利',
+        turning_points: [],
+        overall_assessment: '公开信息复盘。',
+      },
+      leaderboard: [],
+      players: [],
+      key_decisions: [],
+      counterfactuals: [],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(report));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getReviewReport('game-1')).resolves.toEqual(report);
+    await expect(generateReviewReport('game-1')).resolves.toEqual(report);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/games/game-1/review-report');
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/games/game-1/review-report', {
+      method: 'POST',
+    });
   });
 });
 

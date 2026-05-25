@@ -82,6 +82,54 @@ export type RoleReveal = {
   highlights: { seq: number; summary: string }[];
 };
 
+export type ReviewReport = {
+  schema_version: string;
+  game_id: string;
+  generated_at: string;
+  summary: {
+    winner: string;
+    verdict: string;
+    turning_points: string[];
+    overall_assessment: string;
+  };
+  leaderboard: {
+    rank: number;
+    seat: number;
+    nickname: string;
+    role: string;
+    camp: string;
+    overall_score: number;
+    reason: string;
+  }[];
+  players: {
+    seat: number;
+    nickname: string;
+    role: string;
+    camp: string;
+    alive: boolean;
+    speech_score: number;
+    vote_score: number;
+    skill_score: number;
+    overall_score: number;
+    strengths: string[];
+    mistakes: string[];
+    suggestions: string[];
+  }[];
+  key_decisions: {
+    day: number;
+    phase: string;
+    seq: number | null;
+    title: string;
+    analysis: string;
+    impact: string;
+  }[];
+  counterfactuals: {
+    premise: string;
+    likely_outcome: string;
+    lesson: string;
+  }[];
+};
+
 export type ModelTestResponse = {
   ok: boolean;
   message: string | null;
@@ -153,6 +201,18 @@ export async function getEffects(
 export async function getReveal(gameId: string): Promise<RoleReveal> {
   const res = await fetch(`${API_BASE}/games/${gameId}/reveal`);
   return parseJsonResponse<RoleReveal>(res);
+}
+
+export async function getReviewReport(gameId: string): Promise<ReviewReport> {
+  const res = await fetch(`${API_BASE}/games/${gameId}/review-report`);
+  return parseJsonResponse<ReviewReport>(res);
+}
+
+export async function generateReviewReport(gameId: string): Promise<ReviewReport> {
+  const res = await fetch(`${API_BASE}/games/${gameId}/review-report`, {
+    method: 'POST',
+  });
+  return parseJsonResponse<ReviewReport>(res);
 }
 
 export async function sendAck(

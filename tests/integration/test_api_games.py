@@ -312,6 +312,93 @@ def test_model_test_litellm_failure_message_is_sanitized(monkeypatch, tmp_path) 
     assert not any(tmp_path.iterdir())
 
 
+def test_review_report_requires_finished_game(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_REVIEW_PROVIDER", "mock")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-review-unfinished",
+                "pacing": "off",
+                "start_paused": True,
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+            },
+        )
+        assert created.status_code == 200
+        game_id = created.json()["game_id"]
+
+        missing = client.get(f"/games/{game_id}/review-report")
+        assert missing.status_code == 404
+        assert missing.json()["code"] == "report_not_generated"
+
+        response = client.post(f"/games/{game_id}/review-report")
+        assert response.status_code == 404
+        assert response.json()["code"] == "game_not_finished"
+        assert not (tmp_path / game_id / "review_report.json").exists()
+
+
+def test_review_report_generation_is_cached_and_spectator_safe(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_REVIEW_PROVIDER", "mock")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-review-finished",
+                "pacing": "off",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+                "seat_presentation": {
+                    "1": {
+                        "nickname": "GPT",
+                        "icon_path": "/assets/lobby/model_icon_gpt.png",
+                    }
+                },
+            },
+        )
+        assert created.status_code == 200
+        game_id = created.json()["game_id"]
+        _wait_until_finished(client, game_id)
+
+        events_path = tmp_path / game_id / "events.jsonl"
+        before_events = events_path.read_text(encoding="utf-8")
+        response = client.post(f"/games/{game_id}/review-report")
+        assert response.status_code == 200
+        report = response.json()
+        assert report["game_id"] == game_id
+        assert len(report["players"]) == 10
+        assert len(report["leaderboard"]) == 10
+        assert report["players"][0]["speech_score"] >= 0
+        assert report["players"][0]["vote_score"] >= 0
+        assert report["players"][0]["skill_score"] >= 0
+
+        report_path = tmp_path / game_id / "review_report.json"
+        assert report_path.exists()
+        report_text = report_path.read_text(encoding="utf-8")
+        assert "raw_response" not in report_text
+        assert "api_key" not in report_text
+        assert "prompt" not in report_text
+        assert events_path.read_text(encoding="utf-8") == before_events
+
+        cached = client.post(f"/games/{game_id}/review-report")
+        assert cached.status_code == 200
+        assert cached.json() == report
+        fetched = client.get(f"/games/{game_id}/review-report")
+        assert fetched.status_code == 200
+        assert fetched.json() == report
+
+
 def test_api_queues_pending_speech_and_rejects_non_wolf_chat(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     monkeypatch.setenv("WH_LLM_PROVIDER", "mock")

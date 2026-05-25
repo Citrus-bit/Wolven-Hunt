@@ -133,6 +133,76 @@ class RoleRevealResponse(BaseModel):
     highlights: tuple[RoleRevealHighlight, ...]
 
 
+class ReviewReportSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    winner: str
+    verdict: str
+    turning_points: tuple[str, ...] = ()
+    overall_assessment: str
+
+
+class ReviewReportLeaderboardItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rank: int = Field(ge=1)
+    seat: int = Field(ge=1)
+    nickname: str
+    role: str
+    camp: str
+    overall_score: int = Field(ge=0, le=100)
+    reason: str
+
+
+class ReviewReportPlayer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seat: int = Field(ge=1)
+    nickname: str
+    role: str
+    camp: str
+    alive: bool
+    speech_score: int = Field(ge=0, le=100)
+    vote_score: int = Field(ge=0, le=100)
+    skill_score: int = Field(ge=0, le=100)
+    overall_score: int = Field(ge=0, le=100)
+    strengths: tuple[str, ...] = ()
+    mistakes: tuple[str, ...] = ()
+    suggestions: tuple[str, ...] = ()
+
+
+class ReviewReportDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    day: int
+    phase: str
+    seq: int | None = None
+    title: str
+    analysis: str
+    impact: str
+
+
+class ReviewReportCounterfactual(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    premise: str
+    likely_outcome: str
+    lesson: str
+
+
+class ReviewReportResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "1.0"
+    game_id: str
+    generated_at: str
+    summary: ReviewReportSummary
+    leaderboard: tuple[ReviewReportLeaderboardItem, ...]
+    players: tuple[ReviewReportPlayer, ...]
+    key_decisions: tuple[ReviewReportDecision, ...]
+    counterfactuals: tuple[ReviewReportCounterfactual, ...]
+
+
 class ErrorBody(BaseModel):
     code: str
     message: str

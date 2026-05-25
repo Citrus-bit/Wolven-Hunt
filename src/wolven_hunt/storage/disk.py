@@ -47,6 +47,10 @@ class GameRunStore:
     def final_reveal_path(self) -> Path:
         return self.root / "final_reveal.json"
 
+    @property
+    def review_report_path(self) -> Path:
+        return self.root / "review_report.json"
+
     def append_event(self, event: Event) -> None:
         append_jsonl(self.events_path, event.model_dump(mode="json"))
 
@@ -61,6 +65,9 @@ class GameRunStore:
 
     def write_final_reveal(self, payload: dict[str, Any]) -> None:
         atomic_write_json(self.final_reveal_path, payload)
+
+    def write_review_report(self, payload: dict[str, Any]) -> None:
+        atomic_write_json(self.review_report_path, payload)
 
     def write_manifest(self, manifest: dict[str, Any]) -> None:
         atomic_write_json(self.manifest_path, manifest)

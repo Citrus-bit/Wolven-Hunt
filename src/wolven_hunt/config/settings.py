@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(default=4, ge=0)
     llm_budget_per_game: int = Field(default=100_000, ge=0)
     llm_provider_map: str = ""
+    review_provider: Literal["mock", "litellm"] = "mock"
+    review_api_key: str = ""
+    review_base_url: str = "https://yunwu.ai/v1"
+    review_model: str = "gpt-5.5"
+    review_timeout_seconds: float = Field(default=60.0, gt=0)
     pacing_profile: Literal["live", "fast", "off"] = "live"
     pacing_phase_ms: int = Field(default=600, ge=0)
     pacing_speech_ms: int = Field(default=400, ge=0)

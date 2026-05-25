@@ -364,7 +364,7 @@ Prompt 存储：
 - `src/wolven_hunt/storage`：事件日志、快照、两种 replay 模式。
 - `src/wolven_hunt/api`：FastAPI 控制接口，STEP-06 实现。
 
-落盘目录固定为 `runs/{game_id}/events.jsonl`、`raw_responses.jsonl`、`manifest.json`、`cost.jsonl`、`narrative.jsonl`、`final_reveal.json`。`manifest.json` 可记录 spectator-safe 的 `seat_presentation` 展示快照，仅包含本地 UI 昵称与 `/assets/lobby/` 头像路径，不得包含 provider、model name、base URL、API key、raw response、prompt 或私有行动结果；该字段不写入 EventLog，不影响 replay hash 或 resimulate。写入使用 tmp + fsync + atomic rename 或行级 fsync，文件权限为 `0600`。
+落盘目录固定为 `runs/{game_id}/events.jsonl`、`raw_responses.jsonl`、`manifest.json`、`cost.jsonl`、`narrative.jsonl`、`final_reveal.json`、`review_report.json`。`review_report.json` 是赛后 AI 复盘报告，只能从 Referee 过滤后的 spectator events、`narrative.jsonl`、`final_reveal.json` 与 manifest 中的 `seat_presentation` 派生，不进入 EventLog、PlayerView、narrative、SSE、prompt、replay hash 或 resimulate 校验。`manifest.json` 可记录 spectator-safe 的 `seat_presentation` 展示快照，仅包含本地 UI 昵称与 `/assets/lobby/` 头像路径，不得包含 provider、model name、base URL、API key、raw response、prompt 或私有行动结果；该字段不写入 EventLog，不影响 replay hash 或 resimulate。写入使用 tmp + fsync + atomic rename 或行级 fsync，文件权限为 `0600`。
 
 调用链固定：
 
@@ -397,12 +397,14 @@ FastAPI 在 STEP-06 实现，所有读取接口默认返回 Referee 过滤后的
 - `GET /games/{id}/narrative`
 - `GET /games/{id}/effects`
 - `GET /games/{id}/reveal`
+- `GET /games/{id}/review-report`
+- `POST /games/{id}/review-report`
 - `POST /games/{id}/ack`
 - `POST /games/{id}/speech`
 - `POST /games/{id}/wolf_chat`
 - `POST /models/test`
 
-错误体统一为 `{code, message, details?}`。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。`POST /models/test` 只做临时连通性测试，请求允许携带 `thinking_enabled`，未携带时默认为 `false`；正式游戏的 `AgentSpecLLM` 同样允许携带 `thinking_enabled`。Qwen 系列必须把 `thinking_enabled` 显式映射为 provider 请求中的 `enable_thinking: true/false`，其他模型仅在 `true` 时追加 provider 兼容的 thinking 参数。OpenAI-compatible provider 若明确拒绝非流式请求并要求 `stream`，后端可用同一请求参数自动重试 `stream: true` 并聚合 delta 文本。前端模型连通性测试失败后按 `1s → 3s → 5s → 10s` 自动重测；该重测只重复临时 `/models/test` 调用，不写入 EventLog、runs、raw response、cost、narrative、manifest 或 SSE。`thinking_enabled` 与 stream 兼容重试仅用于 provider 调用参数，不进入 EventLog、PlayerView、narrative、spectator API、manifest 或 SSE，不影响 replay hash。不写 EventLog、不落盘、不返回 API key；失败响应只返回脱敏后的短错误摘要。所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
+错误体统一为 `{code, message, details?}`。`GET /games/{id}/review-report` 只返回已生成的 `review_report.json`，未生成返回 `404 report_not_generated`；`POST /games/{id}/review-report` 只允许 finished game，已有报告时返回缓存，否则调用专用 review provider 生成结构化报告。报告 schema 至少包含 summary、leaderboard、players、key_decisions、counterfactuals，其中 players 必须提供 speech/vote/skill/overall 四维分数与建议。报告生成不得读取 `raw_responses.jsonl`、provider 配置、API key、prompt 原文或未授权私有行动结果，失败不得改变 EventLog、replay hash、SSE 或历史列表。`speech` 与 `wolf_chat` 端点仍走 Referee `validate_action`，前端不得自行绕过合法性校验。`POST /models/test` 只做临时连通性测试，请求允许携带 `thinking_enabled`，未携带时默认为 `false`；正式游戏的 `AgentSpecLLM` 同样允许携带 `thinking_enabled`。Qwen 系列必须把 `thinking_enabled` 显式映射为 provider 请求中的 `enable_thinking: true/false`，其他模型仅在 `true` 时追加 provider 兼容的 thinking 参数。OpenAI-compatible provider 若明确拒绝非流式请求并要求 `stream`，后端可用同一请求参数自动重试 `stream: true` 并聚合 delta 文本。前端模型连通性测试失败后按 `1s → 3s → 5s → 10s` 自动重测；该重测只重复临时 `/models/test` 调用，不写入 EventLog、runs、raw response、cost、narrative、manifest 或 SSE。`thinking_enabled` 与 stream 兼容重试仅用于 provider 调用参数，不进入 EventLog、PlayerView、narrative、spectator API、manifest 或 SSE，不影响 replay hash。不写 EventLog、不落盘、不返回 API key；失败响应只返回脱敏后的短错误摘要。所有模型 provider 调用必须直连，不继承系统 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`；LiteLLM 导入阶段和请求阶段都必须禁用环境代理，不通过安装 SOCKS 依赖来兜底。
 
 SSE 线协议固定为 `event: game_event`、`id: <seq>`、`data: <spectator Event JSON>`；STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`，三类事件共享原始 EventLog `seq`。live SSE cursor 按已完成 spectator/narrative/effect 投影发布的 raw seq 推进；每条 raw event 独立决定是否产生 filtered `game_event`、`narrative_row`、`spectator_effect`，但服务端只有在该 raw event 的所有投影都写入 session 后才允许 SSE 消费该 seq。每 30s 发送 `event: heartbeat`。`Last-Event-ID` 表示从 `seq + 1` 续推，不存在则返回 410。STEP-08 起前端默认同源相对路径；开发模式 Vite `7001` proxy 到 FastAPI `7002`，生产模式 FastAPI `7002` 服务 `dist/` 和 API。
 
@@ -416,6 +418,11 @@ STEP-06 环境变量统一由 `src/wolven_hunt/config/settings.py` 的 `pydantic
 - `WH_LLM_MAX_RETRIES`：重试预算，默认 4；已加载 RuleSet 的 `fallback.max_retries` 优先
 - `WH_LLM_BUDGET_PER_GAME`：单局 token 上限，默认 100000；超限时发一次 `agent_budget_warning`，游戏继续运行
 - `WH_LLM_PROVIDER_MAP`：空字符串或 YAML 路径；非空时按座位路由 provider，缺失座位回退到全局 `WH_LLM_*`
+- `WH_REVIEW_PROVIDER`：赛后 AI 复盘报告 provider，`mock | litellm`，默认 `mock`
+- `WH_REVIEW_API_KEY`：赛后报告真实 provider 的 API key；仅 `WH_REVIEW_PROVIDER=litellm` 且触发报告生成时需要
+- `WH_REVIEW_BASE_URL`：赛后报告 LiteLLM base URL，默认 `https://yunwu.ai/v1`
+- `WH_REVIEW_MODEL`：赛后报告模型名，默认 `gpt-5.5`
+- `WH_REVIEW_TIMEOUT_SECONDS`：赛后报告单次调用超时，默认 60
 - `WH_PACING_PROFILE`：`live | fast | off`，默认 `live`；CI / replay / resimulate 强制 `off`
 - `WH_PACING_PHASE_MS`：phase 切换基础停顿，默认 600
 - `WH_PACING_SPEECH_MS`：speech / wolf_chat / last_words 后停顿，默认 400
@@ -484,6 +491,7 @@ STEP-08 目标是 10 个 AI 自动对局从前端开局后可无卡点观赛到�
 - 历史复盘：`GET /games` 从 `runs/` 读取 manifest 汇总；`GET /games/{id}/events` 在线返回 session spectator events，离线从 `events.jsonl` 读取并按 spectator 过滤。不得读取或暴露 `raw_responses.jsonl`，但可保留身份表、狼人夜聊和 `seat_presentation` 供观众复盘。
 - `seat_presentation` 是纯 UI 展示元数据，只用于历史复盘恢复游玩时头像和昵称；它不改变身份来源、胜负判定、行动合法性、ack、EventLog、replay hash、resimulate 或 LLM 输入。
 - 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。终局定格态不得继续播放或补播 `guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` transient spectator effects。
+- 终局定格态复盘入口在 STEP-08 起改为「AI一键生成复盘报告」；生成中必须禁用灰态并显示 spinner 与「正在生成中」，成功后改为「查阅报告」。报告抽屉展示战局摘要、Leaderboard、每名玩家发言/投票/技能/综合分可视化、关键决策复盘、反事实推演和建议。大厅「历史复盘」入口和历史列表内「复盘」按钮保持原行为与文案。
 - replay 恢复：STEP-08 起 manifest 必须写入 `config_path` 与 `prompt_pack_version`；`replay_resimulate` 在未显式传入 config 时从同目录 manifest 恢复配置和 prompt 版本，兼容旧 run 回退 classic_8 与 prompt `v1`；新 run 默认使用 classic_10 与 prompt `v4`。
 - 前端健壮性：SSE 客户端必须使用 `Last-Event-ID` 断点续传，最多 4 次固定延迟重连，延迟序列为 `1s → 3s → 5s → 10s`，不使用 jitter；失败后显示错误状态。REST 回补不得更新 raw event cursor，cursor 只能由 SSE raw event id 推进。倒计时归零后显示等待状态，避免误判为卡死。
 - 模型测试：前端只调用后端 `POST /models/test`；测试失败后前端按固定序列 `1s → 3s → 5s → 10s` 自动重测，任一尝试成功即视为通过；测试失败不能永久阻止开始游戏，用户可继续开局，运行期由 LLM 重试和 fallback 保证收敛。
