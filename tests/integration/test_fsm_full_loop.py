@@ -1,22 +1,23 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 from tests.conftest import simulate
 
+from wolven_hunt.agents.deterministic_mock import DeterministicMockAgent
 from wolven_hunt.config.schema import GameConfig
 from wolven_hunt.core.actions import LastWords, PkVote, Speech, Vote, WolfChatMessage
 from wolven_hunt.core.events import Event, EventType
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.rule_engine import build_initial_state
-from wolven_hunt.core.seat import Seat
+from wolven_hunt.core.seat import Role, Seat
 from wolven_hunt.core.state import GameState
 from wolven_hunt.orchestration.fsm import (
-    _apply_collected_actions,
     _apply_and_log,
-    _collect_actions_from_snapshot,
     _decide_with_fallback,
     _run_day,
+    _run_night,
 )
 from wolven_hunt.orchestration.phases import Phase
 from wolven_hunt.referee.view import PlayerView
@@ -214,6 +215,69 @@ def test_night_wolf_chat_collects_and_publishes_in_seat_order(
         (seat_number, agents[seat_number].seen_chat_actors[0])
         for seat_number in sorted(agents)
     ] == expected_seen
+
+
+def test_dead_or_ineligible_gods_keep_audio_phases_without_private_actions(
+    game_config: GameConfig,
+) -> None:
+    seed = "scripted-dead-god-audio-phases"
+    state, start_events = build_initial_state(game_config, seed)
+    guard = state.seats_by_role(Role.GUARD)[0]
+    witch = state.seats_by_role(Role.WITCH)[0]
+    seer = state.seats_by_role(Role.SEER)[0]
+    state = replace(
+        state.mark_dead(guard, "test").mark_dead(seer, "test"),
+        witch_antidote_used=True,
+        witch_poison_used=True,
+    )
+    event_log = EventLog(seed=seed)
+    event_log.append_all(start_events)
+    agents = {
+        seat: CountingNightAgent(seat)
+        for seat in range(game_config.seat_range.start, game_config.seat_range.end + 1)
+    }
+
+    _run_night(
+        state,
+        game_config,
+        agents,
+        DeterministicRNG(seed),
+        event_log,
+        state_sink=None,
+        control_hook=None,
+    )
+
+    god_phases = {
+        Phase.NIGHT_GUARD.value,
+        Phase.NIGHT_WITCH.value,
+        Phase.NIGHT_SEER.value,
+    }
+    phase_enters = [
+        event.phase
+        for event in event_log.events
+        if event.type is EventType.PHASE_ENTER and event.phase in god_phases
+    ]
+    assert phase_enters == [
+        Phase.NIGHT_GUARD.value,
+        Phase.NIGHT_WITCH.value,
+        Phase.NIGHT_SEER.value,
+    ]
+    assert not any(
+        event.type
+        in {
+            EventType.GUARD_PROTECT,
+            EventType.WITCH_ACTION,
+            EventType.SEER_CHECK,
+            EventType.SEER_CHECK_RESULT,
+            EventType.AGENT_FALLBACK_TRIGGERED,
+            EventType.LLM_CALL,
+        }
+        and event.phase in god_phases
+        for event in event_log.events
+    )
+    assert agents[guard.number].guard_calls == 0
+    assert agents[witch.number].witch_calls == 0
+    assert agents[seer.number].seer_calls == 0
 
 
 def test_day_vote_all_abstain_is_peaceful_without_last_words(
@@ -417,6 +481,44 @@ class ScriptedWolfChatAgent:
             time.sleep(self.delay_seconds)
         self.seen_chat_actors.append(_visible_wolf_chat_actors(view))
         return WolfChatMessage(actor=self.seat, text=f"{self.seat.number}号狼聊")
+
+
+class CountingNightAgent:
+    def __init__(self, seat: int) -> None:
+        self.base = DeterministicMockAgent(Seat(seat))
+        self.guard_calls = 0
+        self.witch_calls = 0
+        self.seer_calls = 0
+
+    def decide_guard(self, view: PlayerView):
+        self.guard_calls += 1
+        return self.base.decide_guard(view)
+
+    def decide_wolf_chat(self, view: PlayerView):
+        return self.base.decide_wolf_chat(view)
+
+    def decide_wolf_vote(self, view: PlayerView):
+        return self.base.decide_wolf_vote(view)
+
+    def decide_seer(self, view: PlayerView):
+        self.seer_calls += 1
+        return self.base.decide_seer(view)
+
+    def decide_speech(self, view: PlayerView):
+        return self.base.decide_speech(view)
+
+    def decide_witch(self, view: PlayerView):
+        self.witch_calls += 1
+        return self.base.decide_witch(view)
+
+    def decide_vote(self, view: PlayerView):
+        return self.base.decide_vote(view)
+
+    def decide_pk_vote(self, view: PlayerView):
+        return self.base.decide_pk_vote(view)
+
+    def decide_last_words(self, view: PlayerView):
+        return self.base.decide_last_words(view)
 
 
 def _run_scripted_day(

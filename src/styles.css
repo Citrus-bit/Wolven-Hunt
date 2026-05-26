@@ -2301,7 +2301,7 @@ button {
 .game-effect-announcements {
   position: absolute;
   top: clamp(136px, 16vh, 176px);
-  right: max(20px, calc(env(safe-area-inset-right) + 3vw));
+  right: clamp(140px, 13vw, 210px);
   z-index: 8;
   display: flex;
   flex-direction: column;
@@ -2346,25 +2346,43 @@ button {
   min-width: 0;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .game-effect-announcements {
-    top: clamp(182px, 24vh, 228px);
+    top: clamp(182px, 22vh, 204px);
     right: auto;
     left: 50%;
     align-items: center;
-    width: min(320px, calc(100vw - 32px));
+    width: min(300px, calc(100vw - 224px));
     transform: translateX(-50%);
   }
 
   .game-effect-announcement {
-    min-height: 40px;
-    padding: 6px 12px 6px 8px;
-    font-size: 14px;
+    min-height: 34px;
+    padding: 4px 10px 4px 7px;
+    font-size: clamp(12px, 1.7vw, 14px);
   }
 
   .game-effect-announcement-icon {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
+  }
+}
+
+@media (max-width: 640px) {
+  .game-effect-announcements {
+    top: clamp(182px, 24vh, 228px);
+    width: min(280px, calc(100vw - 184px));
+  }
+
+  .game-effect-announcement {
+    min-height: 34px;
+    padding: 4px 9px 4px 7px;
+    font-size: 12px;
+  }
+
+  .game-effect-announcement-icon {
+    width: 24px;
+    height: 24px;
   }
 }
 

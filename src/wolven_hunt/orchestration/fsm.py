@@ -125,20 +125,24 @@ def _run_night(
     _sync_runtime(state, state_sink, control_hook)
     event_log.append_all(phase_exit(state))
 
-    guard_seats = state.seats_by_role(Role.GUARD, alive_only=True)
+    guard_seats = state.seats_by_role(Role.GUARD)
     if guard_seats:
         state = _enter_phase(state, Phase.NIGHT_GUARD, event_log, state_sink, control_hook)
-        guard = guard_seats[0]
-        action = _decide_with_fallback(
-            state,
-            config,
-            agents[guard.number],
-            event_log,
-            guard,
-            lambda agent, view: agent.decide_guard(view),
-            rng,
-        )
-        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
+        alive_guards = tuple(seat for seat in guard_seats if state.player(seat).alive)
+        if alive_guards:
+            guard = alive_guards[0]
+            action = _decide_with_fallback(
+                state,
+                config,
+                agents[guard.number],
+                event_log,
+                guard,
+                lambda agent, view: agent.decide_guard(view),
+                rng,
+            )
+            state = _apply_and_log(
+                state, action, config, rng, event_log, state_sink, control_hook
+            )
         event_log.append_all(phase_exit(state))
 
     wolf_seats = state.wolf_seats(alive_only=True)
@@ -198,36 +202,44 @@ def _run_night(
         )
         event_log.append_all(phase_exit(state))
 
-    witch_seats = state.seats_by_role(Role.WITCH, alive_only=True)
-    if witch_seats and (not state.witch_antidote_used or not state.witch_poison_used):
+    witch_seats = state.seats_by_role(Role.WITCH)
+    if witch_seats:
         state = _enter_phase(state, Phase.NIGHT_WITCH, event_log, state_sink, control_hook)
-        witch = witch_seats[0]
-        action = _decide_with_fallback(
-            state,
-            config,
-            agents[witch.number],
-            event_log,
-            witch,
-            lambda agent, view: agent.decide_witch(view),
-            rng,
-        )
-        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
+        alive_witches = tuple(seat for seat in witch_seats if state.player(seat).alive)
+        if alive_witches and (not state.witch_antidote_used or not state.witch_poison_used):
+            witch = alive_witches[0]
+            action = _decide_with_fallback(
+                state,
+                config,
+                agents[witch.number],
+                event_log,
+                witch,
+                lambda agent, view: agent.decide_witch(view),
+                rng,
+            )
+            state = _apply_and_log(
+                state, action, config, rng, event_log, state_sink, control_hook
+            )
         event_log.append_all(phase_exit(state))
 
-    seer_seats = state.seats_by_role(Role.SEER, alive_only=True)
+    seer_seats = state.seats_by_role(Role.SEER)
     if seer_seats:
         state = _enter_phase(state, Phase.NIGHT_SEER, event_log, state_sink, control_hook)
-        seer = seer_seats[0]
-        action = _decide_with_fallback(
-            state,
-            config,
-            agents[seer.number],
-            event_log,
-            seer,
-            lambda agent, view: agent.decide_seer(view),
-            rng,
-        )
-        state = _apply_and_log(state, action, config, rng, event_log, state_sink, control_hook)
+        alive_seers = tuple(seat for seat in seer_seats if state.player(seat).alive)
+        if alive_seers:
+            seer = alive_seers[0]
+            action = _decide_with_fallback(
+                state,
+                config,
+                agents[seer.number],
+                event_log,
+                seer,
+                lambda agent, view: agent.decide_seer(view),
+                rng,
+            )
+            state = _apply_and_log(
+                state, action, config, rng, event_log, state_sink, control_hook
+            )
         event_log.append_all(phase_exit(state))
 
     state = _enter_phase(state, Phase.NIGHT_RESOLVE, event_log, state_sink, control_hook)

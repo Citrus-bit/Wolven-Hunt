@@ -121,6 +121,7 @@ def profile_from_settings(
 def _ack_event_for_phase(phase: str) -> str | None:
     return {
         "NIGHT_START": "night_intro_done",
+        "NIGHT_GUARD": "night_guard_done",
         "NIGHT_WOLF_CHAT": "night_wolves_done",
         "NIGHT_WITCH": "night_witch_done",
         "NIGHT_SEER": "night_seer_done",

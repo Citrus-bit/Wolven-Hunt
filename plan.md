@@ -133,6 +133,8 @@ GAME_START
 GAME_END
 ```
 
+STEP-07 live 观赛中，`NIGHT_GUARD`、`NIGHT_WITCH`、`NIGHT_SEER` 是公开夜晚主持与音频 pacing 的固定 phase：只要当前 RolePack 包含对应角色，每晚都必须进入并追加 `phase_enter` / `phase_exit`。若对应神职已死亡，或女巫已无可用药，则该 phase 只用于观赛节奏，不调用死亡/无行动资格 Agent，不生成 `guard_protect`、`witch_action`、`seer_check`、`seer_check_result`、`llm_call`、fallback 或其他私有行动事件。前端收到死亡神职的夜晚 phase 后必须完整播放该神职音频，再固定等待 5 秒后发送对应 ack；ack 仍只控制现场观赛节奏，不写入 EventLog，不影响 replay hash。
+
 ### 2.2 结算顺序（NIGHT_RESOLVE）
 
 1. 读取本晚 `guard_protect` 目标 G、狼刀目标 K、女巫动作 W、`seer_check` 目标 S。
@@ -162,7 +164,7 @@ GAME_END
 ### 2.5 女巫行动规则
 
 - 女巫行动是固定夜晚子状态 `NIGHT_WITCH`，不再存在白天中断技能。
-- `NIGHT_WITCH` 只在女巫存活且仍有至少一瓶药时进入；女巫无药或死亡时跳过。
+- `NIGHT_WITCH` 每晚都会作为公开主持/音频 pacing phase 进入；只有女巫存活且仍有至少一瓶药时才收集 `witch_action`，女巫无药或死亡时只追加 phase enter/exit，不调用 Agent。
 - 女巫行动结束后继续进入 `NIGHT_SEER`，胜负只在 `NIGHT_RESOLVE` 后统一检查。
 - 白天流程固定按 `DAY_SPEECH → DAY_VOTE → DAY_VOTE_PK? → DAY_EXILE? → DAY_LAST_WORDS? → CHECK_WIN` 推进；只有实际放逐者触发放逐遗言，平安日跳过。
 
@@ -349,7 +351,9 @@ review_report.json
 [system.{version}.md] + [role/phase.{version}.md] + [JSON payload] + [retry_error?]
 ```
 
-`system.v4.md` 是当前默认全员统一系统提示词，旧 `v1` / `v2` / `v3` 文件保留用于回放兼容；角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`v4` 继承 `v3` 的 `text` 输出质量约束，并精炼加入角色策略：先做局势判断再行动；狼人不得机械刀守卫大概率守护的明预，可换刀女巫/守卫/强民/外置神，并可少量自刀骗药或做身份；女巫首夜默认救但不无脑，银水不等于铁好，刀口明显像自刀或留解药能逼狼刀时可跳过；守卫按轮次守人，明预可信也不能机械连续守同一人；预言家、村民和投票围绕查验链、发言矛盾、票型和强推可信好人的行为站边。`v4` 不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback 或 replay hash。`DAY_SPEECH` / `NIGHT_WOLF_CHAT` 的模型正常输出若为空、纯占位或直接为 `[沉默]`，按 schema violation 进入重试与 fallback，只有 fallback 路径可生成 `[沉默]`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context、output_schema，以及仅 wolf 夜聊/狼刀阶段允许出现的 `wolf_private_context`。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff` 与 `can_abstain`，当前 `vote_sheriff` 固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制；`can_abstain` 控制 `DAY_VOTE` / `DAY_VOTE_PK` 是否允许输出 `target: null` 弃票。`speech_context` 用于 DAY_SPEECH 的发言归属约束，也用于投票和狼人夜间阶段压缩公开发言上下文；固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须优先使用 manifest 中记录的版本解释日志，缺失时回退 `v1`。
+`system.v4.md` 是当前默认全员统一系统提示词，旧 `v1` / `v2` / `v3` 文件保留用于回放兼容；角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`v4` 继承 `v3` 的 `text` 输出质量约束，并精炼加入角色策略：先做局势判断再行动；狼人不得机械刀守卫大概率守护的明预，可换刀女巫/守卫/强民/外置神；狼人推测守卫路线时必须考虑守卫不可连续两晚守同一目标，避免连续夜晚机械认定同一明预、金水或强神被守；并可少量自刀骗药或做身份；女巫首夜默认救但不无脑，银水不等于铁好，刀口明显像自刀或留解药能逼狼刀时可跳过；守卫按轮次守人，明预可信也不能机械连续守同一人；预言家、村民和投票围绕查验链、发言矛盾、票型和强推可信好人的行为站边。`v4` 不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback 或 replay hash。`DAY_SPEECH` / `NIGHT_WOLF_CHAT` 的模型正常输出若为空、纯占位或直接为 `[沉默]`，按 schema violation 进入重试与 fallback，只有 fallback 路径可生成 `[沉默]`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context、output_schema，以及仅 wolf 夜聊/狼刀阶段允许出现的 `wolf_private_context`。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff` 与 `can_abstain`，当前 `vote_sheriff` 固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制；`can_abstain` 控制 `DAY_VOTE` / `DAY_VOTE_PK` 是否允许输出 `target: null` 弃票。`speech_context` 用于 DAY_SPEECH 的发言归属约束，也用于投票和狼人夜间阶段压缩公开发言上下文；固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须优先使用 manifest 中记录的版本解释日志，缺失时回退 `v1`。
+
+`v4` 守卫白天策略补充：守卫低收益时不主动跳身份；但在公开发言、公开票型或 PK 局势显示自己高概率被误放逐时，应明牌守卫自救，并给出可公开、可验证的关键守护线索。该补充只改变 prompt 策略文本，不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback、ack、replay 或 resimulate 语义。
 
 ### 6.3 PlayerView 大小控制
 

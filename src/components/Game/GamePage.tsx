@@ -24,6 +24,7 @@ import {
 import { buildAgentSpecs } from '../../lib/agentSpecs';
 import { preloadGameEffectAssets } from '../../lib/effectAssets';
 import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
+import { phaseAudioPlan, type GamePhaseAudioPlan } from '../../lib/gamePhaseAudio';
 import {
   clearLiveGameSession,
   readLiveGameSession,
@@ -78,7 +79,7 @@ const SEAT_COUNT = 10;
 const MIN_TESTING_MS = 800;
 const RECONNECT_DELAYS_MS = [1000, 3000, 5000, 10000] as const;
 const MAX_RECONNECT_ATTEMPTS = RECONNECT_DELAYS_MS.length;
-const AUDIO_ACK_TIMEOUT_MS = 6000;
+const AUDIO_ACK_TIMEOUT_MS = 12000;
 const leftSeats = [0, 1, 2, 3, 4];
 const rightSeats = [5, 6, 7, 8, 9];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
@@ -151,6 +152,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const [effectClockMs, setEffectClockMs] = useState(() => Date.now());
   const effectSeqRef = useRef(restoredLiveSession?.effectSeq ?? 0);
   const effectAckSeqRef = useRef(new Set<number>());
+  const audioQueueRef = useRef(Promise.resolve());
   const terminalRef = useRef(false);
   const streamCursorRef = useRef(restoredLiveSession?.streamCursor ?? 0);
   const pendingStreamCursorSeqRef = useRef(restoredLiveSession?.streamCursor ?? 0);
@@ -543,7 +545,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
             appendNarrativeRow(setNarrativeRows, row);
           }
-          void handleAudioTrigger(gameId, event, eventsRef);
+          enqueueAudioTrigger(audioQueueRef, gameId, event, eventsRef);
         },
         () => {
           source?.close();
@@ -1375,60 +1377,37 @@ function isSeatRole(value: unknown): value is SeatRole {
   );
 }
 
-async function handleAudioTrigger(
+function enqueueAudioTrigger(
+  queueRef: { current: Promise<void> },
   gameId: string,
   event: GameEvent,
   eventsRef: { current: GameEvent[] },
 ) {
-  if (event.type !== 'phase_enter') {
+  const plan = phaseAudioPlan(event, eventsRef.current);
+  if (!plan) {
     return;
   }
-  const phase = String(event.payload.phase ?? event.phase);
-  if (phase === 'NIGHT_START') {
-    await playSequenceThenAck(gameId, phase, 'night_intro_done', [
-      'wolf_howl',
-      'night_guard',
-    ], 1000);
-  } else if (phase === 'NIGHT_WOLF_CHAT') {
-    await playSequenceThenAck(gameId, phase, 'night_wolves_done', [
-      'night_wolves',
-    ], 1000);
-  } else if (phase === 'NIGHT_WITCH') {
-    await playSequenceThenAck(gameId, phase, 'night_witch_done', [
-      'night_witch',
-    ], 1000);
-  } else if (phase === 'NIGHT_SEER') {
-    await playSequenceThenAck(gameId, phase, 'night_seer_done', [
-      'night_seer',
-    ], 1000);
-  } else if (phase === 'DAY_ANNOUNCE') {
-    const hasDeath = eventsRef.current.some(
-      (item) => item.day === event.day && item.type === 'death_at_night',
-    );
-    await playSequenceThenAck(gameId, phase, 'day_intro_done', [
-      'day_rooster',
-      'day_dawn',
-      hasDeath ? 'day_death' : 'day_peaceful',
-    ], 250);
-  }
+  queueRef.current = queueRef.current
+    .catch(() => undefined)
+    .then(() => playSequenceThenAck(gameId, plan));
 }
 
 async function playSequenceThenAck(
   gameId: string,
-  phase: string,
-  ackEvent: string,
-  sequence: Parameters<typeof gameAudio.playSequence>[0],
-  gapMs: number,
+  plan: GamePhaseAudioPlan,
 ) {
   try {
     await withTimeout(
-      gameAudio.playSequence(sequence, gapMs),
+      gameAudio.playSequence(plan.sequence, plan.gapMs),
       AUDIO_ACK_TIMEOUT_MS,
     );
   } catch {
     // Audio playback is best-effort; pacing must keep moving even if autoplay hangs.
   }
-  await sendAck(gameId, phase, ackEvent).catch(() => undefined);
+  if (plan.settleMs > 0) {
+    await delay(plan.settleMs);
+  }
+  await sendAck(gameId, plan.phase, plan.ackEvent).catch(() => undefined);
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -1447,4 +1426,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
       },
     );
   });
+}
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

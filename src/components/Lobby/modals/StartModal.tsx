@@ -18,6 +18,9 @@ export function StartModal({ open, onClose, onEnterGame }: StartModalProps) {
         作者已预填 10 个模型的 API key（自费购买），每月轮换一次。你可以直接开始 AI 对局。
       </p>
       <p className="lobby-modal-tip">
+        所有 API key 将会在 2026 年 6 月 19 日过期；如果出现模型无法调用的情况，请联系作者微信：Erammanviimeinen。
+      </p>
+      <p className="lobby-modal-tip">
         如需长期稳定使用，请进入【设置】→【模型配置】填入你自己的 key；浏览器本地配置优先于默认值。
       </p>
       <div className="lobby-modal-notes" aria-label="注意事项">

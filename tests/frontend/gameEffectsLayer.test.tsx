@@ -155,21 +155,30 @@ describe('GameEffectsLayer', () => {
       ...css.matchAll(/\.game-effect-announcements\s*\{(?<body>[^}]+)\}/g),
     ].map((match) => match.groups?.body ?? '');
     const baseAnnouncementsRule = announcementsRules.find((body) =>
-      body.includes('right: max(20px'),
+      body.includes('right: clamp(140px'),
     );
-    const mobileAnnouncementsRule = announcementsRules.find((body) =>
-      body.includes('top: clamp(182px'),
-    );
+    const compactAnnouncementsRule = css.match(
+      /@media \(max-width: 900px\)\s*\{\s*\.game-effect-announcements\s*\{(?<body>[^}]+)\}/,
+    )?.groups?.body;
+    const mobileAnnouncementsRule = css.match(
+      /@media \(max-width: 640px\)\s*\{\s*\.game-effect-announcements\s*\{(?<body>[^}]+)\}/,
+    )?.groups?.body;
     const phaseHeaderRule = css.match(/\.game-phase-header\s*\{(?<body>[^}]+)\}/)
       ?.groups?.body;
 
     expect(baseAnnouncementsRule).toBeDefined();
+    expect(compactAnnouncementsRule).toBeDefined();
     expect(mobileAnnouncementsRule).toBeDefined();
     expect(phaseHeaderRule).toBeDefined();
-    expect(baseAnnouncementsRule).toContain('right:');
+    expect(baseAnnouncementsRule).toContain('right: clamp(140px, 13vw, 210px)');
     expect(baseAnnouncementsRule).not.toContain('left: 50%');
     expect(baseAnnouncementsRule).not.toContain('transform: translateX(-50%)');
+    expect(compactAnnouncementsRule).toContain('top: clamp(182px, 22vh, 204px)');
+    expect(compactAnnouncementsRule).toContain('left: 50%');
+    expect(compactAnnouncementsRule).toContain('width: min(300px, calc(100vw - 224px))');
+    expect(compactAnnouncementsRule).toContain('transform: translateX(-50%)');
     expect(mobileAnnouncementsRule).toContain('top: clamp(182px, 24vh, 228px)');
+    expect(mobileAnnouncementsRule).toContain('width: min(280px, calc(100vw - 184px))');
     expect(phaseHeaderRule).toContain('z-index: 7');
   });
 });

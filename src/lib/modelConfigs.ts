@@ -121,7 +121,7 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
   {
     baseUrl: 'https://yunwu.ai/v1',
     apiKey: 'sk-rp77BMMBfwtVUhSdRFEpjBf7OHXPFzodJvO0vQLFwKabnSDa',
-    modelName: 'gemini-3.1-pro-preview',
+    modelName: 'gemini-3-flash-preview',
     thinkingEnabled: false,
   },
   {

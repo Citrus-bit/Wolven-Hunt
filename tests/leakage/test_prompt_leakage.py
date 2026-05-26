@@ -67,7 +67,7 @@ MODEL_NAMES_AND_NICKNAMES = {
     "glm-4-flash",
     "doubao-seed-2.0-pro",
     "deepseek-v4-flash",
-    "gemini-3.1-pro-preview",
+    "gemini-3-flash-preview",
     "claude-sonnet-4-6",
     "gpt-5.4",
     "minimax老师",
@@ -331,6 +331,10 @@ def test_wolf_night_prompt_v4_contains_refined_attack_strategy(
     assert "不要机械刀明跳预言家" in prompt
     assert "守卫大概率守预言家" in prompt
     assert "优先换刀女巫、守卫、强民或外置神" in prompt
+    assert "不能连续两晚守同一人" in prompt
+    assert "上一夜高度判断守卫守了 4 号" in prompt
+    assert "后一夜不要继续把" in prompt
+    assert "守卫风险应按轮次切换评估" in prompt
 
 
 @pytest.mark.leakage

@@ -49,6 +49,31 @@ def test_pacing_waits_for_witch_audio_ack() -> None:
     controller.on_event(event)
 
 
+def test_pacing_waits_for_guard_audio_ack() -> None:
+    controller = PacingController(
+        PacingProfile("live", phase_ms=0, speech_ms=0, night_ms=0, ack_timeout_ms=1000),
+        sleeper=lambda seconds: None,
+    )
+    event = draft_event(
+        game_id=GameId.deterministic("ack-guard-test"),
+        phase="NIGHT_GUARD",
+        day=1,
+        event_type=EventType.PHASE_ENTER,
+        actor=None,
+        visibility=public_visibility(),
+        payload={"phase": "NIGHT_GUARD"},
+    )
+    thread = Thread(target=controller.on_event, args=(event,))
+
+    thread.start()
+    sleep(0.02)
+
+    assert thread.is_alive()
+    controller.ack(phase="NIGHT_GUARD", event="night_guard_done")
+    thread.join(timeout=1)
+    assert not thread.is_alive()
+
+
 def test_live_pacing_waits_for_each_spectator_effect_ack() -> None:
     cases = [
         (EventType.GUARD_PROTECT, "NIGHT_GUARD", 4, {"target": 2}),
