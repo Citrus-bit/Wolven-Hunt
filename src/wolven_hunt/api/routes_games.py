@@ -35,7 +35,7 @@ from wolven_hunt.referee.visibility import filter_spectator_events
 from wolven_hunt.storage.jsonl import read_events_jsonl
 from wolven_hunt.storage.narrative import event_to_narrative
 from wolven_hunt.storage.replay import replay_deterministic, replay_resimulate
-from wolven_hunt.storage.review_report import generate_review_report
+from wolven_hunt.storage.review_report import REVIEW_REPORT_SCHEMA_VERSION, generate_review_report
 from wolven_hunt.storage.spectator_effects import events_to_spectator_effects
 
 router = APIRouter()
@@ -179,7 +179,7 @@ def get_review_report(
             detail={"code": "report_not_generated", "message": "review report is not generated"},
         )
     data = _read_json_object(path)
-    if not data:
+    if not _is_current_review_report(data):
         raise HTTPException(
             status_code=404,
             detail={"code": "report_not_generated", "message": "review report is not generated"},
@@ -195,7 +195,7 @@ def generate_review_report_route(
     path = registry.settings.runs_dir / game_id / "review_report.json"
     if path.exists():
         data = _read_json_object(path)
-        if data:
+        if _is_current_review_report(data):
             return data
     session = registry.get(game_id)
     if session is not None:
@@ -585,6 +585,10 @@ def _read_json_object(path: Path) -> dict[str, object]:
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _is_current_review_report(data: dict[str, object]) -> bool:
+    return data.get("schema_version") == REVIEW_REPORT_SCHEMA_VERSION
 
 
 def _manifest_seat_presentation(data: dict[str, object]) -> dict[int, dict[str, str]]:

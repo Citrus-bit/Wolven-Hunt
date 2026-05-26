@@ -86,6 +86,7 @@ export type ReviewReport = {
   schema_version: string;
   game_id: string;
   generated_at: string;
+  generation_mode: 'real_ai' | 'offline_mock';
   summary: {
     winner: string;
     verdict: string;
@@ -107,10 +108,20 @@ export type ReviewReport = {
     role: string;
     camp: string;
     alive: boolean;
-    speech_score: number;
-    vote_score: number;
-    skill_score: number;
+    scores: {
+      key:
+        | 'speech'
+        | 'reasoning'
+        | 'voting'
+        | 'camp_contribution'
+        | 'information_control'
+        | 'role_duty';
+      label: string;
+      value: number;
+    }[];
     overall_score: number;
+    evaluation: string;
+    evidence: string[];
     strengths: string[];
     mistakes: string[];
     suggestions: string[];

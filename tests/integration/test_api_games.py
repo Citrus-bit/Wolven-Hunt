@@ -376,12 +376,25 @@ def test_review_report_generation_is_cached_and_spectator_safe(
         response = client.post(f"/games/{game_id}/review-report")
         assert response.status_code == 200
         report = response.json()
+        assert report["schema_version"] == "1.1"
+        assert report["generation_mode"] == "offline_mock"
         assert report["game_id"] == game_id
         assert len(report["players"]) == 10
         assert len(report["leaderboard"]) == 10
-        assert report["players"][0]["speech_score"] >= 0
-        assert report["players"][0]["vote_score"] >= 0
-        assert report["players"][0]["skill_score"] >= 0
+        assert len(report["players"][0]["scores"]) == 6
+        assert [score["key"] for score in report["players"][0]["scores"]] == [
+            "speech",
+            "reasoning",
+            "voting",
+            "camp_contribution",
+            "information_control",
+            "role_duty",
+        ]
+        assert report["players"][0]["evaluation"]
+        assert report["players"][0]["evidence"]
+        villager = next(player for player in report["players"] if player["role"] == "villager")
+        assert villager["scores"][-1]["label"] == "平民职责"
+        assert "技能" not in json.dumps(villager, ensure_ascii=False)
 
         report_path = tmp_path / game_id / "review_report.json"
         assert report_path.exists()
@@ -397,6 +410,181 @@ def test_review_report_generation_is_cached_and_spectator_safe(
         fetched = client.get(f"/games/{game_id}/review-report")
         assert fetched.status_code == 200
         assert fetched.json() == report
+
+
+def test_review_report_v1_cache_is_expired_and_regenerated(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_REVIEW_PROVIDER", "mock")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-review-v1-cache",
+                "pacing": "off",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+            },
+        )
+        assert created.status_code == 200
+        game_id = created.json()["game_id"]
+        _wait_until_finished(client, game_id)
+
+        report_path = tmp_path / game_id / "review_report.json"
+        report_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "game_id": game_id,
+                    "generated_at": "2026-01-01T00:00:00Z",
+                    "summary": {
+                        "winner": "good",
+                        "verdict": "旧报告",
+                        "turning_points": [],
+                        "overall_assessment": "旧 schema",
+                    },
+                    "leaderboard": [],
+                    "players": [],
+                    "key_decisions": [],
+                    "counterfactuals": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        missing = client.get(f"/games/{game_id}/review-report")
+        assert missing.status_code == 404
+        assert missing.json()["code"] == "report_not_generated"
+
+        regenerated = client.post(f"/games/{game_id}/review-report")
+        assert regenerated.status_code == 200
+        assert regenerated.json()["schema_version"] == "1.1"
+        assert json.loads(report_path.read_text(encoding="utf-8"))["schema_version"] == "1.1"
+
+
+def test_review_report_litellm_provider_is_used_without_mock_downgrade(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import wolven_hunt.storage.review_report as review_report_module
+
+    captured: list[dict[str, object]] = []
+
+    class FakeReviewProvider:
+        def __init__(
+            self,
+            *,
+            model: str,
+            api_key: str,
+            base_url: str = "",
+            timeout_seconds: float = 30.0,
+        ) -> None:
+            captured.append(
+                {
+                    "model": model,
+                    "api_key": api_key,
+                    "base_url": base_url,
+                    "timeout_seconds": timeout_seconds,
+                }
+            )
+
+        def complete(self, *, seat, phase, prompt, rng):
+            del seat, phase, rng
+            payload = json.loads(prompt[prompt.index("{") :])
+            seat_presentation = {
+                int(seat): value for seat, value in payload["seat_presentation"].items()
+            }
+            report = review_report_module.build_mock_review_report(
+                game_id="fake",
+                reveal=payload["role_reveal"],
+                seat_presentation=seat_presentation,
+                narrative_rows=tuple(payload["narrative_rows"]),
+                events=tuple(payload["spectator_events"]),
+            )
+            content = {
+                key: value
+                for key, value in report.items()
+                if key not in {"schema_version", "game_id", "generated_at", "generation_mode"}
+            }
+            from wolven_hunt.llm.provider import ProviderResponse
+
+            return ProviderResponse(content=json.dumps(content, ensure_ascii=False), model="fake")
+
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_REVIEW_PROVIDER", "litellm")
+    monkeypatch.setenv("WH_REVIEW_API_KEY", "review-secret")
+    monkeypatch.setenv("WH_REVIEW_MODEL", "review-model")
+    monkeypatch.setattr(review_report_module, "LiteLLMProvider", FakeReviewProvider)
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-review-real-provider",
+                "pacing": "off",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+            },
+        )
+        assert created.status_code == 200
+        game_id = created.json()["game_id"]
+        _wait_until_finished(client, game_id)
+
+        response = client.post(f"/games/{game_id}/review-report")
+        assert response.status_code == 200
+        assert captured and captured[0]["api_key"] == "review-secret"
+        assert captured[0]["model"] == "review-model"
+        assert response.json()["generation_mode"] == "real_ai"
+
+
+def test_review_report_real_provider_failure_does_not_write_report(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import wolven_hunt.storage.review_report as review_report_module
+
+    class FailingReviewProvider:
+        def __init__(self, **kwargs: object) -> None:
+            del kwargs
+
+        def complete(self, *, seat, phase, prompt, rng):
+            del seat, phase, prompt, rng
+            raise RuntimeError("provider failed with review-secret")
+
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_REVIEW_PROVIDER", "litellm")
+    monkeypatch.setenv("WH_REVIEW_API_KEY", "review-secret")
+    monkeypatch.setattr(review_report_module, "LiteLLMProvider", FailingReviewProvider)
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-review-real-failure",
+                "pacing": "off",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+            },
+        )
+        assert created.status_code == 200
+        game_id = created.json()["game_id"]
+        _wait_until_finished(client, game_id)
+
+        events_path = tmp_path / game_id / "events.jsonl"
+        before_events = events_path.read_text(encoding="utf-8")
+        response = client.post(f"/games/{game_id}/review-report")
+
+        assert response.status_code == 502
+        assert response.json()["code"] == "review_report_generation_failed"
+        assert "review-secret" not in response.json()["message"]
+        assert not (tmp_path / game_id / "review_report.json").exists()
+        assert events_path.read_text(encoding="utf-8") == before_events
 
 
 def test_api_queues_pending_speech_and_rejects_non_wolf_chat(monkeypatch, tmp_path) -> None:
@@ -448,7 +636,7 @@ def test_api_queues_pending_speech_and_rejects_non_wolf_chat(monkeypatch, tmp_pa
 
 
 def _wait_until_finished(client: TestClient, game_id: str) -> None:
-    for _ in range(100):
+    for _ in range(250):
         summary = client.get(f"/games/{game_id}").json()
         if summary["status"] == "finished":
             return

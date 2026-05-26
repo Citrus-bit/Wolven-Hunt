@@ -2777,6 +2777,31 @@ button {
   font-weight: 800;
 }
 
+.review-report-mode {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  margin: 8px 0 8px;
+  padding: 0 9px;
+  color: #101014;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  background: #ffe38c;
+  border-radius: 999px;
+}
+
+.review-report-mode--offline_mock {
+  color: #fff7df;
+  background: rgba(132, 210, 255, 0.22);
+  border: 1px solid rgba(132, 210, 255, 0.46);
+}
+
+.review-report-mode--real_ai {
+  background: #a6f5d4;
+}
+
 .review-report-summary h2,
 .review-report-section h3 {
   margin: 0;
@@ -2788,7 +2813,7 @@ button {
 .review-report-summary p,
 .review-report-summary ol,
 .review-analysis-list p,
-.review-player-row p {
+.review-player-evaluation {
   margin: 6px 0 0;
   color: rgba(255, 247, 223, 0.78);
   font-size: 13px;
@@ -2869,36 +2894,111 @@ button {
 
 .review-player-row {
   display: grid;
-  gap: 7px;
+  gap: 10px;
 }
 
-.review-score-row {
+.review-player-body {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 30px;
+  grid-template-columns: 186px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.review-player-copy {
+  display: grid;
   gap: 8px;
-  align-items: center;
-  color: rgba(255, 247, 223, 0.75);
+  min-width: 0;
+}
+
+.review-radar {
+  display: grid;
+  gap: 7px;
+  justify-items: center;
+  min-width: 0;
+}
+
+.review-radar svg {
+  width: 150px;
+  height: 150px;
+  overflow: visible;
+}
+
+.review-radar-grid {
+  fill: rgba(255, 255, 255, 0.025);
+  stroke: rgba(255, 247, 223, 0.16);
+  stroke-width: 1;
+}
+
+.review-radar-axis {
+  stroke: rgba(255, 247, 223, 0.16);
+  stroke-width: 1;
+}
+
+.review-radar-value {
+  fill: rgba(132, 210, 255, 0.28);
+  stroke: #84d2ff;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 10px rgba(132, 210, 255, 0.34));
+}
+
+.review-radar-dot {
+  fill: #ffe38c;
+  stroke: rgba(16, 16, 20, 0.86);
+  stroke-width: 1.5;
+}
+
+.review-radar-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+  width: 100%;
+  margin: 0;
   font-size: 12px;
 }
 
-.review-score-row b {
+.review-radar-list div {
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.review-radar-list dt {
+  min-width: 0;
+  color: rgba(255, 247, 223, 0.68);
+  overflow-wrap: anywhere;
+}
+
+.review-radar-list dd {
+  margin: 0;
   color: #fff7df;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  font-weight: 800;
 }
 
-.review-score-track {
-  height: 7px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
+.review-mini-list {
+  display: grid;
+  gap: 4px;
 }
 
-.review-score-track i {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, #84d2ff 0%, #ffe38c 52%, #ff8f70 100%);
-  border-radius: inherit;
+.review-mini-list strong {
+  color: #ffe38c;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.review-mini-list ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 16px;
+  color: rgba(255, 247, 223, 0.78);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.review-mini-list li {
+  overflow-wrap: anywhere;
 }
 
 .final-freeze-seat-grid {
@@ -3029,6 +3129,14 @@ button {
   .review-report-summary,
   .review-player-grid {
     grid-template-columns: 1fr;
+  }
+
+  .review-player-body {
+    grid-template-columns: 1fr;
+  }
+
+  .review-radar {
+    justify-items: start;
   }
 
   .review-leaderboard-row {

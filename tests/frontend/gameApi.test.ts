@@ -53,9 +53,10 @@ describe('gameApi', () => {
 
   it('uses review report endpoints for reading and generation', async () => {
     const report = {
-      schema_version: '1.0',
+      schema_version: '1.1',
       game_id: 'game-1',
       generated_at: '2026-01-01T00:00:00Z',
+      generation_mode: 'offline_mock',
       summary: {
         winner: 'good',
         verdict: '好人胜利',

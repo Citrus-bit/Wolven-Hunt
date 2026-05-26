@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AgentSpecMock(BaseModel):
@@ -154,6 +154,21 @@ class ReviewReportLeaderboardItem(BaseModel):
     reason: str
 
 
+class ReviewReportScore(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: Literal[
+        "speech",
+        "reasoning",
+        "voting",
+        "camp_contribution",
+        "information_control",
+        "role_duty",
+    ]
+    label: str
+    value: int = Field(ge=0, le=100)
+
+
 class ReviewReportPlayer(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -162,13 +177,30 @@ class ReviewReportPlayer(BaseModel):
     role: str
     camp: str
     alive: bool
-    speech_score: int = Field(ge=0, le=100)
-    vote_score: int = Field(ge=0, le=100)
-    skill_score: int = Field(ge=0, le=100)
+    scores: tuple[ReviewReportScore, ...]
     overall_score: int = Field(ge=0, le=100)
+    evaluation: str
+    evidence: tuple[str, ...] = ()
     strengths: tuple[str, ...] = ()
     mistakes: tuple[str, ...] = ()
     suggestions: tuple[str, ...] = ()
+
+    @field_validator("scores")
+    @classmethod
+    def _scores_are_hex_axes(
+        cls,
+        value: tuple[ReviewReportScore, ...],
+    ) -> tuple[ReviewReportScore, ...]:
+        if tuple(score.key for score in value) != (
+            "speech",
+            "reasoning",
+            "voting",
+            "camp_contribution",
+            "information_control",
+            "role_duty",
+        ):
+            raise ValueError("review scores must contain the fixed six radar axes in order")
+        return value
 
 
 class ReviewReportDecision(BaseModel):
@@ -193,9 +225,10 @@ class ReviewReportCounterfactual(BaseModel):
 class ReviewReportResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "1.0"
+    schema_version: Literal["1.1"] = "1.1"
     game_id: str
     generated_at: str
+    generation_mode: Literal["real_ai", "offline_mock"]
     summary: ReviewReportSummary
     leaderboard: tuple[ReviewReportLeaderboardItem, ...]
     players: tuple[ReviewReportPlayer, ...]
