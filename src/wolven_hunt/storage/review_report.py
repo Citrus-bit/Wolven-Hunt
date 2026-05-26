@@ -3,6 +3,7 @@ from __future__ import annotations
 # ruff: noqa: RUF001
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -13,6 +14,7 @@ from wolven_hunt.core.seat import ROLE_TO_CAMP, Role, Seat
 from wolven_hunt.llm.provider import LiteLLMProvider, MockLLMProvider, ProviderResponse
 
 REVIEW_REPORT_SCHEMA_VERSION: Literal["1.1"] = "1.1"
+REVIEW_PROMPT_TEMPLATE = Path("configs/prompts/zh/review/report.v1.md")
 
 ScoreKey = Literal[
     "speech",
@@ -240,9 +242,13 @@ def build_mock_review_report(
                 "用于快速定位发言、票型和角色职责表现。"
             ),
         ),
-        leaderboard=tuple(ReviewReportLeaderboardItemModel.model_validate(item) for item in leaderboard),
+        leaderboard=tuple(
+            ReviewReportLeaderboardItemModel.model_validate(item) for item in leaderboard
+        ),
         players=tuple(ReviewReportPlayerModel.model_validate(item) for item in players),
-        key_decisions=tuple(ReviewReportDecisionModel.model_validate(item) for item in key_decisions),
+        key_decisions=tuple(
+            ReviewReportDecisionModel.model_validate(item) for item in key_decisions
+        ),
         counterfactuals=_mock_counterfactuals(winner=winner, key_decisions=key_decisions),
     ).model_dump(mode="json")
 
@@ -340,18 +346,16 @@ def build_review_prompt(
             ],
         },
     }
-    return (
-        "你是狼人杀赛后复盘分析师。只基于下方 spectator-safe JSON 输入生成中文结构化复盘报告。"
-        "不要引用 raw response、provider、API key、prompt、未授权私有事件或系统实现细节。"
-        "只返回 JSON 对象，不要 Markdown。schema_version、game_id、generated_at、generation_mode 由后端填充。"
-        "每名玩家必须有 scores 六项，key 顺序必须严格等于 score_axes。"
-        "前五项 label 固定为发言质量、推理逻辑、票型执行、阵营贡献、信息控制；"
-        "第六项 key=role_duty，label 必须按角色写成狼队协同、查验价值、药水决策、守护判断或平民职责。"
-        "不要把村民或任何玩家的评分项叫做技能。"
-        "evaluation、evidence、reason、key_decisions 必须引用公开发言、票型、天数或 seq，避免空泛套话。"
-        "\n\n"
-        f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
-    )
+    return f"{_load_review_prompt_template()}\n\n{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
+
+
+def _load_review_prompt_template() -> str:
+    path = REVIEW_PROMPT_TEMPLATE
+    if not path.is_absolute() and not path.exists():
+        path = Path(__file__).resolve().parents[3] / path
+    if not path.exists():
+        raise FileNotFoundError(f"review prompt template not found: {path}")
+    return path.read_text(encoding="utf-8").strip()
 
 
 def _review_provider(settings: Settings) -> LiteLLMProvider | MockLLMProvider:
@@ -439,7 +443,9 @@ def _mock_player_row(
         reasoning=_clamp_score(56 + speech_count * 5 + vote_count * 2 + winner_bonus - index),
         voting=_clamp_score(58 + vote_count * 7 - abstain_count * 5 + winner_bonus - index),
         camp_contribution=_clamp_score(60 + winner_bonus + speech_count * 3 + vote_count * 2),
-        information_control=_clamp_score(60 + speech_count * 3 + wolf_chat_count * 3 + (4 if alive else 0)),
+        information_control=_clamp_score(
+            60 + speech_count * 3 + wolf_chat_count * 3 + (4 if alive else 0)
+        ),
         role_duty=_clamp_score(58 + role_bonus + speech_count * 2 - index),
     )
     overall = round(sum(_int_value(score["value"]) for score in scores) / len(scores))
@@ -459,11 +465,25 @@ def _mock_player_row(
             camp=camp,
             overall=overall,
             evidence=evidence,
+            stats=stats,
+            alive=alive,
         ),
         "evidence": evidence,
-        "strengths": _player_strengths(role=role, stats=stats, scores=scores),
-        "mistakes": _player_mistakes(stats=stats, scores=scores),
-        "suggestions": _player_suggestions(role=role, stats=stats),
+        "strengths": _player_strengths(
+            seat_number=seat_number,
+            role=role,
+            stats=stats,
+            scores=scores,
+            alive=alive,
+        ),
+        "mistakes": _player_mistakes(
+            seat_number=seat_number,
+            role=role,
+            stats=stats,
+            scores=scores,
+            alive=alive,
+        ),
+        "suggestions": _player_suggestions(seat_number=seat_number, role=role, stats=stats),
     }
 
 
@@ -501,7 +521,11 @@ def _role_duty_bonus(*, role: str, stats: dict[str, object], winner_bonus: int) 
     if role == Role.WOLF.value:
         return winner_bonus + _int_value(stats.get("wolf_chat_count")) * 8
     if role == Role.VILLAGER.value:
-        return winner_bonus + _int_value(stats.get("speech_count")) * 4 + _int_value(stats.get("vote_count")) * 3
+        return (
+            winner_bonus
+            + _int_value(stats.get("speech_count")) * 4
+            + _int_value(stats.get("vote_count")) * 3
+        )
     return winner_bonus + 8
 
 
@@ -510,7 +534,7 @@ def _leaderboard_reason(player: dict[str, object]) -> str:
     if isinstance(evidence, tuple | list) and evidence:
         return str(evidence[0])
     role = ROLE_LABELS.get(str(player.get("role") or ""), str(player.get("role") or "玩家"))
-    return f"{player.get('seat')}号以{role}身份完成公开发言、票型和角色职责闭环。"
+    return f"{player.get('seat')}号以{role}身份进入终局复盘，公开证据较少。"
 
 
 def _player_evaluation(
@@ -520,14 +544,19 @@ def _player_evaluation(
     camp: str,
     overall: int,
     evidence: tuple[str, ...],
+    stats: dict[str, object],
+    alive: bool,
 ) -> str:
     role_label = ROLE_LABELS.get(role, role)
     camp_label = "狼人阵营" if camp == "wolf" else "好人阵营"
-    first = evidence[0] if evidence else "公开记录较少，主要依据终局身份和票型结果评估"
+    first = (
+        evidence[0] if evidence else f"终局时{seat_number}号{'仍然存活' if alive else '已经出局'}"
+    )
+    second = _evaluation_focus(role=role, stats=stats, alive=alive)
     return (
         f"{seat_number}号作为{role_label}，综合分 {overall}。"
-        f"{first}，其表现更适合放在{camp_label}的整体节奏里判断，"
-        "而不是用单一职责分概括。"
+        f"{first}；{second}。"
+        f"这名玩家对{camp_label}的价值主要来自这些可见节点，而不是模板化职责描述。"
     )
 
 
@@ -541,57 +570,124 @@ def _player_evidence(
     evidence: list[str] = []
     speech_text = _string_or_none(stats.get("first_speech"))
     if speech_text:
-        evidence.append(f"公开发言记录：{speech_text}")
+        evidence.append(f"{_day_text(stats.get('first_speech_day'))}公开发言：{speech_text}")
     vote_text = _string_or_none(stats.get("first_vote"))
     if vote_text:
         evidence.append(vote_text)
+    received_vote_text = _string_or_none(stats.get("first_received_vote"))
+    if received_vote_text:
+        evidence.append(received_vote_text)
+    exile_day = _int_value(stats.get("exiled_day"))
+    if exile_day > 0:
+        evidence.append(f"第{exile_day}天被公开投票放逐。")
+    night_death_day = _int_value(stats.get("night_death_day"))
+    if night_death_day > 0:
+        evidence.append(f"第{night_death_day}夜后被公示死亡。")
     if role == Role.WOLF.value and _int_value(stats.get("wolf_chat_count")) > 0:
-        evidence.append(f"夜间狼聊中有 {stats.get('wolf_chat_count')} 次可见协同发言。")
+        wolf_chat = _string_or_none(stats.get("first_wolf_chat"))
+        if wolf_chat:
+            evidence.append(
+                f"夜间狼聊中有 {_int_value(stats.get('wolf_chat_count'))} 次可见协同，首句为：{wolf_chat}"
+            )
+        else:
+            evidence.append(
+                f"夜间狼聊中有 {_int_value(stats.get('wolf_chat_count'))} 次可见协同发言。"
+            )
+    if role == Role.VILLAGER.value and _int_value(stats.get("vote_count")) > 0:
+        evidence.append("平民职责主要通过公开发言和票型站边体现。")
     evidence.append(f"终局时{seat_number}号{'仍然存活' if alive else '已经出局'}。")
-    return tuple(evidence[:3])
+    return tuple(_unique_strings(evidence)[:4])
 
 
 def _player_strengths(
     *,
+    seat_number: int,
     role: str,
     stats: dict[str, object],
     scores: tuple[dict[str, object], ...],
+    alive: bool,
 ) -> tuple[str, ...]:
     top_score = max(scores, key=lambda score: _int_value(score.get("value")))
-    strengths = [f"{top_score.get('label')}是本局最突出的维度。"]
-    if _int_value(stats.get("vote_count")) > 0:
-        strengths.append("参与公开票型，留下了可追踪的阵营选择。")
-    if role == Role.VILLAGER.value:
-        strengths.append("平民职责按发言、投票和站边执行评估，没有被误记为主动能力。")
-    return tuple(strengths[:2])
+    strengths: list[str] = []
+    if role == Role.WOLF.value and _int_value(stats.get("wolf_chat_count")) > 0:
+        strengths.append(
+            f"狼聊中留下 {_int_value(stats.get('wolf_chat_count'))} 次协同记录，能看出{seat_number}号参与夜间节奏。"
+        )
+    if _int_value(stats.get("vote_count")) > 0 and _int_value(stats.get("abstain_count")) == 0:
+        strengths.append(f"{_string_or_none(stats.get('first_vote')) or '投票阶段给出明确目标。'}")
+    speech = _string_or_none(stats.get("first_speech"))
+    if speech:
+        strengths.append(f"发言留下可复盘立场：{speech}")
+    if alive:
+        strengths.append(f"终局仍存活，{top_score.get('label')}分数主要由公开记录支撑。")
+    if role == Role.VILLAGER.value and _int_value(stats.get("vote_count")) > 0:
+        strengths.append(f"{seat_number}号的平民职责有公开票型可回看，没有被当成主动技能评分。")
+    if not strengths:
+        strengths.append(f"{seat_number}号公开暴露面较低，至少没有留下明显越权或无效信息。")
+    return tuple(_unique_strings(strengths)[:2])
 
 
 def _player_mistakes(
     *,
+    seat_number: int,
+    role: str,
     stats: dict[str, object],
     scores: tuple[dict[str, object], ...],
+    alive: bool,
 ) -> tuple[str, ...]:
     low_score = min(scores, key=lambda score: _int_value(score.get("value")))
-    mistakes = [f"{low_score.get('label')}仍有提升空间。"]
+    mistakes: list[str] = []
     if _int_value(stats.get("abstain_count")) > 0:
-        mistakes.append("弃票会降低公开立场的可验证性。")
+        mistakes.append(
+            f"{_string_or_none(stats.get('first_vote')) or '投票阶段弃票。'}这让公开站边更难被验证。"
+        )
+    if _int_value(stats.get("exiled_day")) > 0:
+        mistakes.append(
+            f"第{_int_value(stats.get('exiled_day'))}天被放逐，说明当轮自证或拆票型没有压住场上压力。"
+        )
+    elif _int_value(stats.get("received_vote_count")) > 0 and not alive:
+        mistakes.append(
+            f"出局前累计被投 {_int_value(stats.get('received_vote_count'))} 票，抗推风险没有被及时化解。"
+        )
+    elif _int_value(stats.get("received_vote_count")) > 0:
+        mistakes.append(
+            f"曾累计被投 {_int_value(stats.get('received_vote_count'))} 票，需要更早解释被怀疑的原因。"
+        )
     if _int_value(stats.get("speech_count")) <= 0:
-        mistakes.append("缺少可复盘的公开发言，赛后很难判断真实思路。")
-    return tuple(mistakes[:2])
+        mistakes.append(f"{seat_number}号缺少可复盘的公开发言，赛后只能依赖票型和终局状态判断。")
+    if role == Role.WOLF.value and _int_value(stats.get("wolf_chat_count")) <= 0:
+        mistakes.append("狼队协同缺少可见狼聊支撑，身份价值主要落在白天表演。")
+    if not mistakes:
+        mistakes.append(
+            f"最低分落在{low_score.get('label')}，主要因为公开证据没有进一步展开到连续推理链。"
+        )
+    return tuple(_unique_strings(mistakes)[:2])
 
 
 def _player_suggestions(
     *,
+    seat_number: int,
     role: str,
     stats: dict[str, object],
 ) -> tuple[str, ...]:
     duty = ROLE_DUTY_LABELS.get(role, "角色职责")
-    suggestions = [f"下一局围绕{duty}明确说明行动或站边理由。"]
-    if _int_value(stats.get("vote_count")) > 0:
-        suggestions.append("投票前后把怀疑对象、发言矛盾和票型结果连成闭环。")
+    suggestions: list[str] = []
+    if _int_value(stats.get("abstain_count")) > 0:
+        suggestions.append(
+            f"下一局如果{seat_number}号要弃票，先说明保留票的对象和触发改站边的条件。"
+        )
+    elif _int_value(stats.get("vote_count")) > 0:
+        target = _int_value(stats.get("first_vote_target"))
+        if target > 0:
+            suggestions.append(f"下一局投向{target}号前后，把怀疑点和对方发言原句连起来。")
+        else:
+            suggestions.append("下一局投票前后把怀疑对象、发言矛盾和票型结果连成闭环。")
     else:
-        suggestions.append("尽量在关键轮次留下明确票型，减少赛后不可解释空间。")
-    return tuple(suggestions)
+        suggestions.append(f"下一局至少在关键轮次留下一次明确票型，否则{duty}很难被复盘验证。")
+    role_suggestion = _role_suggestion(role=role, stats=stats)
+    if role_suggestion:
+        suggestions.append(role_suggestion)
+    return tuple(_unique_strings(suggestions)[:2])
 
 
 def _mock_key_decisions(
@@ -676,7 +772,11 @@ def _build_player_stats(
         seat_stats = stats.setdefault(actor, {})
         if row.get("kind") == "speech":
             seat_stats["speech_count"] = _int_value(seat_stats.get("speech_count")) + 1
-            seat_stats.setdefault("first_speech", _trim_text(str(row.get("text") or ""), limit=72))
+            seat_stats.setdefault(
+                "first_speech",
+                _trim_actor_prefix(str(row.get("text") or ""), actor=actor, limit=72),
+            )
+            seat_stats.setdefault("first_speech_day", _int_value(row.get("day"), default=1))
     for event in events:
         actor = _int_value(event.get("actor"))
         payload = _payload_dict(event)
@@ -685,8 +785,22 @@ def _build_player_stats(
             seat_stats = stats.setdefault(actor, {})
             if event_type == "speech":
                 seat_stats["speech_count"] = _int_value(seat_stats.get("speech_count")) + 1
+                text = _string_or_none(payload.get("text"))
+                if text:
+                    seat_stats.setdefault("first_speech", _trim_text(text, limit=72))
+                    seat_stats.setdefault(
+                        "first_speech_day", _int_value(event.get("day"), default=1)
+                    )
+            elif event_type == "last_words":
+                seat_stats["last_words_count"] = _int_value(seat_stats.get("last_words_count")) + 1
+                text = _string_or_none(payload.get("text"))
+                if text:
+                    seat_stats.setdefault("last_words", _trim_text(text, limit=72))
             elif event_type == "wolf_chat_message":
                 seat_stats["wolf_chat_count"] = _int_value(seat_stats.get("wolf_chat_count")) + 1
+                text = _string_or_none(payload.get("text"))
+                if text:
+                    seat_stats.setdefault("first_wolf_chat", _trim_text(text, limit=56))
             elif event_type == "vote_cast":
                 seat_stats["vote_count"] = _int_value(seat_stats.get("vote_count")) + 1
                 if payload.get("abstain") is True or payload.get("target") is None:
@@ -696,11 +810,103 @@ def _build_player_stats(
                         f"第{event.get('day')}天投票阶段选择弃票。",
                     )
                 else:
+                    target = _int_value(payload.get("target"))
+                    seat_stats.setdefault("first_vote_target", target)
                     seat_stats.setdefault(
                         "first_vote",
-                        f"第{event.get('day')}天投票给{payload.get('target')}号。",
+                        f"第{event.get('day')}天投票给{target}号。",
                     )
+                    if target > 0:
+                        target_stats = stats.setdefault(target, {})
+                        target_stats["received_vote_count"] = (
+                            _int_value(target_stats.get("received_vote_count")) + 1
+                        )
+                        target_stats.setdefault(
+                            "first_received_vote",
+                            f"第{event.get('day')}天收到{actor}号投票。",
+                        )
+        if event_type == "exile":
+            exiled = _int_value(payload.get("seat"))
+            if exiled > 0:
+                stats.setdefault(exiled, {})["exiled_day"] = _int_value(event.get("day"), default=1)
+        elif event_type == "death_at_night":
+            dead = _int_value(payload.get("seat"))
+            if dead > 0:
+                stats.setdefault(dead, {})["night_death_day"] = _int_value(
+                    event.get("day"), default=1
+                )
+        elif event_type == "day_announce":
+            deaths = payload.get("deaths")
+            if isinstance(deaths, list):
+                for dead_value in deaths:
+                    dead = _int_value(dead_value)
+                    if dead > 0:
+                        stats.setdefault(dead, {}).setdefault(
+                            "night_death_day",
+                            _int_value(event.get("day"), default=1),
+                        )
     return stats
+
+
+def _evaluation_focus(*, role: str, stats: dict[str, object], alive: bool) -> str:
+    vote = _string_or_none(stats.get("first_vote"))
+    received = _int_value(stats.get("received_vote_count"))
+    if role == Role.WOLF.value and _int_value(stats.get("wolf_chat_count")) > 0:
+        return f"狼聊和白天记录共同构成主要证据，夜间协同有 {_int_value(stats.get('wolf_chat_count'))} 次可见发言"
+    if vote:
+        pressure = f"，同时承受过 {received} 票压力" if received > 0 else ""
+        return f"关键可见动作是{vote.rstrip('。')}{pressure}"
+    speech = _string_or_none(stats.get("first_speech"))
+    if speech:
+        return f"主要可复盘材料来自公开发言「{speech}」"
+    if received > 0:
+        return f"公开记录偏少，但曾被投 {received} 票，场上对其身份存在可见压力"
+    return f"公开证据较少，终局{'存活' if alive else '出局'}状态成为主要复盘依据"
+
+
+def _role_suggestion(*, role: str, stats: dict[str, object]) -> str:
+    if role == Role.WOLF.value:
+        if _int_value(stats.get("wolf_chat_count")) > 0:
+            return "狼人身份下继续把夜间协同和白天站边做成同一条伪装逻辑。"
+        return "狼人身份下要在狼聊里留下明确刀口分工，方便白天统一口径。"
+    if role == Role.SEER.value:
+        return "预言家身份下公开报查验时同步给出警戒对象和投票验证路线。"
+    if role == Role.WITCH.value:
+        return "女巫身份下白天发言应围绕药水收益做可公开解释，避免只靠身份威慑。"
+    if role == Role.GUARD.value:
+        return "守卫身份下不要暴露不可公开的守护结果，但要提前准备被推时的自证逻辑。"
+    if role == Role.VILLAGER.value:
+        if _int_value(stats.get("received_vote_count")) > 0:
+            return "平民身份被投后要优先回应票源理由，再给出自己的反推对象。"
+        return "平民身份继续把发言、怀疑链和票型连在一起，避免只做态度表态。"
+    return "下一局把角色职责和公开票型放在同一条证据链里说明。"
+
+
+def _day_text(value: object) -> str:
+    day = _int_value(value)
+    return f"第{day}天" if day > 0 else ""
+
+
+def _trim_actor_prefix(value: str, *, actor: int, limit: int) -> str:
+    text = " ".join(value.split())
+    for prefix in (f"{actor}号：", f"{actor}号:"):
+        if not text.startswith(prefix):
+            continue
+        text = text[len(prefix) :]
+        break
+    return _trim_text(text, limit=limit)
+
+
+def _unique_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        normalized = value.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
 
 
 def _format_vote_counts(value: object, abstain_count: object = None) -> str:
@@ -708,7 +914,10 @@ def _format_vote_counts(value: object, abstain_count: object = None) -> str:
         if _int_value(abstain_count) > 0:
             return f"有效票为空，弃票 {_int_value(abstain_count)} 票"
         return "暂无有效票"
-    parts = [f"{seat}号 {count}票" for seat, count in sorted(value.items(), key=lambda item: int(item[0]))]
+    parts = [
+        f"{seat}号 {count}票"
+        for seat, count in sorted(value.items(), key=lambda item: int(item[0]))
+    ]
     if _int_value(abstain_count) > 0:
         parts.append(f"弃票 {_int_value(abstain_count)}票")
     return " / ".join(parts)
@@ -745,7 +954,7 @@ def _int_value(value: object, *, default: int = 0) -> int:
 
 def _payload_from_prompt(prompt: str) -> dict[str, object]:
     try:
-        start = prompt.index("{")
+        start = prompt.rindex("\n\n{") + 2
         payload = json.loads(prompt[start:])
     except (ValueError, json.JSONDecodeError):
         return {}
@@ -808,7 +1017,7 @@ def _trim_text(value: str, *, limit: int) -> str:
     text = " ".join(value.split())
     if len(text) <= limit:
         return text
-    return f"{text[:limit - 1]}…"
+    return f"{text[: limit - 1]}…"
 
 
 def _string_or_none(value: object) -> str | None:

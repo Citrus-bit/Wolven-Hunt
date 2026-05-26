@@ -423,6 +423,10 @@ def test_review_report_generation_is_cached_and_spectator_safe(
         villager = next(player for player in report["players"] if player["role"] == "villager")
         assert villager["scores"][-1]["label"] == "平民职责"
         assert "技能" not in json.dumps(villager, ensure_ascii=False)
+        assert _unique_count(player["evaluation"] for player in report["players"]) >= 8
+        assert _unique_count(tuple(player["strengths"]) for player in report["players"]) >= 6
+        assert _unique_count(tuple(player["mistakes"]) for player in report["players"]) >= 6
+        assert _unique_count(tuple(player["suggestions"]) for player in report["players"]) >= 6
 
         report_path = tmp_path / game_id / "review_report.json"
         assert report_path.exists()
@@ -520,7 +524,9 @@ def test_review_report_litellm_provider_is_used_without_mock_downgrade(
 
         def complete(self, *, seat, phase, prompt, rng):
             del seat, phase, rng
-            payload = json.loads(prompt[prompt.index("{") :])
+            assert "Wolven Hunt 赛后复盘评审 v1" in prompt
+            assert "独有的公开证据" in prompt
+            payload = json.loads(prompt[prompt.rindex("\n\n{") + 2 :])
             seat_presentation = {
                 int(seat): value for seat, value in payload["seat_presentation"].items()
             }
@@ -681,6 +687,10 @@ def _wait_for_events(client: TestClient, game_id: str) -> list[dict[str, object]
             return events
         sleep(0.02)
     raise AssertionError("game did not emit events")
+
+
+def _unique_count(values) -> int:
+    return len(set(values))
 
 
 def test_api_game_not_found_error_body(monkeypatch, tmp_path) -> None:
