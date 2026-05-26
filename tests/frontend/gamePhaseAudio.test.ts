@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEAD_GOD_AUDIO_SETTLE_MS,
+  dayAnnounceAudioPlan,
   deadGodSettleMs,
   phaseAudioPlan,
 } from '../../src/lib/gamePhaseAudio';
@@ -54,6 +55,51 @@ describe('gamePhaseAudio', () => {
       settleMs: 0,
     });
   });
+
+  it('plays only dawn intro audio on day announce phase enter', () => {
+    const event = phaseEnter(7, 'DAY_ANNOUNCE');
+    const events = [gameStart(), event, death(10, 2)];
+
+    expect(phaseAudioPlan(event, events)).toMatchObject({
+      ackEvent: 'day_intro_done',
+      sequence: ['day_rooster', 'day_dawn'],
+      settleMs: 0,
+    });
+  });
+
+  it('uses day_announce deaths to play peaceful result audio', () => {
+    expect(dayAnnounceAudioPlan(dayAnnounce(8, 2, []))).toEqual({
+      sequence: ['day_peaceful'],
+      gapMs: 0,
+    });
+  });
+
+  it('uses day_announce deaths to play death result audio', () => {
+    expect(dayAnnounceAudioPlan(dayAnnounce(8, 2, [10]))).toEqual({
+      sequence: ['day_death'],
+      gapMs: 0,
+    });
+  });
+
+  it('does not need local death_at_night history to play death result audio', () => {
+    const event = dayAnnounce(8, 3, [10]);
+
+    expect(dayAnnounceAudioPlan(event)).toEqual({
+      sequence: ['day_death'],
+      gapMs: 0,
+    });
+  });
+
+  it('ignores prior peaceful nights when current day announce has deaths', () => {
+    const previousPeaceful = noDeathTonight(6, 2);
+    const currentAnnounce = dayAnnounce(12, 3, [10]);
+
+    expect(dayAnnounceAudioPlan(previousPeaceful)).toBeNull();
+    expect(dayAnnounceAudioPlan(currentAnnounce)).toEqual({
+      sequence: ['day_death'],
+      gapMs: 0,
+    });
+  });
 });
 
 function gameStart(): GameEvent {
@@ -80,10 +126,10 @@ function gameStart(): GameEvent {
   };
 }
 
-function phaseEnter(seq: number, phase: string): GameEvent {
+function phaseEnter(seq: number, phase: string, day = 2): GameEvent {
   return {
     seq,
-    day: 2,
+    day,
     phase,
     type: 'phase_enter',
     actor: null,
@@ -91,14 +137,42 @@ function phaseEnter(seq: number, phase: string): GameEvent {
   };
 }
 
-function death(seat: number): GameEvent {
+function death(seat: number, day = 1): GameEvent {
   return {
     seq: 20 + seat,
-    day: 1,
+    day,
     phase: 'NIGHT_RESOLVE',
     type: 'death_at_night',
     actor: null,
     payload: { seat },
+  };
+}
+
+function dayAnnounce(seq: number, day: number, deaths: number[]): GameEvent {
+  return {
+    seq,
+    day,
+    phase: 'DAY_ANNOUNCE',
+    type: 'day_announce',
+    actor: null,
+    payload: {
+      deaths,
+      message:
+        deaths.length === 0
+          ? '昨晚是平安夜'
+          : `昨晚死亡玩家: ${deaths.join(', ')}`,
+    },
+  };
+}
+
+function noDeathTonight(seq: number, day: number): GameEvent {
+  return {
+    seq,
+    day,
+    phase: 'NIGHT_RESOLVE',
+    type: 'no_death_tonight',
+    actor: null,
+    payload: { message: '昨晚是平安夜' },
   };
 }
 

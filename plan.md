@@ -312,7 +312,7 @@ review_report.json
 
 ### 5.3 Prompt 模板版本号
 
-- `configs/prompts/zh/seer/night_action.v4.md`，文件名带版本号。
+- `configs/prompts/zh/seer/night_action.v5.md`，文件名带版本号。
 - 事件日志记录 `prompt_version`，修改 prompt 后老日志仍可解释。
 
 ---
@@ -324,6 +324,7 @@ review_report.json
 - Referee 不做开放式语义审查，只保证注入到 prompt 的私有信息正确脱敏，并对输出文本执行确定性事实一致性 hook。
 - Agent 在发言里声称「我查了 3 号是狼」属于**合法角色扮演**，由游戏机制处理（信任/怀疑）；但不得输出可由规则和本人可见历史确定为不可能或越权的事实。
 - 文本事实一致性 hook 至少覆盖：守卫不得声称连续两晚守同一人；守卫不得把“守护成功/挡刀成功”说成确定事实；任意玩家不得引用未授权狼聊、狼刀目标、provider、model name、raw response 或事件 schema 名作为可见事实。
+- 文本事实一致性 hook 还必须覆盖顺序发言事实：`DAY_SPEECH` 中尚未完成当前白天公开发言的存活座位，不得被说成不报查验、未回应、沉默、划水、不活跃、发言少或藏身份；该类输出按 `illegal_action` 重试与 fallback 处理。
 - 泄漏测试覆盖：预言家结果、狼队身份、狼刀细节、守卫目标和 `last_guard_target` 不出现在非授权玩家的 PlayerView / prompt payload 中。
 
 ### 6.2 输出侧
@@ -351,9 +352,11 @@ review_report.json
 [system.{version}.md] + [role/phase.{version}.md] + [JSON payload] + [retry_error?]
 ```
 
-`system.v4.md` 是当前默认全员统一系统提示词，旧 `v1` / `v2` / `v3` 文件保留用于回放兼容；角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`v4` 继承 `v3` 的 `text` 输出质量约束，并精炼加入角色策略：先做局势判断再行动；狼人不得机械刀守卫大概率守护的明预，可换刀女巫/守卫/强民/外置神；狼人推测守卫路线时必须考虑守卫不可连续两晚守同一目标，避免连续夜晚机械认定同一明预、金水或强神被守；并可少量自刀骗药或做身份；女巫首夜默认救但不无脑，银水不等于铁好，刀口明显像自刀或留解药能逼狼刀时可跳过；守卫按轮次守人，明预可信也不能机械连续守同一人；预言家、村民和投票围绕查验链、发言矛盾、票型和强推可信好人的行为站边。`v4` 不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback 或 replay hash。`DAY_SPEECH` / `NIGHT_WOLF_CHAT` 的模型正常输出若为空、纯占位或直接为 `[沉默]`，按 schema violation 进入重试与 fallback，只有 fallback 路径可生成 `[沉默]`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context、output_schema，以及仅 wolf 夜聊/狼刀阶段允许出现的 `wolf_private_context`。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff` 与 `can_abstain`，当前 `vote_sheriff` 固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制；`can_abstain` 控制 `DAY_VOTE` / `DAY_VOTE_PK` 是否允许输出 `target: null` 弃票。`speech_context` 用于 DAY_SPEECH 的发言归属约束，也用于投票和狼人夜间阶段压缩公开发言上下文；固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须优先使用 manifest 中记录的版本解释日志，缺失时回退 `v1`。
+`system.v5.md` 是当前默认全员统一系统提示词，旧 `v1` / `v2` / `v3` / `v4` 文件保留用于回放兼容；角色/phase 文件来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`v5` 继承 `v4` 的 `text` 输出质量约束和角色策略，并仅增强狼人夜间刀口判断：首夜平安夜应优先按女巫救人高概率评估，不得仅因无人死亡就认定首夜刀口被守卫守护；第二夜若可信预言家已暴露，即使首夜刀口在外置位，也要把守卫今晚可能守预言家作为主要风险；守卫不可连续守同一目标只能用于真实高置信的上一夜守护目标，不能机械套用到可能被女巫救下的首夜刀口。狼人仍不得机械刀守卫大概率守护的明预，可换刀女巫、守卫、强民或外置神，并可少量自刀骗药或做身份；女巫首夜默认救但不无脑，银水不等于铁好，刀口明显像自刀或留解药能逼狼刀时可跳过；守卫按轮次守人，明预可信也不能机械连续守同一人；预言家、村民和投票围绕查验链、发言矛盾、票型和强推可信好人的行为站边。`v5` 不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback、ack、EventLog、replay hash 或 resimulate 语义。`DAY_SPEECH` / `NIGHT_WOLF_CHAT` 的模型正常输出若为空、纯占位或直接为 `[沉默]`，按 schema violation 进入重试与 fallback，只有 fallback 路径可生成 `[沉默]`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context、output_schema，以及仅 wolf 夜聊/狼刀阶段允许出现的 `wolf_private_context`。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff` 与 `can_abstain`，当前 `vote_sheriff` 固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制；`can_abstain` 控制 `DAY_VOTE` / `DAY_VOTE_PK` 是否允许输出 `target: null` 弃票。`speech_context` 用于 DAY_SPEECH 的发言归属约束，也用于投票和狼人夜间阶段压缩公开发言上下文；固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。`prompt_version` 写入 manifest 与 LLM 调用索引；replay / resimulate 必须优先使用 manifest 中记录的版本解释日志，缺失时回退 `v1`。
 
-`v4` 守卫白天策略补充：守卫低收益时不主动跳身份；但在公开发言、公开票型或 PK 局势显示自己高概率被误放逐时，应明牌守卫自救，并给出可公开、可验证的关键守护线索。该补充只改变 prompt 策略文本，不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback、ack、replay 或 resimulate 语义。
+`v5` 顺序发言补充：所有角色的 `DAY_SPEECH` prompt 必须说明只能评价已经出现在 `speech_context.prior_public_speeches` 的公开发言；`not_yet_spoken_seats` 只表示尚未轮到，不能作为不报查验、未回应、沉默、划水、不活跃、发言少或藏身份的证据。`DAY_VOTE` / `DAY_VOTE_PK` prompt 只能把已经完成的公开发言、公开票型、夜晚公示和可见查验链作为投票依据，不得把后置位未发言作为投票理由。判断预言家是否报查验，只能基于该座位已经公开发言后的文本。
+
+`v5` 守卫白天策略沿用 `v4` 补充：守卫低收益时不主动跳身份；但在公开发言、公开票型或 PK 局势显示自己高概率被误放逐时，应明牌守卫自救，并给出可公开、可验证的关键守护线索。该补充只改变 prompt 策略文本，不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback、ack、replay 或 resimulate 语义。
 
 ### 6.3 PlayerView 大小控制
 
@@ -382,8 +385,8 @@ review_report.json
 │   │   ├── providers.yaml
 │   │   └── roster.yaml
 │   └── prompts/
-│       ├── zh/system.{v1,v2,v3,v4}.md
-│       ├── zh/{seer,guard,wolf,witch,villager}/{night_action,speech,vote,last_words}.{v1,v2,v3,v4}.md
+│       ├── zh/system.{v1,v2,v3,v4,v5}.md
+│       ├── zh/{seer,guard,wolf,witch,villager}/{night_action,speech,vote,last_words}.{v1,v2,v3,v4,v5}.md
 │       └── en/...
 ├── docs/
 │   └── specs/                               # 阶段交付规格（GPT 执行手册 + 验收指标）
@@ -669,7 +672,7 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 - 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。终局定格态不得继续播放或补播 `guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` transient spectator effects。
 - STEP-08 起终局定格态的复盘入口文案为「生成复盘报告」：点击后按钮禁用变灰并显示 spinner 与「正在生成中」，生成成功后变为「查阅报告」。报告抽屉展示战局摘要、生成模式标识、Leaderboard/排行榜、每名玩家角色感知六边形评分、具体评语与公开证据、关键决策复盘、反事实推演与对应建议；不得展示 game id、schema、generated_at、provider、model name、API key、raw response 或 prompt。大厅「历史复盘」入口和列表内「复盘」按钮不改名、不接入报告生成。
 - 点击「夜深了...」后，前端新建观赛对局的 `start_paused=true -> 建立 SSE -> POST /run` 握手期间必须显示 UI-only 启动提示：`后端服务正在启动，请耐心等待`。该提示可展示已等待秒数和加载动效，但不得写入 EventLog、narrative、SSE、manifest 或 replay/resimulate 校验，也不得改变 ack、pacing、SSE cursor 或后端启动接口语义；收到非 `GAME_START` 的正式阶段后立即清除。
-- `manifest.json` 从 STEP-08 起必须包含 `config_path` 与 `prompt_pack_version`，用于 `replay_resimulate(config_path=None)` 恢复原配置与 prompt 版本。缺失时只能回退 classic_8 与 prompt `v1`，并需保持旧 run 兼容；新 run 默认使用 classic_10 与 prompt `v4`。
+- `manifest.json` 从 STEP-08 起必须包含 `config_path` 与 `prompt_pack_version`，用于 `replay_resimulate(config_path=None)` 恢复原配置与 prompt 版本。缺失时只能回退 classic_8 与 prompt `v1`，并需保持旧 run 兼容；新 run 默认使用 classic_10 与 prompt `v5`。
 - 前端 SSE 必须支持断线重连、`Last-Event-ID` 续传、最多 4 次固定延迟重试，延迟序列为 `1s → 3s → 5s → 10s`，不使用 jitter；超过上限显示可操作错误，不静默停住。断线时通过 REST 拉取 narrative/effects 只能作为历史补齐，不得更新用于 `Last-Event-ID` 的 raw event cursor，也不得清空或过期已经由 SSE 收到且仍在播放的 live transient effect；cursor 只能由 SSE raw event id 推进，且 narrative-only 回调不得把 cursor 推过同 seq 尚未消费的 `spectator_effect`，避免私有动作派生的 live effect 被回补吞掉。
 - 进行中的 live 观赛对局允许写入 UI-only `localStorage` 快照，用于刷新、HMR 或页面重载后恢复 `gameId`、席位分配、`seat_presentation`、启动状态、SSE raw cursor、effects cursor 与尚在可见窗口内的 recent transient effect queue，并重新订阅 SSE；该快照必须在退出、终局或复盘入口清理，不进入 EventLog、manifest、narrative、SSE、replay/resimulate 或 Referee/RuleEngine 边界。
 - ack 仍只控制现场 pacing，不写 EventLog，不影响 replay hash。localStorage key `wolven_hunt.pacing_mode` 仅影响新建对局传入的 pacing profile。游戏内阶段语音使用独立于大厅 BGM 的本地状态与右上角开关，不能复用 `wolven_hunt.lobby.muted` 导致观赛语音被静音；阶段音频播放失败、effect 渲染 ack 丢失或浏览器阻止自动播放时，前端必须在超时内发送 ack，后端也必须按 `WH_PACING_ACK_TIMEOUT_MS` 超时继续推进。

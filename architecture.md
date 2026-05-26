@@ -105,6 +105,8 @@
 
 白天发言和遗言允许正常身份伪装、诈身份和策略性判断；但 Referee 必须拦截确定性不可能或越权的文本事实，例如守卫声称连续两晚守同一人、守卫把“守护成功/挡刀成功”说成确定事实、玩家引用未授权狼聊/狼刀/模型/provider/raw response 作为可见事实。
 
+`DAY_SPEECH` 中，尚未完成当前白天公开发言的存活座位只能视为未轮到。玩家不得把这类座位说成不报查验、未回应、沉默、划水、不活跃、发言少或藏身份；Referee 文本事实一致性 hook 必须按 `illegal_action` 拒绝该类输出并触发重试与 fallback。
+
 每日 `DAY_SPEECH` 发言起点优先由最近一次夜晚公布死亡决定：若 `state.last_night_deaths` 非空，以其中座位号最大的死亡玩家为锚点，从其下一位存活玩家开始，按座位号递增循环一圈并跳过死亡玩家。若当晚无人死亡，则回退 `rule_set.first_speaker_seat`（默认 1 号）作为起点。该规则只影响 `speech` 事件 actor 顺序，不新增事件类型，也不改变投票、遗言、PK 或 replay schema。
 
 投票规则：
@@ -312,7 +314,7 @@ Prompt 模板文件名必须带版本号，例如：
 
 ```text
 configs/prompts/zh/seer/night_action.v1.md
-configs/prompts/zh/seer/night_action.v4.md
+configs/prompts/zh/seer/night_action.v5.md
 ```
 
 事件日志记录 `prompt_version`，保证修改 prompt 后旧日志仍可解释。
@@ -323,9 +325,11 @@ configs/prompts/zh/seer/night_action.v4.md
 [system.{version}.md] + [role/phase.{version}.md] + [JSON payload] + [retry_error?]
 ```
 
-`system.v4.md` 是当前默认全员统一系统提示词，旧 `v1` / `v2` / `v3` 文件保留用于回放兼容，包含规则摘要、信息边界、JSON-only 输出契约和 `text` 输出质量约束。`v4` 继承 `v3` 的高信息密度、禁止占位废话、白天发言 2-4 句等约束，并精炼加入角色策略：先做局势判断再行动；狼人不得机械刀守卫大概率守护的明预，可换刀女巫/守卫/强民/外置神；狼人推测守卫路线时必须考虑守卫不可连续两晚守同一目标，避免连续夜晚机械认定同一明预、金水或强神被守；并可少量自刀骗药或做身份；女巫首夜默认救但不无脑，银水不等于铁好，刀口明显像自刀或留解药能逼狼刀时可跳过；守卫按轮次守人，明预可信也不能机械连续守同一人；预言家、村民和投票围绕查验链、发言矛盾、票型和强推可信好人的行为站边。`v4` 不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback 或 replay hash。`DAY_SPEECH` / `NIGHT_WOLF_CHAT` 的模型正常输出若为空、纯占位或直接为 `[沉默]`，按 schema violation 进入重试与 fallback，只有 fallback 路径可生成 `[沉默]`。角色/phase 模板来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context、output_schema，以及仅 wolf 夜聊/狼刀阶段允许出现的 `wolf_private_context`。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff` 与 `can_abstain`，当前 `vote_sheriff` 固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制；`can_abstain` 控制 `DAY_VOTE` / `DAY_VOTE_PK` 是否允许输出 `target: null` 弃票。`DAY_SPEECH`、`DAY_VOTE`、`DAY_VOTE_PK`、`NIGHT_WOLF_CHAT` 与 `NIGHT_WOLF_VOTE` 的公开发言集中进入 `speech_context`，`visible_events` 不重复携带大量 `speech` 事件。`speech_context` 固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。LLM 重试时只在末尾追加结构化错误说明。
+`system.v5.md` 是当前默认全员统一系统提示词，旧 `v1` / `v2` / `v3` / `v4` 文件保留用于回放兼容，包含规则摘要、信息边界、JSON-only 输出契约和 `text` 输出质量约束。`v5` 继承 `v4` 的高信息密度、禁止占位废话、白天发言 2-4 句等约束和角色策略，并仅增强狼人夜间刀口判断：首夜平安夜应优先按女巫救人高概率评估，不得仅因无人死亡就认定首夜刀口被守卫守护；第二夜若可信预言家已暴露，即使首夜刀口在外置位，也要把守卫今晚可能守预言家作为主要风险；守卫不可连续守同一目标只能用于真实高置信的上一夜守护目标，不能机械套用到可能被女巫救下的首夜刀口。狼人仍不得机械刀守卫大概率守护的明预，可换刀女巫、守卫、强民或外置神，并可少量自刀骗药或做身份；女巫首夜默认救但不无脑，银水不等于铁好，刀口明显像自刀或留解药能逼狼刀时可跳过；守卫按轮次守人，明预可信也不能机械连续守同一人；预言家、村民和投票围绕查验链、发言矛盾、票型和强推可信好人的行为站边。`v5` 不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback、ack、EventLog、replay hash 或 resimulate 语义。`DAY_SPEECH` / `NIGHT_WOLF_CHAT` 的模型正常输出若为空、纯占位或直接为 `[沉默]`，按 schema violation 进入重试与 fallback，只有 fallback 路径可生成 `[沉默]`。角色/phase 模板来自 `configs/prompts/{language}/{role}/{kind}.{version}.md`。`JSON payload` 只包含 seat、role、phase、rule_set_summary、teammates、Referee 过滤后的 visible_events、由 visible_events 纯函数派生的 speech_context、output_schema，以及仅 wolf 夜聊/狼刀阶段允许出现的 `wolf_private_context`。`rule_set_summary` 必须包含公开投票规则 `vote_sheriff` 与 `can_abstain`，当前 `vote_sheriff` 固定为 `false`，供提示词明确禁用警长、警徽、警上警下和警长归票机制；`can_abstain` 控制 `DAY_VOTE` / `DAY_VOTE_PK` 是否允许输出 `target: null` 弃票。`DAY_SPEECH`、`DAY_VOTE`、`DAY_VOTE_PK`、`NIGHT_WOLF_CHAT` 与 `NIGHT_WOLF_VOTE` 的公开发言集中进入 `speech_context`，`visible_events` 不重复携带大量 `speech` 事件。`speech_context` 固定包含 `current_seat`、`already_spoken_seats`、`not_yet_spoken_seats`、`own_public_speeches`、`prior_public_speeches`，其中 `not_yet_spoken_seats` 仅表示当前白天仍未轮到或尚未完成公开发言的存活座位，不得被解释为沉默、划水、不活跃或藏身份。`speech_context` 不得引入未经过 Referee 过滤的事件、昵称、provider、raw response 或私有信息。LLM 重试时只在末尾追加结构化错误说明。
 
-`v4` 守卫白天策略补充：守卫低收益时不主动跳身份；但在公开发言、公开票型或 PK 局势显示自己高概率被误放逐时，应明牌守卫自救，并给出可公开、可验证的关键守护线索。该补充只改变 prompt 策略文本，不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback、ack、replay 或 resimulate 语义。
+`v5` 顺序发言补充：所有角色的 `DAY_SPEECH` prompt 必须说明只能评价已经出现在 `speech_context.prior_public_speeches` 的公开发言；`not_yet_spoken_seats` 只表示尚未轮到，不能作为不报查验、未回应、沉默、划水、不活跃、发言少或藏身份的证据。`DAY_VOTE` / `DAY_VOTE_PK` prompt 只能把已经完成的公开发言、公开票型、夜晚公示和可见查验链作为投票依据，不得把后置位未发言作为投票理由。判断预言家是否报查验，只能基于该座位已经公开发言后的文本。
+
+`v5` 守卫白天策略沿用 `v4` 补充：守卫低收益时不主动跳身份；但在公开发言、公开票型或 PK 局势显示自己高概率被误放逐时，应明牌守卫自救，并给出可公开、可验证的关键守护线索。该补充只改变 prompt 策略文本，不改变输出 JSON schema、事件 schema、PlayerView payload 字段、fallback、ack、replay 或 resimulate 语义。
 
 输入侧：
 
@@ -496,7 +500,7 @@ STEP-08 目标是 10 个 AI 自动对局从前端开局后可无卡点观赛到�
 - `seat_presentation` 是纯 UI 展示元数据，只用于历史复盘恢复游玩时头像和昵称；它不改变身份来源、胜负判定、行动合法性、ack、EventLog、replay hash、resimulate 或 LLM 输入。
 - 游戏结束后的前端结算使用“终局定格态 + 可展开复盘抽屉”：默认保留原游戏舞台、座位、聊天框、投票直方图、身份徽标和出局标记，只叠加极简胜负与操作控件；详细复盘默认收起，只展示 `role_reveal.highlights` 和 spectator-safe 身份全览，不直接暴露 raw event JSON。终局定格态不得继续播放或补播 `guard_shield`、`wolf_attack`、`seer_vision`、`witch_potion` transient spectator effects。
 - 终局定格态复盘入口在 STEP-08 起改为「生成复盘报告」；生成中必须禁用灰态并显示 spinner 与「正在生成中」，成功后改为「查阅报告」。报告抽屉展示战局摘要、生成模式标识、Leaderboard/排行榜、每名玩家角色感知六边形评分、具体评语与公开证据、关键决策复盘、反事实推演和建议；不得展示 game id、schema、generated_at、provider、model name、API key、raw response 或 prompt。大厅「历史复盘」入口和历史列表内「复盘」按钮保持原行为与文案。
-- replay 恢复：STEP-08 起 manifest 必须写入 `config_path` 与 `prompt_pack_version`；`replay_resimulate` 在未显式传入 config 时从同目录 manifest 恢复配置和 prompt 版本，兼容旧 run 回退 classic_8 与 prompt `v1`；新 run 默认使用 classic_10 与 prompt `v4`。
+- replay 恢复：STEP-08 起 manifest 必须写入 `config_path` 与 `prompt_pack_version`；`replay_resimulate` 在未显式传入 config 时从同目录 manifest 恢复配置和 prompt 版本，兼容旧 run 回退 classic_8 与 prompt `v1`；新 run 默认使用 classic_10 与 prompt `v5`。
 - 前端健壮性：SSE 客户端必须使用 `Last-Event-ID` 断点续传，最多 4 次固定延迟重连，延迟序列为 `1s → 3s → 5s → 10s`，不使用 jitter；失败后显示错误状态。REST 回补不得更新 raw event cursor，cursor 只能由 SSE raw event id 推进。倒计时归零后显示等待状态，避免误判为卡死。
 - 模型测试：前端只调用后端 `POST /models/test`；测试失败后前端按固定序列 `1s → 3s → 5s → 10s` 自动重测，任一尝试成功即视为通过；测试失败不能永久阻止开始游戏，用户可继续开局，运行期由 LLM 重试和 fallback 保证收敛。
 - 模型联网：正式对局 LLM 调用、`POST /models/test` 与真实 LLM smoke test 均强制直连，忽略系统代理环境变量。

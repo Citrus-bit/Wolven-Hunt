@@ -11,6 +11,7 @@ export type GameAudioSnapshot = {
 export interface AudioController {
   play(key: GameAudioKey): Promise<void>;
   playSequence(keys: GameAudioKey[], gapMs: number): Promise<void>;
+  stopKeys(keys: GameAudioKey[]): void;
   stopAll(): void;
   setMuted(muted: boolean): void;
   setVolume(v0to1: number): void;
@@ -186,6 +187,17 @@ class BrowserAudioController implements AudioController {
       if (gapMs > 0 && !this.snapshot.muted) {
         await new Promise((resolve) => window.setTimeout(resolve, gapMs));
       }
+    }
+  }
+
+  stopKeys(keys: GameAudioKey[]): void {
+    for (const key of keys) {
+      const element = this.elements.get(key);
+      if (!element) {
+        continue;
+      }
+      element.pause();
+      element.currentTime = 0;
     }
   }
 

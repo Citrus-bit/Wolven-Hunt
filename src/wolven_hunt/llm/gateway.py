@@ -84,7 +84,7 @@ class LLMGateway:
         retry_backoff_max_seconds: float = 0.0,
         retry_backoff_jitter: bool = False,
         sleep_fn: SleepFn | None = None,
-        prompt_version: str = "v4",
+        prompt_version: str = "v5",
         cost_tracker: CostTracker | None = None,
         raw_response_sink: RawResponseSink | None = None,
     ) -> None:

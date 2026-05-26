@@ -505,7 +505,7 @@ class GameRegistry:
         agents: dict[int, PlayerInterface] = {}
         provider_map = load_provider_map(self.settings)
         cost_tracker = CostTracker(budget_tokens=self.settings.llm_budget_per_game)
-        renderer = PromptRenderer(config.prompt_pack_root, version="v4")
+        renderer = PromptRenderer(config.prompt_pack_root, version="v5")
         llm_rng = DeterministicRNG(seed)
         use_default_provider = bool(specs) or bool(self.settings.llm_provider_map)
         for seat_number in range(config.seat_range.start, config.seat_range.end + 1):
@@ -536,7 +536,7 @@ class GameRegistry:
                     ),
                     retry_backoff_jitter=config.rule_set.fallback.retry_backoff_jitter,
                     cost_tracker=cost_tracker,
-                    prompt_version="v4",
+                    prompt_version="v5",
                     raw_response_sink=lambda row: _write_llm_rows(store, row),
                 )
                 base: PlayerInterface = LLMAgent(
@@ -650,7 +650,7 @@ def _manifest_payload(
         "config_hash": config_hash,
         "config_path": config_path,
         "seed": seed,
-        "prompt_pack_version": "v4",
+        "prompt_pack_version": "v5",
         "started_at": started_at,
         "ended_at": ended_at,
         "winner": winner,

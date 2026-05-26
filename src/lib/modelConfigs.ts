@@ -107,8 +107,8 @@ export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
     thinkingEnabled: false,
   },
   {
-    baseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3',
-    apiKey: 'ark-febcfb7e-75eb-4764-bc12-526dd293d0fb-7bab0',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/plan/v3',
+    apiKey: 'ark-b3d6e149-e38b-4f12-a544-aeb2be4a7cf5-4adae',
     modelName: 'doubao-seed-2.0-pro',
     thinkingEnabled: false,
   },

@@ -23,8 +23,14 @@ import {
 } from '../../lib/gameApi';
 import { buildAgentSpecs } from '../../lib/agentSpecs';
 import { preloadGameEffectAssets } from '../../lib/effectAssets';
+import { type GameAudioKey } from '../../lib/audioAssets';
 import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
-import { phaseAudioPlan, type GamePhaseAudioPlan } from '../../lib/gamePhaseAudio';
+import {
+  dayAnnounceAudioPlan,
+  phaseAudioPlan,
+  type DayAnnounceAudioPlan,
+  type GamePhaseAudioPlan,
+} from '../../lib/gamePhaseAudio';
 import {
   clearLiveGameSession,
   readLiveGameSession,
@@ -80,6 +86,7 @@ const MIN_TESTING_MS = 800;
 const RECONNECT_DELAYS_MS = [1000, 3000, 5000, 10000] as const;
 const MAX_RECONNECT_ATTEMPTS = RECONNECT_DELAYS_MS.length;
 const AUDIO_ACK_TIMEOUT_MS = 12000;
+const DAY_RESULT_AUDIO_KEYS: GameAudioKey[] = ['day_death', 'day_peaceful'];
 const leftSeats = [0, 1, 2, 3, 4];
 const rightSeats = [5, 6, 7, 8, 9];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
@@ -153,6 +160,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const effectSeqRef = useRef(restoredLiveSession?.effectSeq ?? 0);
   const effectAckSeqRef = useRef(new Set<number>());
   const audioQueueRef = useRef(Promise.resolve());
+  const audioDayRef = useRef(0);
   const terminalRef = useRef(false);
   const streamCursorRef = useRef(restoredLiveSession?.streamCursor ?? 0);
   const pendingStreamCursorSeqRef = useRef(restoredLiveSession?.streamCursor ?? 0);
@@ -515,6 +523,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             pendingStreamCursorSeqRef.current,
             event.seq,
           );
+          audioDayRef.current = Math.max(audioDayRef.current, event.day);
           if (isTerminalGameEvent(event)) {
             terminalRef.current = true;
             updateStreamCursor(event.seq);
@@ -545,7 +554,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
             appendNarrativeRow(setNarrativeRows, row);
           }
-          enqueueAudioTrigger(audioQueueRef, gameId, event, eventsRef);
+          enqueueAudioTrigger(
+            audioQueueRef,
+            gameId,
+            event,
+            eventsRef,
+            audioDayRef,
+            terminalRef,
+          );
         },
         () => {
           source?.close();
@@ -1382,25 +1398,57 @@ function enqueueAudioTrigger(
   gameId: string,
   event: GameEvent,
   eventsRef: { current: GameEvent[] },
+  audioDayRef: { current: number },
+  terminalRef: { current: boolean },
 ) {
   const plan = phaseAudioPlan(event, eventsRef.current);
-  if (!plan) {
+  if (plan) {
+    const cursor = audioCursorFromEvent(event);
+    queueRef.current = queueRef.current
+      .catch(() => undefined)
+      .then(() =>
+        playSequenceThenAck(
+          gameId,
+          plan,
+          cursor,
+          audioDayRef,
+          terminalRef,
+        ),
+      );
     return;
   }
-  queueRef.current = queueRef.current
-    .catch(() => undefined)
-    .then(() => playSequenceThenAck(gameId, plan));
+
+  const dayPlan = dayAnnounceAudioPlan(event);
+  if (dayPlan) {
+    const cursor = audioCursorFromEvent(event);
+    queueRef.current = queueRef.current
+      .catch(() => undefined)
+      .then(() =>
+        playDayAnnounceSequence(
+          dayPlan,
+          cursor,
+          audioDayRef,
+          terminalRef,
+        ),
+      );
+  }
 }
 
 async function playSequenceThenAck(
   gameId: string,
   plan: GamePhaseAudioPlan,
+  cursor: AudioQueueCursor,
+  audioDayRef: { current: number },
+  terminalRef: { current: boolean },
 ) {
   try {
-    await withTimeout(
-      gameAudio.playSequence(plan.sequence, plan.gapMs),
-      AUDIO_ACK_TIMEOUT_MS,
-    );
+    if (shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
+      await withTimeout(
+        gameAudio.playSequence(plan.sequence, plan.gapMs),
+        AUDIO_ACK_TIMEOUT_MS,
+        plan.sequence,
+      );
+    }
   } catch {
     // Audio playback is best-effort; pacing must keep moving even if autoplay hangs.
   }
@@ -1410,9 +1458,57 @@ async function playSequenceThenAck(
   await sendAck(gameId, plan.phase, plan.ackEvent).catch(() => undefined);
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function playDayAnnounceSequence(
+  plan: DayAnnounceAudioPlan,
+  cursor: AudioQueueCursor,
+  audioDayRef: { current: number },
+  terminalRef: { current: boolean },
+) {
+  if (!shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
+    return;
+  }
+  gameAudio.stopKeys(DAY_RESULT_AUDIO_KEYS);
+  try {
+    await withTimeout(
+      gameAudio.playSequence(plan.sequence, plan.gapMs),
+      AUDIO_ACK_TIMEOUT_MS,
+      DAY_RESULT_AUDIO_KEYS,
+    );
+  } catch {
+    // Result voice is UI-only; stale or blocked audio should never block the game.
+  }
+}
+
+type AudioQueueCursor = {
+  day: number;
+  seq: number;
+};
+
+function audioCursorFromEvent(event: GameEvent): AudioQueueCursor {
+  return {
+    day: event.day,
+    seq: event.seq,
+  };
+}
+
+function shouldPlayAudio(
+  cursor: AudioQueueCursor,
+  audioDayRef: { current: number },
+  terminalRef: { current: boolean },
+) {
+  return !terminalRef.current && cursor.day >= audioDayRef.current;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  stopKeys: GameAudioKey[] = [],
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(() => {
+      if (stopKeys.length > 0) {
+        gameAudio.stopKeys(stopKeys);
+      }
       reject(new Error('audio_timeout'));
     }, timeoutMs);
     promise.then(

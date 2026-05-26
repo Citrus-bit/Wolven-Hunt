@@ -11,6 +11,11 @@ export type GamePhaseAudioPlan = {
   settleMs: number;
 };
 
+export type DayAnnounceAudioPlan = {
+  sequence: GameAudioKey[];
+  gapMs: number;
+};
+
 type GodRole = 'guard' | 'witch' | 'seer';
 
 const GOD_AUDIO_PHASES: Record<string, GodRole> = {
@@ -74,18 +79,29 @@ export function phaseAudioPlan(
     };
   }
   if (phase === 'DAY_ANNOUNCE') {
-    const hasDeath = events.some(
-      (item) => item.day === event.day && item.type === 'death_at_night',
-    );
     return {
       phase,
       ackEvent: 'day_intro_done',
-      sequence: ['day_rooster', 'day_dawn', hasDeath ? 'day_death' : 'day_peaceful'],
+      sequence: ['day_rooster', 'day_dawn'],
       gapMs: 250,
       settleMs,
     };
   }
   return null;
+}
+
+export function dayAnnounceAudioPlan(
+  event: GameEvent,
+): DayAnnounceAudioPlan | null {
+  if (event.type !== 'day_announce') {
+    return null;
+  }
+  const deaths = event.payload.deaths;
+  const hasDeath = Array.isArray(deaths) && deaths.length > 0;
+  return {
+    sequence: [hasDeath ? 'day_death' : 'day_peaceful'],
+    gapMs: 0,
+  };
 }
 
 export function deadGodSettleMs(phase: string, events: GameEvent[]) {

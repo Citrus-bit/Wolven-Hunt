@@ -32,7 +32,7 @@ describe('modelConfigs', () => {
     const slot = MODEL_SLOTS.find((candidate) => candidate.nickname === '小豆包儿');
     expect(slot).toBeDefined();
     expect(MODEL_CONFIG_DEFAULTS[slot?.slot ?? -1]?.baseUrl).toBe(
-      'https://ark.cn-beijing.volces.com/api/coding/v3',
+      'https://ark.cn-beijing.volces.com/api/plan/v3',
     );
     expect(MODEL_CONFIG_DEFAULTS[slot?.slot ?? -1]?.modelName).toBe(
       'doubao-seed-2.0-pro',

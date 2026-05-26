@@ -78,6 +78,12 @@ _WOLF_PRIVATE_PATTERNS = (
     re.compile(r"(?:狼聊|狼人夜聊|狼队夜聊).{0,12}(?:说|讨论|商量|决定|安排)"),
     re.compile(r"(?:狼刀目标|刀口).{0,4}(?:是|为|=).{0,4}" + _SEAT_TEXT),
 )
+_FUTURE_SPEAKER_NEGATIVE_PATTERNS = (
+    re.compile(r"(?:不|没|未).{0,4}(?:报|说|给).{0,8}(?:查验|验人|验|金水|查杀)"),
+    re.compile(r"(?:查验|验人|金水|查杀).{0,8}(?:不报|没报|未报|没给|不给|没说|未说)"),
+    re.compile(r"(?:不|没|未).{0,4}(?:回应|回复|解释|发言|说话|表态|开口)"),
+    re.compile(r"(?:沉默|划水|不活跃|发言少|藏身份|装死|闭麦)"),
+)
 
 
 def validate_text_consistency(
@@ -100,6 +106,9 @@ def validate_text_consistency(
     private_rejection = _validate_private_fact_text(state, text)
     if private_rejection is not None:
         return private_rejection
+    future_speaker_rejection = _validate_future_speaker_text(state, action, text, events)
+    if future_speaker_rejection is not None:
+        return future_speaker_rejection
     return None
 
 
@@ -171,6 +180,39 @@ def _validate_private_fact_text(state: GameState, text: str) -> ValidationResult
                 "text.private_fact_claim",
                 "text claims unauthorized wolf private information as fact",
             )
+    return None
+
+
+def _validate_future_speaker_text(
+    state: GameState,
+    action: Action,
+    text: str,
+    events: tuple[Event, ...],
+) -> ValidationResult:
+    if state.phase != "DAY_SPEECH" or not isinstance(action, Speech):
+        return None
+    already_spoken = {
+        event.actor
+        for event in events
+        if event.type is EventType.SPEECH
+        and event.phase == "DAY_SPEECH"
+        and event.day == state.day
+        and event.actor is not None
+    }
+    current_seat = action.actor.number
+    future_speakers = {
+        player.seat.number
+        for player in state.alive_players()
+        if player.seat.number != current_seat and player.seat.number not in already_spoken
+    }
+    for seat_number in future_speakers:
+        for match in _seat_mentions(text, seat_number):
+            window = text[match.start() : min(len(text), match.end() + 18)]
+            if any(pattern.search(window) for pattern in _FUTURE_SPEAKER_NEGATIVE_PATTERNS):
+                return Reject(
+                    "text.future_speaker_claim",
+                    f"seat {seat_number} has not spoken in current day speech order",
+                )
     return None
 
 
@@ -257,3 +299,37 @@ def _chinese_digit(value: str) -> int | None:
         "九": 9,
     }
     return digits.get(value)
+
+
+def _seat_mentions(text: str, seat_number: int) -> tuple[re.Match[str], ...]:
+    labels = {f"{seat_number}号"}
+    chinese = _int_to_chinese(seat_number)
+    if chinese is not None:
+        labels.add(f"{chinese}号")
+    pattern = re.compile("|".join(re.escape(label) for label in sorted(labels, key=len, reverse=True)))
+    return tuple(pattern.finditer(text))
+
+
+def _int_to_chinese(value: int) -> str | None:
+    if value <= 0 or value > 99:
+        return None
+    digits = {
+        1: "一",
+        2: "二",
+        3: "三",
+        4: "四",
+        5: "五",
+        6: "六",
+        7: "七",
+        8: "八",
+        9: "九",
+    }
+    if value <= 9:
+        return digits[value]
+    if value == 10:
+        return "十"
+    if value < 20:
+        return f"十{digits[value - 10]}"
+    tens, ones = divmod(value, 10)
+    suffix = "" if ones == 0 else digits[ones]
+    return f"{digits[tens]}十{suffix}"
