@@ -44,6 +44,7 @@ def test_build_review_prompt_loads_review_template_and_payload() -> None:
         in prompt
     )
     assert "禁止无事实支撑地复用泛化句式" in prompt
+    assert "leaderboard.reason 必须是一段话概括该模型/玩家本局整体表现" in prompt
     assert "不要引用 raw response、provider、API key、prompt" in prompt
 
     payload = json.loads(prompt[prompt.rindex("\n\n{") + 2 :])
@@ -149,5 +150,8 @@ def test_mock_review_report_uses_distinct_player_wording() -> None:
     assert len(evaluations) == len(players)
     assert len(strengths) == len(players)
     assert len(suggestions) == len(players)
+    assert all("本局以" in item["reason"] for item in report["leaderboard"])
+    assert all("排名主要来自" in item["reason"] for item in report["leaderboard"])
+    assert all("短板是" in item["reason"] for item in report["leaderboard"])
     assert any("狼聊" in item for item in players[0]["evidence"])
     assert "技能" not in json.dumps(report, ensure_ascii=False)

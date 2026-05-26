@@ -240,7 +240,8 @@ export function ReviewReportDrawer({ report }: { report: ReviewReport }) {
               <strong>#{item.rank}</strong>
               <div>
                 <span>{item.seat}号 {item.nickname}</span>
-                <small>{ROLE_LABELS[item.role] ?? item.role} · {item.reason}</small>
+                <small>{ROLE_LABELS[item.role] ?? item.role}</small>
+                <p className="review-leaderboard-summary">{item.reason}</p>
               </div>
               <b>{item.overall_score}</b>
             </article>

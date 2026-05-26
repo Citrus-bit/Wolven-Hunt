@@ -427,6 +427,9 @@ def test_review_report_generation_is_cached_and_spectator_safe(
         assert _unique_count(tuple(player["strengths"]) for player in report["players"]) >= 6
         assert _unique_count(tuple(player["mistakes"]) for player in report["players"]) >= 6
         assert _unique_count(tuple(player["suggestions"]) for player in report["players"]) >= 6
+        assert all("本局以" in item["reason"] for item in report["leaderboard"])
+        assert all("排名主要来自" in item["reason"] for item in report["leaderboard"])
+        assert all("短板是" in item["reason"] for item in report["leaderboard"])
 
         report_path = tmp_path / game_id / "review_report.json"
         assert report_path.exists()
@@ -526,6 +529,7 @@ def test_review_report_litellm_provider_is_used_without_mock_downgrade(
             del seat, phase, rng
             assert "Wolven Hunt 赛后复盘评审 v1" in prompt
             assert "独有的公开证据" in prompt
+            assert "leaderboard.reason 必须是一段话概括该模型/玩家本局整体表现" in prompt
             payload = json.loads(prompt[prompt.rindex("\n\n{") + 2 :])
             seat_presentation = {
                 int(seat): value for seat, value in payload["seat_presentation"].items()

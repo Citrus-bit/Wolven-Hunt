@@ -301,7 +301,7 @@ def build_review_prompt(
                     "role": "wolf|villager|seer|witch|guard",
                     "camp": "wolf|good",
                     "overall_score": 0,
-                    "reason": "排序理由, 引用公开表现",
+                    "reason": "一段话概括该模型/玩家本局整体表现, 覆盖角色、公开证据、排名原因和短板",
                 }
             ],
             "players": [
@@ -530,11 +530,25 @@ def _role_duty_bonus(*, role: str, stats: dict[str, object], winner_bonus: int) 
 
 
 def _leaderboard_reason(player: dict[str, object]) -> str:
-    evidence = player.get("evidence")
-    if isinstance(evidence, tuple | list) and evidence:
-        return str(evidence[0])
+    seat = _int_value(player.get("seat"))
     role = ROLE_LABELS.get(str(player.get("role") or ""), str(player.get("role") or "玩家"))
-    return f"{player.get('seat')}号以{role}身份进入终局复盘，公开证据较少。"
+    score = _int_value(player.get("overall_score"))
+    evidence = player.get("evidence")
+    evidence_text = (
+        str(evidence[0]) if isinstance(evidence, tuple | list) and evidence else "公开证据较少"
+    )
+    strengths = player.get("strengths")
+    strength_text = (
+        str(strengths[0]) if isinstance(strengths, tuple | list) and strengths else "整体表现稳定"
+    )
+    mistakes = player.get("mistakes")
+    mistake_text = (
+        str(mistakes[0]) if isinstance(mistakes, tuple | list) and mistakes else "短板不明显"
+    )
+    return (
+        f"{seat}号本局以{role}身份拿到综合 {score} 分，排名主要来自{evidence_text}"
+        f"；亮点是{strength_text}；短板是{mistake_text}"
+    )
 
 
 def _player_evaluation(

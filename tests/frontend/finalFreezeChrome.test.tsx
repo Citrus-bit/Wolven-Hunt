@@ -65,6 +65,7 @@ describe('FinalFreezeChrome', () => {
     expect(html).toContain('结构化报告');
     expect(html).toContain('真实AI生成');
     expect(html).toContain('Leaderboard / 排行榜');
+    expect(html).toContain('review-leaderboard-summary');
     expect(html).toContain('玩家打分与建议');
     expect(html).toContain('关键决策复盘');
     expect(html).toContain('反事实推演');
@@ -114,7 +115,7 @@ function reviewReport(): ReviewReport {
         role: 'seer',
         camp: 'good',
         overall_score: 92,
-        reason: '查验链和发言节奏稳定。',
+        reason: '1号本局以预言家身份拿到综合 92 分，排名主要来自第2天查验链和发言节奏稳定；亮点是连续给出可验证信息；短板是投票前对反方票源拆解还不够充分。',
       },
     ],
     players: [

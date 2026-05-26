@@ -2858,7 +2858,7 @@ button {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) 42px;
   gap: 8px;
-  align-items: center;
+  align-items: start;
 }
 
 .review-leaderboard-row strong,
@@ -2885,6 +2885,14 @@ button {
   color: rgba(255, 247, 223, 0.64);
   font-size: 12px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.review-leaderboard-summary {
+  margin: 6px 0 0;
+  color: rgba(255, 247, 223, 0.72);
+  font-size: 12px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
