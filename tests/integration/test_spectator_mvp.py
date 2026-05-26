@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from threading import Event as ThreadEvent, Thread
+from threading import Event as ThreadEvent
 from time import monotonic, sleep
 
 from fastapi.testclient import TestClient
@@ -275,6 +275,7 @@ def _drive_live_game_until_finished(
 def _ack_phase_audio(client: TestClient, game_id: str, phase: str) -> None:
     ack_event = {
         "NIGHT_START": "night_intro_done",
+        "NIGHT_GUARD": "night_guard_done",
         "NIGHT_WOLF_CHAT": "night_wolves_done",
         "NIGHT_WITCH": "night_witch_done",
         "NIGHT_SEER": "night_seer_done",

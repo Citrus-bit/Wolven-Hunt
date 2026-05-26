@@ -165,6 +165,34 @@ def test_api_persists_spectator_safe_seat_presentation(monkeypatch, tmp_path) ->
     assert "mock/deterministic" not in manifest_text
 
 
+def test_api_returns_narrative_for_offline_run(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-offline-narrative",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+                "pacing": "off",
+            },
+        )
+        assert created.status_code == 200
+        game_id = created.json()["game_id"]
+        _wait_until_finished(client, game_id)
+
+        get_registry()._sessions.pop(game_id)
+
+        narrative = client.get(f"/games/{game_id}/narrative").json()
+        assert any(row["kind"] == "speech" for row in narrative)
+        after = int(narrative[0]["seq"])
+        incremental = client.get(f"/games/{game_id}/narrative?after={after}").json()
+        assert all(int(row["seq"]) > after for row in incremental)
+
+
 def test_api_rejects_remote_seat_presentation_icons(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     get_settings.cache_clear()

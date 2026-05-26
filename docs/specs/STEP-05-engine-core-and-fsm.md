@@ -9,7 +9,7 @@
 > 3. **本步骤只动 Python 后端**：不修改 `src/components/`、`src/hooks/`、`src/lib/`、`src/App.tsx`、`src/main.tsx`、`src/styles.css`、`public/`、`package.json`、`vite.config.ts`、`tsconfig*.json`、`scripts/build-lobby-pingpong.mjs`。前端验收用例必须仍然通过。
 > 4. 后端代码不得 `import` 任何前端 TS / TSX；前端代码也不得 `import` `src/wolven_hunt/*`（plan.md §14.1 / architecture.md §18.1 已固化）。
 > 5. **本步骤不接 LLM**、**不写 FastAPI**、**不写 SSE**、**不持久化磁盘**：内存 EventLog 即可；持久化和 LiteLLM 网关留给 STEP-06。
-> 6. 板子规则不得硬编码进 `core/`：所有规则旋钮（`first_night_can_die`、`max_uses_per_game`、`fallback.actions` 等）必须从 `configs/games/_rule_sets/majority_or_side_elimination.yaml` + `configs/games/_role_packs/classic_8_three_gods.yaml` 读取。
+> 6. Legacy note：本 STEP 编写时示例板子为 `classic_8`；当前仓库默认已升级为 `classic_10`。板子规则不得硬编码进 `core/`：所有规则旋钮（`first_night_can_die`、`max_uses_per_game`、`fallback.actions` 等）必须从配置读取。
 > 7. **Referee 是唯一权限边界**：`RuleEngine.apply` 不接 `player_id`、不读 PlayerView、不写 LLM；任何脱敏 / 合法性校验 / 视角分发都走 Referee。
 
 ---

@@ -5,7 +5,7 @@
 > plan.md §11 把这一阶段标为 P2；architecture.md §16 把 `replay_resimulate` 显式留到 "STEP-06+"。两份文档把外部边界冻结了，但**没有**写死落盘目录、SSE 线协议、JSON 输出 schema、错误分类映射、resimulate 一致性范围。按 AGENTS.md 硬约束 #2，这些新增边界必须先同步进 plan.md / architecture.md，再落代码——本 spec 第 2 节给出完整同步清单。
 
 硬性约束（节选）：
-- 第一阶段固定 8 人板（3 狼 / 2 民 / 1 预言家 / 1 女巫 / 1 守卫）不变；新增板子只能通过 `configs/games/*.yaml` 扩展。
+- Legacy note：本 STEP 编写时第一阶段仍以 8 人板为默认；当前仓库基准已升级为 `classic_10`，`classic_8` 仅作为旧日志/旧阶段兼容配置保留。新增板子只能通过 `configs/games/*.yaml` 扩展。
 - LLM 输出必须走 Pydantic / JSON Schema 校验；失败路径按 plan.md §4 + 本 spec §5.3 处理。
 - 完整 raw response 只进私有存储；`llm_call` 事件只携带 `prompt_hash` / `raw_response_hash` / `storage_ref` / model / token / cost，不进 PlayerView。
 - Referee 是唯一权限边界；FastAPI 默认且**仅**返回 spectator 脱敏视角。
@@ -296,7 +296,7 @@ def call(
 | I3 | FastAPI 路由处理函数中无对 `state.players` 的私有字段读取，全部走 Referee | 代码评审 + grep |
 | I4 | LLM 调用的所有错误归一化到 plan.md §4.1 三类，不出现新的事件类型 | grep `EventType.` 新增项与 plan §3.3 比对 |
 | I5 | 真实 LLM 调用环境变量缺失时启动会失败而非默默降级 | unit 测试 |
-| I6 | 8 人板配置仍然是默认；新增 board 必须经 `configs/games/*.yaml` | grep 没有新写死的 8 / 板规则 |
+| I6 | 当前默认配置为 `classic_10`；`classic_8` 仅 legacy 兼容；新增 board 必须经 `configs/games/*.yaml` | grep 没有新写死的板子规则 |
 
 ## 9. 不在本步骤范围
 - per-seat 视角 SSE（推迟到"人类玩家入座"阶段）。
@@ -326,7 +326,7 @@ grep -n "Last-Event-ID" plan.md architecture.md
 # 2. 后端冒烟
 make check && pytest -q
 make serve &
-curl -X POST localhost:8000/games -d '{"config_path":"configs/games/classic_8.yaml","seed":"smoke-001","agents":{"1":"llm:default", "...":"..."}}'
+curl -X POST localhost:8000/games -d '{"config_path":"configs/games/classic_10.yaml","seed":"smoke-001","agents":{"1":"llm:default", "...":"..."}}'
 curl -N localhost:8000/games/<id>/stream | head -20
 ls runs/<id>/
 
@@ -337,5 +337,4 @@ python -m wolven_hunt resimulate --events runs/<id>/events.jsonl --raw runs/<id>
 pnpm dev
 # 浏览器：assignments → 开始游戏 → 看到事件时间线滚动 → 在 DAY_SPEECH 提交一句发言 → 出现在时间线
 ```
-
 

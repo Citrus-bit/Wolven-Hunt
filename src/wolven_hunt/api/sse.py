@@ -22,15 +22,16 @@ def sse_response(session: GameSession, *, last_event_id: str | None) -> Streamin
             events = session.raw_events_after(cursor)
             if events:
                 for raw_event in events:
-                    cursor = raw_event.seq
-                    event = session.spectator_event_for_seq(cursor)
-                    if event is not None:
-                        yield _format_event("game_event", cursor, event)
-                    narrative = _narrative_for_seq(session, cursor)
-                    if narrative is not None:
-                        yield _format_event("narrative_row", cursor, narrative)
-                    for effect in session.effect_rows_for_seq(cursor):
-                        yield _format_event("spectator_effect", cursor, effect)
+                    event_seq = raw_event.seq
+                    projections = _projections_for_seq(session, event_seq)
+                    for index, (event_name, payload) in enumerate(projections):
+                        yield _format_event(
+                            event_name,
+                            event_seq,
+                            payload,
+                            include_id=index == len(projections) - 1,
+                        )
+                    cursor = event_seq
                 continue
             if session.is_terminal():
                 yield "event: heartbeat\ndata: {}\n\n"
@@ -52,9 +53,28 @@ def _parse_last_event_id(value: str | None) -> int | None:
         raise HTTPException(status_code=400, detail={"code": "invalid_last_event_id"}) from exc
 
 
-def _format_event(event_name: str, seq: int, data: object) -> str:
+def _format_event(
+    event_name: str,
+    seq: int,
+    data: object,
+    *,
+    include_id: bool = True,
+) -> str:
     encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-    return f"event: {event_name}\nid: {seq}\ndata: {encoded}\n\n"
+    id_line = f"id: {seq}\n" if include_id else ""
+    return f"event: {event_name}\n{id_line}data: {encoded}\n\n"
+
+
+def _projections_for_seq(session: GameSession, seq: int) -> tuple[tuple[str, object], ...]:
+    projections: list[tuple[str, object]] = []
+    event = session.spectator_event_for_seq(seq)
+    if event is not None:
+        projections.append(("game_event", event))
+    narrative = _narrative_for_seq(session, seq)
+    if narrative is not None:
+        projections.append(("narrative_row", narrative))
+    projections.extend(("spectator_effect", effect) for effect in session.effect_rows_for_seq(seq))
+    return tuple(projections)
 
 
 def _event_seq(event: dict[str, object]) -> int:

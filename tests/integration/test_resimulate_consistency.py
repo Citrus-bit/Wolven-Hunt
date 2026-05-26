@@ -46,6 +46,18 @@ def test_resimulate_reports_tampered_raw_response(tmp_path: Path) -> None:
     assert exc_info.value.field == "raw_response_hash"
 
 
+@pytest.mark.llm
+def test_resimulate_requires_manifest_for_new_ten_seat_run(tmp_path: Path) -> None:
+    registry = GameRegistry(
+        settings=Settings(runs_dir=tmp_path, llm_provider="mock", pacing_profile="off")
+    )
+    session = asyncio.run(_create_finished_session(registry, seed="resimulate-seed-003"))
+    session.store.manifest_path.unlink()
+
+    with pytest.raises(ValueError, match=r"manifest\.json with config_path"):
+        replay_resimulate(session.store.events_path, session.store.raw_responses_path)
+
+
 async def _create_finished_session(registry: GameRegistry, *, seed: str):
     session = await registry.create_game(
         config_path=CONFIG_PATH,

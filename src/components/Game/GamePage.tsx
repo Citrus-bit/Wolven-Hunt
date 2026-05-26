@@ -519,6 +519,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           }
           setStreamStatus('open');
           setReconnectAttempts(0);
+          updateStreamCursor(event.seq);
           pendingStreamCursorSeqRef.current = Math.max(
             pendingStreamCursorSeqRef.current,
             event.seq,
@@ -526,7 +527,6 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           audioDayRef.current = Math.max(audioDayRef.current, event.day);
           if (isTerminalGameEvent(event)) {
             terminalRef.current = true;
-            updateStreamCursor(event.seq);
             setRecentEffects((current) => {
               const next = current.length === 0 ? current : [];
               persistLiveSessionSnapshot({ recentEffects: next });
@@ -646,6 +646,11 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           if (closed) {
             return;
           }
+          updateStreamCursor(row.seq);
+          pendingStreamCursorSeqRef.current = Math.max(
+            pendingStreamCursorSeqRef.current,
+            row.seq,
+          );
           narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
           appendNarrativeRow(setNarrativeRows, row);
         },
@@ -653,6 +658,11 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           if (closed) {
             return;
           }
+          updateStreamCursor(effect.seq);
+          pendingStreamCursorSeqRef.current = Math.max(
+            pendingStreamCursorSeqRef.current,
+            effect.seq,
+          );
           const nowMs = Date.now();
           ingestLiveSpectatorEffects(
             setSpectatorEffects,
@@ -1020,11 +1030,6 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     }
     effectAckSeqRef.current.add(effect.seq);
     updateEffectSeq(effect.seq);
-    updateStreamCursor(effect.seq);
-    pendingStreamCursorSeqRef.current = Math.max(
-      pendingStreamCursorSeqRef.current,
-      effect.seq,
-    );
     void sendAck(gameId, effect.phase, spectatorEffectAckEvent(effect.seq)).catch(
       () => undefined,
     );

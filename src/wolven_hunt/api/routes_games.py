@@ -121,7 +121,18 @@ def get_narrative(
     after: int = 0,
     registry: GameRegistry = REGISTRY_DEP,
 ) -> tuple[dict[str, object], ...]:
-    return _require_session(registry, game_id).narrative_rows_after(after)
+    session = registry.get(game_id)
+    if session is not None:
+        return session.narrative_rows_after(after)
+    root = registry.settings.runs_dir / game_id
+    events_path = root / "events.jsonl"
+    if not events_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "game_not_found", "message": game_id},
+        )
+    rows = _narrative_rows_from_disk(root, read_events_jsonl(events_path))
+    return tuple(row for row in rows if _row_seq(row) > after)
 
 
 @router.get("/games/{game_id}/effects", response_model=tuple[SpectatorEffect, ...])
@@ -403,16 +414,28 @@ def _require_session(registry: GameRegistry, game_id: str) -> GameSession:
 
 
 def _summary(session: GameSession) -> GameSummaryResponse:
+    phase, day = _published_phase_and_day(session)
     return GameSummaryResponse(
         game_id=session.game_id,
         status=session.status,
         winner=None if session.state.winner is None else session.state.winner.value,
-        day=session.state.day,
-        phase=session.state.phase,
+        day=day,
+        phase=phase,
         event_count=len(session.event_log.events),
         timings=session.config.rule_set.timings.model_dump(mode="json"),
         seat_presentation=session.seat_presentation,
     )
+
+
+def _published_phase_and_day(session: GameSession) -> tuple[str, int]:
+    events = session.event_log.events
+    if not events:
+        return session.state.phase, session.state.day
+    last_event = events[-1]
+    for event in reversed(events):
+        if event.type.value == "phase_enter":
+            return str(event.payload.get("phase", event.phase)), event.day
+    return last_event.phase, last_event.day
 
 
 def _summary_from_manifest(
@@ -573,6 +596,18 @@ def _read_jsonl_objects(path: Path) -> tuple[dict[str, object], ...]:
         if isinstance(data, dict):
             rows.append(data)
     return tuple(rows)
+
+
+def _row_seq(row: dict[str, object]) -> int:
+    seq = row.get("seq")
+    if isinstance(seq, int):
+        return seq
+    if isinstance(seq, str):
+        try:
+            return int(seq)
+        except ValueError:
+            return 0
+    return 0
 
 
 def _read_manifest(path: Path) -> dict[str, object]:

@@ -27,7 +27,7 @@ cov:
 	uv run pytest --cov=wolven_hunt --cov-report=term-missing
 
 simulate:
-	uv run python -m wolven_hunt.cli simulate --config configs/games/classic_8.yaml --seed wolven-hunt-demo-seed-001
+	uv run python -m wolven_hunt.cli simulate --config configs/games/classic_10.yaml --seed wolven-hunt-demo-seed-001
 
 serve:
 	uv run python -m wolven_hunt.cli serve --host 127.0.0.1 --port 7002

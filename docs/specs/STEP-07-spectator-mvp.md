@@ -167,7 +167,7 @@ class NarrativeRow:
 
 ```jsonc
 {
-  "config_path": "configs/games/classic_8.yaml",
+  "config_path": "configs/games/classic_10.yaml",
   "seed": "web-1737000000",
   "agents": {
     "1": {"kind": "mock"},
@@ -244,7 +244,7 @@ class NarrativeRow:
 
 - 新增 `src/components/Game/FinalRevealOverlay.tsx`：当事件流出现 `role_reveal` 或 `streamStatus` 终止后 fetch `/games/{id}/reveal`，渲染：
   - 顶部 banner：`狼人胜利` / `好人胜利`。
-  - 8 个座位卡片：头像 + 昵称 + 真实身份 + 存活状态。
+  - 10 个座位卡片：头像 + 昵称 + 真实身份 + 存活状态。
   - 关键事件回顾（来自 `highlights`）。
   - CTA：「再来一局」（`onExitGame()` 后回大厅）/「查看完整事件」（toggle `GameChat` 显示原始 JSON）。
 - 浮层在游戏未结束时不渲染；结束时盖在 `GamePage` 之上。
@@ -285,7 +285,7 @@ class NarrativeRow:
 - `replay_resimulate` 在 `live` 配置下产出的事件序列与 `off` 完全相同（hash 比较）。
 
 ### D. Role Reveal
-- `tests/unit/test_role_reveal.py` 覆盖：`winner=None` 时不生成、`winner=wolves` 时 8 座位身份完整、highlights 长度 ∈ [3, 5]。
+- `tests/unit/test_role_reveal.py` 覆盖：`winner=None` 时不生成、`winner=wolves` 时 10 座位身份完整、highlights 长度 ∈ [3, 5]。
 - 集成测试断言 `events[-1].type == "role_reveal"`。
 
 ### E. Narrative
@@ -315,11 +315,11 @@ class NarrativeRow:
 ### I. 用户可达成的端到端体验
 - 用户在 `npm run dev` + `uvicorn` 起的环境下：
   1. 大厅点开始游戏。
-  2. GamePage 选好 8 个 model（一键分配可用）。
+  2. GamePage 选好 10 个 model（一键分配可用）。
   3. 点测试，全部 pass。
   4. 点进入夜晚，后端开始真实 LLM 跑局。
   5. 通用聊天框按节奏滚动出中文叙事 + 头像；NIGHT/DAY 背景自动切换。
-  6. 一局结束（≤ 5 分钟，8 模型同时调用），FinalRevealOverlay 弹出，展示胜方 + 8 座位身份 + 关键回顾。
+  6. 一局结束（≤ 5 分钟，10 模型同时调用），FinalRevealOverlay 弹出，展示胜方 + 10 座位身份 + 关键回顾。
   7. 点再来一局回大厅。
 
 ## 7. 风险登记

@@ -14,7 +14,7 @@ STEP-07 验收时发现这个洞：真实 LLM 调用时只拿到 JSON dump + "�
 ## 1. 交付目标
 
 1. **统一系统提示词**：`configs/prompts/zh/system.v1.md`，全员通用，包含：
-   - 游戏规则摘要（8 人板 / 胜负条件 / 夜晚顺序 / 白天流程）
+   - 游戏规则摘要（默认 10 人板 / 胜负条件 / 夜晚顺序 / 白天流程）
    - 全员约束（只知道编号、不知道模型名、不知道昵称、不能作弊）
    - 输出契约（JSON only / 不解释 / 不 markdown）
 2. **角色 × phase 提示词**：20 个 `.md` 文件写真实内容，每个包含：
@@ -53,7 +53,7 @@ STEP-07 验收时发现这个洞：真实 LLM 调用时只拿到 JSON dump + "�
 ```markdown
 # 狼人杀 AI 玩家系统提示词 v1
 
-你是一名狼人杀游戏的 AI 玩家。本局为 8 人局，角色配置：3 狼人 + 2 村民 + 1 预言家 + 1 女巫 + 1 守卫。
+你是一名狼人杀游戏的 AI 玩家。本局默认固定为 10 人局，角色配置：3 狼人 + 4 村民 + 1 预言家 + 1 女巫 + 1 守卫；实际座位范围以 payload 为准。
 
 ## 游戏规则摘要
 
@@ -306,7 +306,7 @@ def test_select_events_keeps_important_and_recent():
 
 ```python
 def test_prompt_does_not_leak_model_names_or_nicknames():
-    # 构造一局，8 个 seat 用不同 model（从 MODEL_SLOTS 取 nickname）
+    # 构造一局，10 个 seat 用不同 model（从 MODEL_SLOTS 取 nickname）
     # 渲染 prompt for seat=3（狼人）
     # 断言 prompt 不含其他 seat 的 model 名 / nickname
     # 断言 prompt 只含 "1号" "2号" 等编号

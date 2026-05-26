@@ -69,7 +69,7 @@ def replay_resimulate(
 
     seed = str(events[0].payload["random_seed"])
     config_hash = str(events[0].payload["config_hash"])
-    config = load_game_config(_resolve_config_path(config_path, manifest))
+    config = load_game_config(_resolve_config_path(config_path, manifest, events))
     if config.config_hash != config_hash:
         raise ResimulateDivergence(1, "config_hash", config_hash, config.config_hash)
     prompt_version = _prompt_version_from_manifest(manifest)
@@ -158,13 +158,27 @@ def _read_manifest(events_path: Path) -> dict[str, object]:
     return cast(dict[str, object], manifest)
 
 
-def _resolve_config_path(config_path: str | Path | None, manifest: dict[str, object]) -> Path:
+def _resolve_config_path(
+    config_path: str | Path | None,
+    manifest: dict[str, object],
+    events: tuple[Event, ...],
+) -> Path:
     if config_path is not None:
         return Path(config_path)
     value = manifest.get("config_path")
     if isinstance(value, str) and value:
         return Path(value)
-    return Path("configs/games/classic_8.yaml")
+    game_start = events[0] if events else None
+    payload = {} if game_start is None else game_start.payload
+    seat_range = payload.get("seat_range")
+    if isinstance(seat_range, dict):
+        start = _optional_int_value(seat_range.get("start"))
+        end = _optional_int_value(seat_range.get("end"))
+        if start == 1 and end == 8:
+            return Path("configs/games/classic_8.yaml")
+    raise ValueError(
+        "manifest.json with config_path is required for resimulating non-legacy runs"
+    )
 
 
 def _prompt_version_from_manifest(manifest: dict[str, object]) -> str:
@@ -172,6 +186,19 @@ def _prompt_version_from_manifest(manifest: dict[str, object]) -> str:
     if isinstance(value, str) and value:
         return value
     return "v1"
+
+
+def _optional_int_value(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _validate_raw_response_hashes(rows: tuple[dict[str, object], ...]) -> None:
