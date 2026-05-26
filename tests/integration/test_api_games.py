@@ -530,6 +530,8 @@ def test_review_report_litellm_provider_is_used_without_mock_downgrade(
             assert "Wolven Hunt 赛后复盘评审 v1" in prompt
             assert "独有的公开证据" in prompt
             assert "leaderboard.reason 必须是一段话概括该模型/玩家本局整体表现" in prompt
+            assert "key_decisions 选择 2-4 个最关键公开节点" in prompt
+            assert "counterfactuals 必须基于 key_decisions 或公开证据" in prompt
             payload = json.loads(prompt[prompt.rindex("\n\n{") + 2 :])
             seat_presentation = {
                 int(seat): value for seat, value in payload["seat_presentation"].items()

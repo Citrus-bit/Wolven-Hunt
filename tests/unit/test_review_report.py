@@ -45,6 +45,11 @@ def test_build_review_prompt_loads_review_template_and_payload() -> None:
     )
     assert "禁止无事实支撑地复用泛化句式" in prompt
     assert "leaderboard.reason 必须是一段话概括该模型/玩家本局整体表现" in prompt
+    assert "key_decisions 选择 2-4 个最关键公开节点" in prompt
+    assert "每项 analysis 必须写清" in prompt
+    assert "发生了什么公开动作" in prompt
+    assert "counterfactuals 必须基于 key_decisions 或公开证据" in prompt
+    assert "likely_outcome 要写可能改变的局势路径" in prompt
     assert "不要引用 raw response、provider、API key、prompt" in prompt
 
     payload = json.loads(prompt[prompt.rindex("\n\n{") + 2 :])
@@ -52,6 +57,8 @@ def test_build_review_prompt_loads_review_template_and_payload() -> None:
     assert payload["spectator_events"][0]["type"] == "vote_cast"
     assert payload["seat_presentation"]["2"]["nickname"] == "测试玩家"
     assert payload["score_axes"][-1]["label_by_role"]["villager"] == "平民职责"
+    assert "发生了什么公开动作" in payload["output_schema"]["key_decisions"][0]["analysis"]
+    assert "可能如何改变票型" in payload["output_schema"]["counterfactuals"][0]["likely_outcome"]
 
 
 def test_build_review_prompt_fails_when_template_missing(monkeypatch, tmp_path) -> None:
@@ -153,5 +160,10 @@ def test_mock_review_report_uses_distinct_player_wording() -> None:
     assert all("本局以" in item["reason"] for item in report["leaderboard"])
     assert all("排名主要来自" in item["reason"] for item in report["leaderboard"])
     assert all("短板是" in item["reason"] for item in report["leaderboard"])
+    assert all("公开" in item["analysis"] for item in report["key_decisions"])
+    assert all(
+        any(keyword in item["likely_outcome"] for keyword in ("票型", "局势", "站边", "夜死"))
+        for item in report["counterfactuals"]
+    )
     assert any("狼聊" in item for item in players[0]["evidence"])
     assert "技能" not in json.dumps(report, ensure_ascii=False)

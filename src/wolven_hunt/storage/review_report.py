@@ -291,7 +291,7 @@ def build_review_prompt(
                 "winner": "wolf|good",
                 "verdict": "中文胜负结论",
                 "turning_points": ["关键转折, 需要引用天数或公开事件"],
-                "overall_assessment": "总体评价",
+                "overall_assessment": "总体评价, 概括胜负路径、阵营执行和主要信息缺口",
             },
             "leaderboard": [
                 {
@@ -332,16 +332,16 @@ def build_review_prompt(
                     "day": 1,
                     "phase": "DAY_VOTE",
                     "seq": 1,
-                    "title": "关键决策标题",
-                    "analysis": "复盘分析",
-                    "impact": "对胜负影响",
+                    "title": "关键公开节点标题, 不只写 phase 名",
+                    "analysis": "发生了什么公开动作、谁推动或承受压力、暴露了什么阵营关系或信息缺口",
+                    "impact": "如何改变胜负路径、存活结构、票型、夜间目标空间或后续站边",
                 }
             ],
             "counterfactuals": [
                 {
-                    "premise": "如果...",
-                    "likely_outcome": "可能结果",
-                    "lesson": "复盘启发",
+                    "premise": "如果某名玩家在某个公开节点改做某个选择",
+                    "likely_outcome": "可能如何改变票型、放逐对象、阵营暴露、夜间目标空间或胜负节奏",
+                    "lesson": "下一局可执行的复盘启发",
                 }
             ],
         },
@@ -720,19 +720,32 @@ def _mock_key_decisions(
                     "phase": str(event.get("phase") or "DAY_VOTE"),
                     "seq": _int_value(event.get("seq")) or None,
                     "title": "公开票型收束",
-                    "analysis": f"本轮票型为 {_format_vote_counts(payload.get('counts'), payload.get('abstain_count'))}。",
-                    "impact": "票型决定白天压力集中方向，也暴露了阵营站边关系。",
+                    "analysis": (
+                        f"本轮公开票型为 {_format_vote_counts(payload.get('counts'), payload.get('abstain_count'))}。"
+                        "这个节点把白天发言中的怀疑对象转化为可验证站边，也能看到弃票或集火是否一致。"
+                    ),
+                    "impact": (
+                        "票型收束会直接决定放逐压力落点；即使没有立刻放逐，也会影响后续夜间目标空间、"
+                        "第二天归票依据和阵营互相指认的可信度。"
+                    ),
                 }
             )
         elif event_type == "exile":
+            exiled = payload.get("seat")
             decisions.append(
                 {
                     "day": _int_value(event.get("day"), default=1),
                     "phase": str(event.get("phase") or "DAY_EXILE"),
                     "seq": _int_value(event.get("seq")) or None,
-                    "title": f"{payload.get('seat')}号被放逐",
-                    "analysis": "放逐结果是公开发言和投票执行共同作用的节点。",
-                    "impact": "该节点直接改变存活结构，并影响下一夜的刀口和神职空间。",
+                    "title": f"{exiled}号被放逐",
+                    "analysis": (
+                        f"{exiled}号出局是公开发言压力和投票执行共同形成的结果。"
+                        "复盘时要看放逐前是否有足够理由闭环，以及投票者是否跟随了自己白天表达的怀疑。"
+                    ),
+                    "impact": (
+                        "放逐会立即改变存活结构和胜负路径；若放逐命中关键阵营成员，会压缩对方夜间或白天操作空间，"
+                        "若放逐偏离真实阵营，则会放大下一轮抗推风险。"
+                    ),
                 }
             )
         if len(decisions) >= 4:
@@ -746,8 +759,14 @@ def _mock_key_decisions(
             "phase": str(speech.get("phase") or "DAY_SPEECH") if speech else "DAY_SPEECH",
             "seq": _int_value(speech.get("seq")) if speech else None,
             "title": "首轮公开发言定调",
-            "analysis": "早期公开发言为后续站边、质疑和投票提供了第一批可验证材料。",
-            "impact": "如果早期信息密度不足，后续票型更容易被情绪或身份跳法牵引。",
+            "analysis": (
+                "早期公开发言为后续站边、质疑和投票提供第一批可验证材料。"
+                "需要复盘谁先提出怀疑、谁补充证据、谁只跟随情绪而没有给出理由。"
+            ),
+            "impact": (
+                "首轮发言质量会影响后续票型是否能自然闭环；如果早期信息密度不足，"
+                "后续更容易被单次身份跳法或情绪性集火牵引。"
+            ),
         },
     )
 
@@ -761,14 +780,20 @@ def _mock_counterfactuals(
     trailing_side = "好人阵营" if winner == "wolf" else "狼人阵营"
     return (
         ReviewReportCounterfactualModel(
-            premise=f"如果在「{first_title}」前更早统一归因。",
-            likely_outcome=f"{trailing_side}可能被迫提前暴露站边或调整节奏。",
-            lesson="复盘时重点看发言理由是否能自然导向票型，而不是只看最终投给了谁。",
+            premise=f"如果在「{first_title}」前，公开发言能更早把怀疑点、票型目标和验证方式连成闭环。",
+            likely_outcome=(
+                f"{trailing_side}可能被迫提前解释站边或调整投票节奏，场上也更容易看出谁在顺势跟票、"
+                "谁在推动真实信息。"
+            ),
+            lesson="下一局复盘重点看发言理由是否能自然导向票型，而不是只看最终投给了谁。",
         ),
         ReviewReportCounterfactualModel(
-            premise="如果低信息玩家在白天给出更明确的怀疑链。",
-            likely_outcome="场上可验证信息会更多，夜间行动后的身份判断也会更稳定。",
-            lesson="每轮发言都应至少留下一个可被投票或后续死亡验证的判断。",
+            premise="如果公开记录较少的玩家在白天明确给出怀疑对象、保留对象和投票触发条件。",
+            likely_outcome=(
+                "场上可验证信息会更多，夜死、放逐或平票后能更快判断谁的逻辑被验证，"
+                "谁只是在安全位置跟随主流。"
+            ),
+            lesson="每轮发言都应至少留下一个可被投票、死亡信息或下一轮发言验证的判断。",
         ),
     )
 
