@@ -213,9 +213,10 @@ class GameSession:
     def publish_event(self, event: Event) -> None:
         self.store.append_event(event)
         row = event_to_narrative(event)
-        row_dict = None if row is None else row.to_dict()
         effects = event_to_spectator_effects(event, self.event_log.events)
+        row_dict: dict[str, object] | None = None
         if row is not None:
+            row_dict = row.to_dict()
             self.store.append_narrative(row_dict)
         with self._lock:
             if row_dict is not None:

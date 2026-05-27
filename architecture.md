@@ -170,7 +170,7 @@ GAME_START
 GAME_END
 ```
 
-女巫行动是固定夜晚子状态 `NIGHT_WITCH`，位于狼人投刀后、预言家查验前。`NIGHT_WITCH` 只在女巫存活且仍有至少一瓶药时进入；女巫无药或死亡时跳过。白天不再存在中断技能。现场观赛时前端在 `NIGHT_WITCH` 播放 `night_witch` 音频并通过 `ack:night_witch_done` 解除 pacing 等待；ack 不进入 EventLog。
+女巫行动是固定夜晚子状态 `NIGHT_WITCH`，位于狼人投刀后、预言家查验前。只要当前 RolePack 包含女巫，STEP-07 live 观赛每晚都进入 `NIGHT_WITCH` 并追加 `phase_enter` / `phase_exit`；只有女巫存活且仍有至少一瓶药时才调用 Agent 并生成 `witch_action`。女巫无药或死亡时该 phase 只承担主持和音频 pacing，不调用 Agent，不生成私有行动事件、`llm_call` 或 fallback。白天不再存在中断技能。现场观赛时前端在 `NIGHT_WITCH` 播放 `night_witch` 音频并通过 `ack:night_witch_done` 解除 pacing 等待；ack 不进入 EventLog、不影响 replay hash。
 
 STEP-07 live 观赛中，`NIGHT_GUARD`、`NIGHT_WITCH`、`NIGHT_SEER` 同时承担公开主持与音频 pacing。只要 RolePack 包含对应角色，每晚都进入该 phase 并追加 `phase_enter` / `phase_exit`。若对应神职已死亡，或女巫已无可用药，该 phase 只用于观赛节奏，不调用死亡/无行动资格 Agent，不生成 `guard_protect`、`witch_action`、`seer_check`、`seer_check_result`、`llm_call` 或 fallback 事件。前端收到死亡神职 phase 时必须完整播放对应夜晚音频，再固定等待 5 秒后发送 ack；ack 只解除现场 pacing，不进入 EventLog、不改变 replay/resimulate 语义。
 

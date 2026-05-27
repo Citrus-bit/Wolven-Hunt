@@ -57,6 +57,46 @@ def test_spectator_api_and_sse_hide_private_events(monkeypatch, tmp_path) -> Non
         assert "witch_action" not in body
 
 
+def test_spectator_effects_are_private_event_projections_not_raw_event_leaks(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_PACING_PROFILE", "off")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        game_id = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "spectator-effects-are-projections",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+                "pacing": "off",
+            },
+        ).json()["game_id"]
+
+        events = _wait_for_spectator_god_view_events(client, game_id)
+        event_types = {event["type"] for event in events}
+        assert {
+            "guard_protect",
+            "seer_check",
+            "witch_action",
+            "wolf_kill_decided",
+        }.isdisjoint(event_types)
+
+        effects = _wait_for_spectator_effect_kinds(
+            client,
+            game_id,
+            {"guard_shield", "seer_vision", "wolf_attack"},
+        )
+        effect_kinds = {effect["kind"] for effect in effects}
+        assert {"guard_shield", "seer_vision", "wolf_attack"}.issubset(effect_kinds)
+        assert all("payload" not in effect for effect in effects)
+        assert all("raw_response" not in str(effect) for effect in effects)
+
+
 def _wait_for_spectator_god_view_events(
     client: TestClient, game_id: str
 ) -> list[dict[str, object]]:
@@ -69,3 +109,18 @@ def _wait_for_spectator_god_view_events(
             return events
         sleep(0.02)
     raise AssertionError("spectator god-view events did not include roles and wolf chat")
+
+
+def _wait_for_spectator_effect_kinds(
+    client: TestClient,
+    game_id: str,
+    expected_kinds: set[str],
+) -> list[dict[str, object]]:
+    for _ in range(100):
+        response = client.get(f"/games/{game_id}/effects")
+        assert response.status_code == 200
+        effects = response.json()
+        if expected_kinds.issubset({effect["kind"] for effect in effects}):
+            return effects
+        sleep(0.02)
+    raise AssertionError("spectator-only effect projections were not published")

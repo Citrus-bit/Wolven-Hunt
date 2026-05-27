@@ -7,47 +7,26 @@ import {
   type LaunchState,
 } from '../../lib/gameLaunchState';
 import {
-  createGame,
   getEffects,
   getEvents,
   getGame,
   getNarrative,
-  runGame,
-  sendAck,
-  spectatorEffectAckEvent,
   subscribeGameEvents,
   type GameEvent,
   type GameTimings,
   type NarrativeRow,
   type SpectatorEffect,
 } from '../../lib/gameApi';
-import { buildAgentSpecs } from '../../lib/agentSpecs';
 import { preloadGameEffectAssets } from '../../lib/effectAssets';
-import { type GameAudioKey } from '../../lib/audioAssets';
 import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
-import {
-  dayAnnounceAudioPlan,
-  hostAudioPlan,
-  phaseAudioPlan,
-  type DayAnnounceAudioPlan,
-  type GamePhaseAudioPlan,
-  type HostAudioPlan,
-} from '../../lib/gamePhaseAudio';
 import {
   clearLiveGameSession,
   readLiveGameSession,
   writeLiveGameSession,
 } from '../../lib/liveGameSession';
 import {
-  appendRecentSpectatorEffects,
-  appendUniqueSpectatorEffects,
   buildSeatEffectMap,
-  expireTransientEffectSeenAt,
-  pruneRecentSpectatorEffects,
   publicEliminatedSeats,
-  seedExpiredEffectSeenAt,
-  seedLiveEffectSeenAt,
-  type EffectSeenAtMap,
   type RecentSpectatorEffect,
 } from '../../lib/gameEffects';
 import {
@@ -79,15 +58,16 @@ import { StageIndicator } from './StageIndicator';
 import { toNarrative } from '../../lib/narrative';
 import { deriveDaySpeechProgress } from '../../lib/speechProgress';
 import {
-  buildSeatPresentation,
   type SeatPresentationMap,
 } from '../../lib/seatPresentation';
+import { useGameAudioPacing } from '../../hooks/useGameAudioPacing';
+import { useSpectatorEffectsRuntime } from '../../hooks/useSpectatorEffectsRuntime';
+import { useGameLaunchFlow } from '../../hooks/useGameLaunchFlow';
 
 const SEAT_COUNT = 10;
 const MIN_TESTING_MS = 800;
 const RECONNECT_DELAYS_MS = [1000, 3000, 5000, 10000] as const;
 const MAX_RECONNECT_ATTEMPTS = RECONNECT_DELAYS_MS.length;
-const AUDIO_ACK_TIMEOUT_MS = 12000;
 const leftSeats = [0, 1, 2, 3, 4];
 const rightSeats = [5, 6, 7, 8, 9];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
@@ -152,16 +132,6 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const eventsRef = useRef<GameEvent[]>([]);
   const [narrativeRows, setNarrativeRows] = useState<NarrativeRow[]>([]);
   const narrativeSeqRef = useRef(0);
-  const [spectatorEffects, setSpectatorEffects] = useState<SpectatorEffect[]>([]);
-  const [recentEffects, setRecentEffects] = useState<RecentSpectatorEffect[]>(() =>
-    restoredLiveSession?.recentEffects ?? [],
-  );
-  const effectSeenAtRef = useRef<EffectSeenAtMap>({});
-  const [effectClockMs, setEffectClockMs] = useState(() => Date.now());
-  const effectSeqRef = useRef(restoredLiveSession?.effectSeq ?? 0);
-  const effectAckSeqRef = useRef(new Set<number>());
-  const audioQueueRef = useRef(Promise.resolve());
-  const audioTriggeredSeqRef = useRef(new Set<number>());
   const audioDayRef = useRef(0);
   const terminalRef = useRef(false);
   const streamCursorRef = useRef(restoredLiveSession?.streamCursor ?? 0);
@@ -185,6 +155,41 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const gameAudioControls = useGameAudioControls();
   const isReplay = replayGameId !== null;
+  const persistRecentEffects = (nextRecentEffects: RecentSpectatorEffect[]) => {
+    persistLiveSessionSnapshot({ recentEffects: nextRecentEffects });
+  };
+  const {
+    spectatorEffects,
+    recentEffects,
+    effectClockMs,
+    effectSeenAtRef,
+    effectSeqRef,
+    resetForGame: resetSpectatorEffectsForGame,
+    loadReplayEffects,
+    ingestLiveEffects,
+    ingestHistoricalEffects,
+    markFinished: markSpectatorEffectsFinished,
+    handleRenderedSpectatorEffect,
+  } = useSpectatorEffectsRuntime({
+    gameId,
+    isReplay,
+    terminalRef,
+    restored: restoredLiveSession
+      ? {
+          gameId: restoredLiveSession.gameId,
+          effectSeq: restoredLiveSession.effectSeq,
+          recentEffects: restoredLiveSession.recentEffects,
+        }
+      : null,
+    persistRecentEffects,
+    onEffectSeq: (seq) => updateEffectSeq(seq),
+  });
+  const { enqueueAudioTrigger, resetAudioPacing } = useGameAudioPacing({
+    gameId,
+    eventsRef,
+    audioDayRef,
+    terminalRef,
+  });
   const liveSessionSnapshotRef = useRef({
     gameId,
     assignments,
@@ -344,6 +349,38 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     });
   };
 
+  const transitionToStage = (next: GameStage) => {
+    if (bgPhase !== 'idle') {
+      return;
+    }
+
+    pendingStageRef.current = next;
+    setBgPhase('fade-out');
+  };
+
+  const { startGameWithAssignments, startPausedGameWhenReady } = useGameLaunchFlow({
+    assignments,
+    isStartingGame,
+    gameStarted,
+    stage,
+    pendingRunGameIdRef,
+    runStartedGameIdsRef,
+    liveSessionSnapshotRef,
+    streamCursorRef,
+    effectSeqRef,
+    unlockAudio: gameAudioControls.unlock,
+    setPickerSeat,
+    setSeatPresentation,
+    setLaunchState,
+    updateLaunchState,
+    setGameId,
+    transitionToStage,
+    setTestMessage,
+    setTimings,
+    setCurrentPhase,
+    setStreamStatus,
+  });
+
   useEffect(() => {
     gameAudio.preload();
     preloadGameEffectAssets();
@@ -372,30 +409,8 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       ...liveSessionSnapshotRef.current,
       recentEffects: [],
     };
-    const nowMs = Date.now();
-    expireTransientEffectSeenAt(spectatorEffects, effectSeenAtRef.current, nowMs);
-    setEffectClockMs(nowMs);
-    setRecentEffects((current) => {
-      const next = current.length === 0 ? current : [];
-      return next;
-    });
-  }, [finished, gameId, spectatorEffects]);
-
-  useEffect(() => {
-    if (spectatorEffects.length === 0 && recentEffects.length === 0) {
-      return undefined;
-    }
-    const timer = window.setInterval(() => {
-      const nowMs = Date.now();
-      setEffectClockMs(nowMs);
-      setRecentEffects((current) => {
-        const next = pruneRecentSpectatorEffects(current, nowMs);
-        persistLiveSessionSnapshot({ recentEffects: next });
-        return next;
-      });
-    }, 250);
-    return () => window.clearInterval(timer);
-  }, [recentEffects.length, spectatorEffects.length]);
+    markSpectatorEffectsFinished();
+  }, [finished, gameId, markSpectatorEffectsFinished]);
 
   useEffect(() => {
     if (!isReplay || !replayGameId) {
@@ -414,20 +429,15 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         setTimings(summary.timings);
         setEvents(loadedEvents);
         eventsRef.current = loadedEvents;
-        effectSeenAtRef.current = {};
-        const nowMs = Date.now();
-        seedExpiredEffectSeenAt(loadedEffects, effectSeenAtRef.current, nowMs);
         terminalRef.current = isGameFinished(loadedEvents);
-        setEffectClockMs(nowMs);
-        setSpectatorEffects(loadedEffects);
-        setRecentEffects((current) => (current.length === 0 ? current : []));
-        effectSeqRef.current = loadedEffects.reduce(
+        loadReplayEffects(loadedEffects);
+        const loadedEffectSeq = loadedEffects.reduce(
           (max, effect) => Math.max(max, effect.seq),
           0,
         );
         streamCursorRef.current = Math.max(
           loadedEvents[loadedEvents.length - 1]?.seq ?? 0,
-          effectSeqRef.current,
+          loadedEffectSeq,
         );
         setNarrativeRows(
           loadedEvents
@@ -450,7 +460,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     return () => {
       cancelled = true;
     };
-  }, [isReplay, replayGameId]);
+  }, [isReplay, loadReplayEffects, replayGameId]);
 
   useEffect(() => {
     if (isReplay) {
@@ -467,29 +477,8 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     eventsRef.current = [];
     setNarrativeRows([]);
     narrativeSeqRef.current = 0;
-    setSpectatorEffects([]);
-    const restoredRecentEffects = restoredLiveSession?.gameId === gameId
-      ? restoredLiveSession.recentEffects
-      : [];
-    setRecentEffects(restoredRecentEffects);
-    liveSessionSnapshotRef.current = {
-      ...liveSessionSnapshotRef.current,
-      recentEffects: restoredRecentEffects,
-    };
-    effectSeenAtRef.current = {};
-    if (restoredLiveSession?.gameId === gameId) {
-      seedLiveEffectSeenAt(
-        restoredLiveSession.recentEffects.map((item) => item.effect),
-        effectSeenAtRef.current,
-        Date.now(),
-      );
-    }
-    setEffectClockMs(Date.now());
-    effectSeqRef.current = restoredLiveSession?.gameId === gameId
-      ? restoredLiveSession.effectSeq
-      : 0;
-    effectAckSeqRef.current = new Set();
-    audioTriggeredSeqRef.current = new Set();
+    resetSpectatorEffectsForGame(gameId);
+    resetAudioPacing();
     terminalRef.current = false;
     streamCursorRef.current = restoredLiveSession?.gameId === gameId
       ? restoredLiveSession.streamCursor
@@ -530,12 +519,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           audioDayRef.current = Math.max(audioDayRef.current, event.day);
           if (isTerminalGameEvent(event)) {
             terminalRef.current = true;
-            setRecentEffects((current) => {
-              const next = current.length === 0 ? current : [];
-              persistLiveSessionSnapshot({ recentEffects: next });
-              return next;
-            });
-            setEffectClockMs(Date.now());
+            markSpectatorEffectsFinished();
           }
           if (event.type === 'phase_enter') {
             setCurrentPhase(String(event.payload.phase ?? event.phase));
@@ -557,15 +541,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
             appendNarrativeRow(setNarrativeRows, row);
           }
-          enqueueAudioTrigger(
-            audioQueueRef,
-            gameId,
-            event,
-            eventsRef,
-            audioDayRef,
-            audioTriggeredSeqRef,
-            terminalRef,
-          );
+          enqueueAudioTrigger(event);
         },
         () => {
           source?.close();
@@ -584,14 +560,11 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             setTimings(summary.timings);
             if (summary.status === 'finished') {
               terminalRef.current = true;
-              setRecentEffects((current) => {
-                const next = current.length === 0 ? current : [];
-                return next;
-              });
               liveSessionSnapshotRef.current = {
                 ...liveSessionSnapshotRef.current,
                 recentEffects: [],
               };
+              markSpectatorEffectsFinished();
               clearLiveGameSession(gameId);
             }
             if (summary.status === 'failed') {
@@ -612,20 +585,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
               if (closed) {
                 return;
               }
-              const nowMs = Date.now();
-              ingestHistoricalSpectatorEffects(
-                setSpectatorEffects,
-                effects,
-                effectSeenAtRef.current,
-                nowMs,
-                terminalRef.current,
-              );
-              effects.forEach((effect) => {
-                updateEffectSeq(effect.seq);
-              });
-              if (effects.length > 0) {
-                setEffectClockMs(nowMs);
-              }
+              ingestHistoricalEffects(effects, terminalRef.current);
             })
             .catch(() => undefined);
           if (closed) {
@@ -667,20 +627,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             pendingStreamCursorSeqRef.current,
             effect.seq,
           );
-          const nowMs = Date.now();
-          ingestLiveSpectatorEffects(
-            setSpectatorEffects,
-            setRecentEffects,
-            [effect],
-            effectSeenAtRef.current,
-            nowMs,
-            terminalRef.current,
-            (nextRecentEffects) => {
-              persistLiveSessionSnapshot({ recentEffects: nextRecentEffects });
-            },
-          );
-          setEffectClockMs(nowMs);
-          updateEffectSeq(effect.seq);
+          ingestLiveEffects([effect]);
         },
         lastSeq,
       );
@@ -694,7 +641,16 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         window.clearTimeout(reconnectTimer);
       }
     };
-  }, [gameId, isReplay]);
+  }, [
+    enqueueAudioTrigger,
+    gameId,
+    ingestHistoricalEffects,
+    ingestLiveEffects,
+    isReplay,
+    markSpectatorEffectsFinished,
+    resetAudioPacing,
+    resetSpectatorEffectsForGame,
+  ]);
 
   useEffect(() => {
     if (!gameId || isReplay) {
@@ -827,15 +783,6 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     setTestResults({});
     setTestMessage(null);
     setAllowStartWithWarnings(false);
-  };
-
-  const transitionToStage = (next: GameStage) => {
-    if (bgPhase !== 'idle') {
-      return;
-    }
-
-    pendingStageRef.current = next;
-    setBgPhase('fade-out');
   };
 
   const handleStageOverlayTransitionEnd = () => {
@@ -979,96 +926,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       setTestMessage('模型测试存在失败；再次点击“仍然开局”将继续，后端 fallback 会兜底');
       return;
     }
-    setPickerSeat(null);
-    updateLaunchState('creating');
-    setTestMessage('正在创建对局并接入模型');
-    try {
-      void gameAudioControls.unlock();
-      const agents = buildAgentSpecs(assignments);
-      const presentation = buildSeatPresentation(assignments);
-      setSeatPresentation(presentation);
-      liveSessionSnapshotRef.current = {
-        gameId: null,
-        assignments,
-        seatPresentation: presentation,
-        launchState: 'creating',
-        streamCursor: 0,
-        effectSeq: 0,
-        recentEffects: [],
-      };
-      const created = await createGame({
-        agents,
-        pacing: 'live',
-        startPaused: true,
-        seatPresentation: presentation,
-      });
-      streamCursorRef.current = 0;
-      effectSeqRef.current = 0;
-      pendingRunGameIdRef.current = created.game_id;
-      const createdSnapshot = {
-        gameId: created.game_id,
-        assignments,
-        seatPresentation: presentation,
-        launchState: 'connecting_stream' as const,
-        streamCursor: 0,
-        effectSeq: 0,
-        recentEffects: [],
-      };
-      liveSessionSnapshotRef.current = createdSnapshot;
-      writeLiveGameSession(createdSnapshot);
-      setLaunchState('connecting_stream');
-      setGameId(created.game_id);
-      transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
-    } catch (caught) {
-      updateLaunchState('failed');
-      setTestMessage(caught instanceof Error ? caught.message : '创建游戏失败');
-    }
-  };
-
-  const handleRenderedSpectatorEffect = (effect: SpectatorEffect) => {
-    if (!gameId || isReplay || terminalRef.current || effect.kind === 'death_reveal') {
-      return;
-    }
-    if (effectAckSeqRef.current.has(effect.seq)) {
-      return;
-    }
-    effectAckSeqRef.current.add(effect.seq);
-    updateEffectSeq(effect.seq);
-    void sendAck(gameId, effect.phase, spectatorEffectAckEvent(effect.seq)).catch(
-      () => undefined,
-    );
-  };
-
-  const startPausedGameWhenReady = async (id: string) => {
-    if (pendingRunGameIdRef.current !== id || runStartedGameIdsRef.current.has(id)) {
-      return;
-    }
-    const seatsMounted = document.querySelector('.game-seats') !== null;
-    const effectsLayerMounted = document.querySelector('.game-effects-layer') !== null;
-    if (!seatsMounted || !effectsLayerMounted) {
-      window.setTimeout(() => {
-        void startPausedGameWhenReady(id);
-      }, 50);
-      return;
-    }
-    runStartedGameIdsRef.current.add(id);
-    try {
-      const summary = await runGame(id);
-      pendingRunGameIdRef.current = null;
-      setTimings(summary.timings);
-      setCurrentPhase(summary.phase);
-      if (summary.status === 'failed') {
-        updateLaunchState('failed');
-        setStreamStatus('failed');
-      } else {
-        updateLaunchState((current) => launchStateAfterPhase(current, summary.phase));
-      }
-    } catch (error) {
-      runStartedGameIdsRef.current.delete(id);
-      updateLaunchState('failed');
-      setStreamStatus('error');
-      setTestMessage(error instanceof Error ? error.message : '启动游戏失败');
-    }
+    await startGameWithAssignments();
   };
 
   const handleConfirmExit = () => {
@@ -1283,75 +1141,8 @@ function appendNarrativeRow(
   });
 }
 
-function ingestLiveSpectatorEffects(
-  setEffects: Dispatch<SetStateAction<SpectatorEffect[]>>,
-  setRecentEffects: Dispatch<SetStateAction<RecentSpectatorEffect[]>>,
-  effects: SpectatorEffect[],
-  seenAtByKey: EffectSeenAtMap,
-  nowMs: number,
-  terminal: boolean,
-  onRecentEffectsChange?: (effects: RecentSpectatorEffect[]) => void,
-  live = true,
-) {
-  if (effects.length === 0) {
-    return;
-  }
-  logSpectatorEffectsReceived(effects);
-  if (terminal || !live) {
-    expireTransientEffectSeenAt(effects, seenAtByKey, nowMs);
-    setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
-    setRecentEffects((prev) => {
-      const next = prev.length === 0 ? prev : [];
-      onRecentEffectsChange?.(next);
-      return next;
-    });
-    return;
-  }
-  seedLiveEffectSeenAt(effects, seenAtByKey, nowMs);
-  setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
-  setRecentEffects((prev) => {
-    const next = appendRecentSpectatorEffects(prev, effects, nowMs);
-    onRecentEffectsChange?.(next);
-    return next;
-  });
-}
-
-function ingestHistoricalSpectatorEffects(
-  setEffects: Dispatch<SetStateAction<SpectatorEffect[]>>,
-  effects: SpectatorEffect[],
-  seenAtByKey: EffectSeenAtMap,
-  nowMs: number,
-  terminal: boolean,
-) {
-  if (effects.length === 0) {
-    return;
-  }
-  if (terminal) {
-    expireTransientEffectSeenAt(effects, seenAtByKey, nowMs);
-  } else {
-    seedExpiredEffectSeenAt(effects, seenAtByKey, nowMs);
-  }
-  setEffects((prev) => appendUniqueSpectatorEffects(prev, effects));
-}
-
 function isTerminalGameEvent(event: GameEvent) {
   return event.type === 'game_end' || event.type === 'role_reveal';
-}
-
-function logSpectatorEffectsReceived(effects: SpectatorEffect[]) {
-  if (!import.meta.env.DEV || import.meta.env.MODE === 'test') {
-    return;
-  }
-  for (const effect of effects) {
-    if (effect.kind === 'death_reveal') {
-      continue;
-    }
-    console.info('[spectator_effect received]', {
-      kind: effect.kind,
-      seq: effect.seq,
-      target: effect.target_seat,
-    });
-  }
 }
 
 function deriveSeatRoles(events: GameEvent[]): Partial<Record<number, SeatRole>> {
@@ -1400,178 +1191,4 @@ function isSeatRole(value: unknown): value is SeatRole {
     value === 'witch' ||
     value === 'guard'
   );
-}
-
-function enqueueAudioTrigger(
-  queueRef: { current: Promise<void> },
-  gameId: string,
-  event: GameEvent,
-  eventsRef: { current: GameEvent[] },
-  audioDayRef: { current: number },
-  triggeredSeqRef: { current: Set<number> },
-  terminalRef: { current: boolean },
-) {
-  if (triggeredSeqRef.current.has(event.seq)) {
-    return;
-  }
-
-  const plan = phaseAudioPlan(event, eventsRef.current);
-  if (plan) {
-    triggeredSeqRef.current.add(event.seq);
-    const cursor = audioCursorFromEvent(event);
-    queueRef.current = queueRef.current
-      .catch(() => undefined)
-      .then(() =>
-        playSequenceThenAck(
-          gameId,
-          plan,
-          cursor,
-          audioDayRef,
-          terminalRef,
-        ),
-      );
-    return;
-  }
-
-  const dayPlan = dayAnnounceAudioPlan(event);
-  if (dayPlan) {
-    triggeredSeqRef.current.add(event.seq);
-    const cursor = audioCursorFromEvent(event);
-    queueRef.current = queueRef.current
-      .catch(() => undefined)
-      .then(() =>
-        playDayAnnounceSequence(
-          dayPlan,
-          cursor,
-          audioDayRef,
-          terminalRef,
-        ),
-      );
-    return;
-  }
-
-  const hostPlan = hostAudioPlan(event);
-  if (hostPlan) {
-    triggeredSeqRef.current.add(event.seq);
-    const cursor = audioCursorFromEvent(event);
-    queueRef.current = queueRef.current
-      .catch(() => undefined)
-      .then(() => playHostAudioSequence(hostPlan, cursor, audioDayRef, terminalRef));
-  }
-}
-
-async function playSequenceThenAck(
-  gameId: string,
-  plan: GamePhaseAudioPlan,
-  cursor: AudioQueueCursor,
-  audioDayRef: { current: number },
-  terminalRef: { current: boolean },
-) {
-  try {
-    if (shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
-      await withTimeout(
-        gameAudio.playSequence(plan.sequence, plan.gapMs),
-        AUDIO_ACK_TIMEOUT_MS,
-        plan.sequence,
-      );
-    }
-  } catch {
-    // Audio playback is best-effort; pacing must keep moving even if autoplay hangs.
-  }
-  if (plan.settleMs > 0) {
-    await delay(plan.settleMs);
-  }
-  await sendAck(gameId, plan.phase, plan.ackEvent).catch(() => undefined);
-}
-
-async function playDayAnnounceSequence(
-  plan: DayAnnounceAudioPlan,
-  cursor: AudioQueueCursor,
-  audioDayRef: { current: number },
-  terminalRef: { current: boolean },
-) {
-  if (!shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
-    return;
-  }
-  try {
-    await withTimeout(
-      gameAudio.playSequence(plan.sequence, plan.gapMs),
-      AUDIO_ACK_TIMEOUT_MS,
-      plan.sequence,
-    );
-  } catch {
-    // Result voice is UI-only; stale or blocked audio should never block the game.
-  }
-}
-
-async function playHostAudioSequence(
-  plan: HostAudioPlan,
-  cursor: AudioQueueCursor,
-  audioDayRef: { current: number },
-  terminalRef: { current: boolean },
-) {
-  if (!shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
-    return;
-  }
-  try {
-    await withTimeout(
-      gameAudio.playSequence(plan.sequence, plan.gapMs),
-      AUDIO_ACK_TIMEOUT_MS,
-      plan.sequence,
-    );
-  } catch {
-    // Host voice is UI-only; stale or blocked audio should never block the game.
-  }
-}
-
-type AudioQueueCursor = {
-  day: number;
-  seq: number;
-};
-
-function audioCursorFromEvent(event: GameEvent): AudioQueueCursor {
-  return {
-    day: event.day,
-    seq: event.seq,
-  };
-}
-
-function shouldPlayAudio(
-  cursor: AudioQueueCursor,
-  audioDayRef: { current: number },
-  terminalRef: { current: boolean },
-) {
-  return !terminalRef.current && cursor.day >= audioDayRef.current;
-}
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  stopKeys: GameAudioKey[] = [],
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      if (stopKeys.length > 0) {
-        gameAudio.stopKeys(stopKeys);
-      }
-      reject(new Error('audio_timeout'));
-    }, timeoutMs);
-    promise.then(
-      (value) => {
-        window.clearTimeout(timeout);
-        resolve(value);
-      },
-      (error: unknown) => {
-        window.clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
-}
-
-function delay(ms: number): Promise<void> {
-  if (ms <= 0) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

@@ -522,11 +522,11 @@ def _apply_collected_wolf_votes(
         raise RuntimeError("wolf vote collection produced non-wolf action")
     rejection = validate_wolf_vote_batch(state, wolf_votes, config.rule_set)
     if rejection is not None:
-        support_events = []
+        rejection_events: list[Event] = []
         for seat, _, events in collected:
-            support_events.extend(events)
-            support_events.append(_invalid_action_event(state, seat, rejection))
-        event_log.append_all(support_events)
+            rejection_events.extend(events)
+            rejection_events.append(_invalid_action_event(state, seat, rejection))
+        event_log.append_all(rejection_events)
         fallback_collected = tuple(
             _fallback_wolf_vote_after_batch_rejection(
                 state,
@@ -549,8 +549,8 @@ def _apply_collected_wolf_votes(
         )
     for _, action, support_events in collected:
         event_log.append_all(support_events)
-        state, events = apply_action(state, action, config, rng)
-        event_log.append_all(events)
+        state, applied_events = apply_action(state, action, config, rng)
+        event_log.append_all(applied_events)
         _sync_runtime(state, state_sink, control_hook)
     return state
 

@@ -4,6 +4,7 @@ import importlib
 import json
 import os
 import threading
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -170,7 +171,9 @@ def _provider_response_from_stream(chunks: Any, *, model: str) -> ProviderRespon
                 completion_tokens,
                 int(usage_raw.get("completion_tokens") or 0),
             )
-        choices = _get_response_value(chunk, "choices") or []
+        choices = _get_response_value(chunk, "choices")
+        if not isinstance(choices, Sequence) or isinstance(choices, (str, bytes)):
+            continue
         if not choices:
             continue
         choice = choices[0]
