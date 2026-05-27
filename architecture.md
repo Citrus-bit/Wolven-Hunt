@@ -271,7 +271,7 @@ Referee 是唯一权限边界。核心规则和 Agent 不得自行拼接越权�
 
 错误子类映射到外显事件：`timeout` / `rate_limit` / `network` 归为 `agent_timeout`；`invalid_json` / `schema_violation` / `illegal_action` 归为 `agent_invalid_action`。
 
-每阶段每 Agent 最多重试 `fallback.max_retries` 次，默认 4 次；若 RuleSet 配置 `fallback.phase_max_retries[phase]`，该阶段使用覆盖值。当前默认配置不再设置阶段级重试覆盖，确保正式对局 LLM 失败后按统一节奏重测。运行时必须优先使用 RuleSet 中的 retry 配置，环境变量只能作为 provider/default 配置来源，不能覆盖已加载 RuleSet 的阶段重试契约。重试 prompt 末尾追加：`上一次输出未被接受：{error_type}: {message}。请只返回符合 schema 的 JSON。` 失败后若仍有重试预算，按 RuleSet 中的固定退避序列 `retry_backoff_delays_seconds` 等待；当前默认序列为 `[1, 3, 5, 10]`，其中首次失败后的 `attempt=0` 使用 1 秒。超过序列长度的额外重试复用最后一个延迟。旧的指数退避字段仅作为旧配置兼容输入，不得覆盖显式固定序列。当前默认 `retry_backoff_jitter: false`，不得引入未记录或不可复现的随机 jitter。通过 schema 但被 Referee 行动校验或文本事实一致性 hook 拒绝时，记录 `agent_invalid_action`，按同一阶段重试预算要求 Agent 重选/重写；重试仍失败则触发 fallback，并记录 `agent_fallback_triggered`。
+每阶段每 Agent 最多重试 `fallback.max_retries` 次，默认 2 次；若 RuleSet 配置 `fallback.phase_max_retries[phase]`，该阶段使用覆盖值。当前默认配置不再设置阶段级重试覆盖，确保正式对局 LLM 失败后按统一节奏重测。运行时必须优先使用 RuleSet 中的 retry 配置，环境变量只能作为 provider/default 配置来源，不能覆盖已加载 RuleSet 的阶段重试契约。重试 prompt 末尾追加：`上一次输出未被接受：{error_type}: {message}。请只返回符合 schema 的 JSON。` 失败后若仍有重试预算，按 RuleSet 中的固定退避序列 `retry_backoff_delays_seconds` 等待；当前默认序列为 `[1, 2]`，其中首次失败后的 `attempt=0` 使用 1 秒。超过序列长度的额外重试复用最后一个延迟。旧的指数退避字段仅作为旧配置兼容输入，不得覆盖显式固定序列。当前默认 `retry_backoff_jitter: false`，不得引入未记录或不可复现的随机 jitter。通过 schema 但被 Referee 行动校验或文本事实一致性 hook 拒绝时，记录 `agent_invalid_action`，按同一阶段重试预算要求 Agent 重选/重写；重试仍失败则触发 fallback，并记录 `agent_fallback_triggered`。
 
 默认 fallback：
 
@@ -287,7 +287,7 @@ Referee 是唯一权限边界。核心规则和 Agent 不得自行拼接越权�
 | `DAY_VOTE_PK` | 台下玩家随机投一个 PK 台上存活玩家；如无台下玩家可投，直接平安日 |
 | `DAY_LAST_WORDS` | 默认模板 `我没有遗言` |
 
-所有 fallback 行为写入 RuleSet。所有 fallback 随机使用 deterministic RNG，并记录候选集、选中值与 fallback 原因。`contextual_public_speech` 只能读取当前 seat 的 PlayerView、公开/本人可见事件与 rule summary；不得读取 raw response、provider 配置、spectator-only 投影或任何未授权私有事件。默认固定退避配置为：`retry_backoff_delays_seconds: [1, 3, 5, 10]`、`retry_backoff_jitter: false`。默认阶段覆盖为：`DAY_SPEECH` 使用 25 秒超时；`NIGHT_WOLF_CHAT` 使用 15 秒超时；`NIGHT_WOLF_VOTE`、`DAY_VOTE` 与 `DAY_VOTE_PK` 使用 8 秒超时；所有阶段默认沿用 `fallback.max_retries: 4`。
+所有 fallback 行为写入 RuleSet。所有 fallback 随机使用 deterministic RNG，并记录候选集、选中值与 fallback 原因。`contextual_public_speech` 只能读取当前 seat 的 PlayerView、公开/本人可见事件与 rule summary；不得读取 raw response、provider 配置、spectator-only 投影或任何未授权私有事件。默认固定退避配置为：`retry_backoff_delays_seconds: [1, 2]`、`retry_backoff_jitter: false`。默认阶段超时覆盖为：`DAY_SPEECH` 使用 18 秒超时；`NIGHT_WOLF_CHAT` 使用 10 秒超时；`NIGHT_WOLF_VOTE`、`DAY_VOTE` 与 `DAY_VOTE_PK` 使用 6 秒超时；`NIGHT_GUARD`、`NIGHT_WITCH` 与 `NIGHT_SEER` 使用 10 秒超时；所有阶段默认沿用 `fallback.max_retries: 2`。默认观赛 pacing 倒计时与 LLM 单次超时分离：`DAY_SPEECH` 60 秒，`NIGHT_WOLF_CHAT` 90 秒，`NIGHT_WOLF_VOTE` / `DAY_VOTE` / `DAY_VOTE_PK` 30 秒，`NIGHT_GUARD` / `NIGHT_WITCH` / `NIGHT_SEER` 20 秒；ack 仍只控制现场观赛节奏，不写入 EventLog，不影响 replay hash。
 
 ## 12. Replay
 

@@ -49,11 +49,11 @@ describe('modelConfigs', () => {
     );
   });
 
-  it('uses gemini-3-flash-preview for the Gemini model slot', () => {
+  it('uses gemini-3.5-flash for the Gemini model slot', () => {
     const slot = MODEL_SLOTS.find((candidate) => candidate.nickname === 'Gemini');
     expect(slot).toBeDefined();
     expect(MODEL_CONFIG_DEFAULTS[slot?.slot ?? -1]?.modelName).toBe(
-      'gemini-3-flash-preview',
+      'gemini-3.5-flash',
     );
   });
 });

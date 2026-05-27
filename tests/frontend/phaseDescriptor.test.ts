@@ -39,25 +39,25 @@ describe('phaseDescriptor', () => {
   it('maps configured phase durations', () => {
     const timings = {
       night_start_ms: 1000,
-      night_guard_ms: 60000,
-      night_wolf_chat_ms: 15000,
-      night_wolf_vote_ms: 8000,
-      night_witch_ms: 60000,
-      night_seer_ms: 60000,
+      night_guard_ms: 20000,
+      night_wolf_chat_ms: 90000,
+      night_wolf_vote_ms: 30000,
+      night_witch_ms: 20000,
+      night_seer_ms: 20000,
       day_announce_ms: 1000,
       day_last_words_ms: 60000,
-      day_speech_ms: 25000,
-      day_vote_ms: 8000,
-      day_vote_pk_ms: 8000,
+      day_speech_ms: 60000,
+      day_vote_ms: 30000,
+      day_vote_pk_ms: 30000,
     };
 
-    expect(phaseDurationMs('NIGHT_GUARD', timings)).toBe(60000);
-    expect(phaseDurationMs('NIGHT_WOLF_CHAT', timings)).toBe(15000);
-    expect(phaseDurationMs('NIGHT_WOLF_VOTE', timings)).toBe(8000);
-    expect(phaseDurationMs('NIGHT_WITCH', timings)).toBe(60000);
-    expect(phaseDurationMs('DAY_SPEECH', timings)).toBe(25000);
-    expect(phaseDurationMs('DAY_VOTE', timings)).toBe(8000);
-    expect(phaseDurationMs('DAY_VOTE_PK', timings)).toBe(8000);
+    expect(phaseDurationMs('NIGHT_GUARD', timings)).toBe(20000);
+    expect(phaseDurationMs('NIGHT_WOLF_CHAT', timings)).toBe(90000);
+    expect(phaseDurationMs('NIGHT_WOLF_VOTE', timings)).toBe(30000);
+    expect(phaseDurationMs('NIGHT_WITCH', timings)).toBe(20000);
+    expect(phaseDurationMs('DAY_SPEECH', timings)).toBe(60000);
+    expect(phaseDurationMs('DAY_VOTE', timings)).toBe(30000);
+    expect(phaseDurationMs('DAY_VOTE_PK', timings)).toBe(30000);
     expect(phaseDurationMs('GAME_END', timings)).toBe(0);
   });
 

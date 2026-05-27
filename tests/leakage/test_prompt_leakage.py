@@ -67,7 +67,7 @@ MODEL_NAMES_AND_NICKNAMES = {
     "glm-4-flash",
     "doubao-seed-2.0-pro",
     "deepseek-v4-flash",
-    "gemini-3-flash-preview",
+    "gemini-3.5-flash",
     "claude-sonnet-4-6",
     "gpt-5.4",
     "minimax老师",
