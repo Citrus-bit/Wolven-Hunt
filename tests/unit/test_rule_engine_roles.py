@@ -23,7 +23,7 @@ from wolven_hunt.core.rule_engine import (
 )
 from wolven_hunt.core.seat import Role, Seat
 from wolven_hunt.core.state import GameState
-from wolven_hunt.referee.validate import validate_action
+from wolven_hunt.referee.validate import validate_action, validate_wolf_vote_batch
 
 
 def _seat_by_role(state: GameState, role: Role) -> Seat:
@@ -101,6 +101,53 @@ def test_wolf_cannot_kill_teammate(game_config: GameConfig, initial_state: GameS
     )
     assert rejection is not None
     assert rejection.rule_id == "wolf.target_teammate"
+
+
+def test_wolf_teammates_can_follow_declared_self_kill(
+    game_config: GameConfig, initial_state: GameState
+) -> None:
+    wolves = initial_state.wolf_seats(alive_only=True)
+    self_killer = wolves[0]
+    actions = tuple(WolfKillVote(actor=wolf, target=self_killer) for wolf in wolves)
+
+    rejection = validate_wolf_vote_batch(
+        initial_state.with_phase("NIGHT_WOLF_VOTE"), actions, game_config.rule_set
+    )
+
+    assert rejection is None
+
+
+def test_wolf_cannot_unilaterally_kill_teammate_in_batch(
+    game_config: GameConfig, initial_state: GameState
+) -> None:
+    wolves = initial_state.wolf_seats(alive_only=True)
+    target = wolves[0]
+    non_wolf = next(player.seat for player in initial_state.players if player.role is not Role.WOLF)
+    actions = (
+        WolfKillVote(actor=target, target=non_wolf),
+        *(WolfKillVote(actor=wolf, target=target) for wolf in wolves[1:]),
+    )
+
+    rejection = validate_wolf_vote_batch(
+        initial_state.with_phase("NIGHT_WOLF_VOTE"), actions, game_config.rule_set
+    )
+
+    assert rejection is not None
+    assert rejection.rule_id == "wolf.target_teammate"
+
+
+def test_wolf_self_kill_follow_votes_decide_self_kill(
+    game_config: GameConfig, initial_state: GameState
+) -> None:
+    wolves = initial_state.wolf_seats(alive_only=True)
+    target = wolves[0]
+    state = initial_state.with_phase("NIGHT_WOLF_VOTE")
+    rng = DeterministicRNG("wolf-self-kill-follow")
+
+    for wolf in wolves:
+        state, _ = apply_action(state, WolfKillVote(actor=wolf, target=target), game_config, rng)
+
+    assert state.night_wolf_target == target
 
 
 def test_wolf_self_kill_resolves_as_night_death(

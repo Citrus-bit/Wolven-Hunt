@@ -30,6 +30,7 @@ wolves:
   can_no_kill: false
   can_kill_self: true
   can_kill_wolf_teammate: false
+  can_follow_teammate_self_kill: true
 witch:
   antidote_uses_per_game: 1
   poison_uses_per_game: 1

@@ -16,7 +16,14 @@ export type DayAnnounceAudioPlan = {
   gapMs: number;
 };
 
+export type HostAudioPlan = {
+  sequence: GameAudioKey[];
+  gapMs: number;
+};
+
 type GodRole = 'guard' | 'witch' | 'seer';
+
+const HOST_AUDIO_GAP_MS = 350;
 
 const GOD_AUDIO_PHASES: Record<string, GodRole> = {
   NIGHT_GUARD: 'guard',
@@ -104,6 +111,30 @@ export function dayAnnounceAudioPlan(
   };
 }
 
+export function hostAudioPlan(event: GameEvent): HostAudioPlan | null {
+  if (event.type === 'phase_enter') {
+    const phase = String(event.payload.phase ?? event.phase);
+    if (phase === 'DAY_VOTE' || phase === 'DAY_VOTE_PK') {
+      return { sequence: ['day_vote_start'], gapMs: HOST_AUDIO_GAP_MS };
+    }
+    if (phase === 'DAY_LAST_WORDS') {
+      return { sequence: ['day_last_words_start'], gapMs: HOST_AUDIO_GAP_MS };
+    }
+    return null;
+  }
+
+  if (
+    event.type === 'speech' &&
+    event.phase === 'DAY_SPEECH' &&
+    typeof event.actor === 'number'
+  ) {
+    const key = speechSeatAudioKey(event.actor);
+    return key === null ? null : { sequence: [key], gapMs: HOST_AUDIO_GAP_MS };
+  }
+
+  return null;
+}
+
 export function deadGodSettleMs(phase: string, events: GameEvent[]) {
   const role = GOD_AUDIO_PHASES[phase];
   if (!role) {
@@ -149,4 +180,11 @@ function eliminatedSeats(events: GameEvent[]) {
     }
   }
   return seats;
+}
+
+function speechSeatAudioKey(seat: number): GameAudioKey | null {
+  if (!Number.isInteger(seat) || seat < 1 || seat > 10) {
+    return null;
+  }
+  return `speech_seat_${seat}` as GameAudioKey;
 }

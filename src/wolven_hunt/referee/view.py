@@ -47,6 +47,7 @@ def build_view(
         "vote_sheriff": rule_set.vote.sheriff,
         "wolf_can_kill_self": rule_set.wolves.can_kill_self,
         "wolf_can_kill_teammate": rule_set.wolves.can_kill_wolf_teammate,
+        "wolf_can_follow_teammate_self_kill": rule_set.wolves.can_follow_teammate_self_kill,
         "wolf_can_no_kill": rule_set.wolves.can_no_kill,
     }
     if player is not None and player.role is Role.GUARD and state.phase == "NIGHT_GUARD":

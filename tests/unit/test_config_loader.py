@@ -15,6 +15,7 @@ def test_loads_classic_10_config() -> None:
     assert config.rule_set.vote.can_abstain is True
     assert config.rule_set.wolves.can_kill_self is True
     assert config.rule_set.wolves.can_kill_wolf_teammate is False
+    assert config.rule_set.wolves.can_follow_teammate_self_kill is True
     assert config.rule_set.wolves.can_no_kill is False
     assert config.rule_set.name == "majority_or_side_elimination"
     assert "alive_villagers_eq_0" in config.rule_set.win_conditions.wolf_wins_when

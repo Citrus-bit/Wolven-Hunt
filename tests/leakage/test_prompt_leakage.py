@@ -157,6 +157,7 @@ def test_prompt_payload_uses_only_referee_filtered_view(
     assert payload["rule_set_summary"]["can_abstain"] is True
     assert payload["rule_set_summary"]["wolf_can_kill_self"] is True
     assert payload["rule_set_summary"]["wolf_can_kill_teammate"] is False
+    assert payload["rule_set_summary"]["wolf_can_follow_teammate_self_kill"] is True
     assert payload["rule_set_summary"]["wolf_can_no_kill"] is False
     assert speech_context["current_seat"] == seat.number
     assert "role_assignment" not in visible_events_json
@@ -269,7 +270,9 @@ def test_wolf_night_prompt_declares_self_kill_rule(game_config: GameConfig) -> N
     prompt, _ = _render_prompt(game_config, role=Role.WOLF, phase="NIGHT_WOLF_VOTE")
 
     assert "允许自刀" in prompt
-    assert "不允许刀其他狼人同伴" in prompt
+    assert "如果队友本轮选择自刀" in prompt
+    assert "你可以跟票配合" in prompt
+    assert "不允许单方面刀未自投的狼队友" in prompt
 
 
 @pytest.mark.leakage
@@ -349,6 +352,7 @@ def test_wolf_night_prompt_v5_contains_refined_attack_strategy(
     prompt, _ = _render_prompt(game_config, role=Role.WOLF, phase="NIGHT_WOLF_VOTE")
 
     assert "允许自刀" in prompt
+    assert "狼队应统一跟票该自刀目标" in prompt
     assert "不要机械刀明跳预言家" in prompt
     assert "守卫大概率守预言家" in prompt
     assert "优先换刀女巫、守卫、强民或外置神" in prompt

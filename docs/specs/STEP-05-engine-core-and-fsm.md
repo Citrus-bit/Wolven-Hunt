@@ -518,7 +518,7 @@ class PlayerView:
 `validate_action(state, action, rule_set) -> Ok | Reject(rule_id, message)`，纯函数。覆盖：
 
 - `NIGHT_GUARD`：目标必须是存活玩家；`rule_set.guard.can_guard_self == True` 才允许自守；`rule_set.guard.can_guard_same_target_consecutive_nights == False` 时禁止 `target == state.last_guard_target`。
-- `NIGHT_WOLF_VOTE`：目标必须是存活非狼或狼人自己；允许自刀，不允许刀其他狼队友，不允许 `target=None`（`can_no_kill=False`）。
+- `NIGHT_WOLF_VOTE`：目标必须是存活非狼、狼人自己，或在 `wolves.can_follow_teammate_self_kill: true` 时本轮明确也投自己的狼队友；允许自刀和队友跟票配合自刀，不允许单方面刀未自投的狼队友，不允许 `target=None`（`can_no_kill=False`）。
 - `NIGHT_SEER`：不能查自己（`can_check_self=False`）；可以查死人（`can_check_dead=True`）。
 - `DAY_VOTE`：目标必须是存活玩家；允许投自己（`can_vote_self=True`）；不允许投死人。
 - `DAY_VOTE_PK`：投票者本人必须**不在** `state.pk_seats`；目标必须**在** `state.pk_seats` 且仍存活。
@@ -645,7 +645,7 @@ JSONL，每行一个事件 `model_dump_json()`。 进程退出码 0 表示正常
 | `win` | 配置驱动规则各一组 minimal state（狼严格大于、村民边全灭、神职边全灭、狼全灭）；alive_wolves==alive_good 且神民两边均未全灭时不算狼胜（严格 `>`） |
 | `rule_engine_seer` | 查活人 / 查死人 / 重复查同一人 / 不能查自己 / 死亡后再调直接 reject |
 | `rule_engine_guard` | 自守 / 第一晚可守 / 连守同一目标被 reject / 守目标==狼刀目标 → no_death_tonight |
-| `rule_engine_wolf` | 多数决 / 平票走 wolf_tie_random（候选集 + selected 写入 payload）/ 自刀被接受 / 刀其他狼队友被 reject / 空刀被 reject |
+| `rule_engine_wolf` | 多数决 / 平票走 wolf_tie_random（候选集 + selected 写入 payload）/ 自刀被接受 / 队友跟票配合自刀被接受 / 单方面刀未自投狼队友被 reject / 空刀被 reject |
 | `rule_engine_witch` | 解药救狼刀目标 / 毒药击杀且守卫不挡 / 同夜狼刀+毒药双死 / 双奶死亡 / 同目标狼刀+毒药无遗言 / 第二次用同类药被 reject |
 | `rule_engine_vote` | 投自己合法 / 投死人 reject / 平票进 PK / 单人最高票直接 exile |
 | `rule_engine_pk` | PK 台上玩家不可投 / 台下玩家只能投 PK seats / 二次平票 → peaceful_day |

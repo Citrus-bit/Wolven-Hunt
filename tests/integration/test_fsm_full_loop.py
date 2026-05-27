@@ -7,7 +7,7 @@ from tests.conftest import simulate
 
 from wolven_hunt.agents.deterministic_mock import DeterministicMockAgent
 from wolven_hunt.config.schema import GameConfig
-from wolven_hunt.core.actions import LastWords, PkVote, Speech, Vote, WolfChatMessage
+from wolven_hunt.core.actions import LastWords, PkVote, Speech, Vote, WolfChatMessage, WolfKillVote
 from wolven_hunt.core.events import Event, EventType
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.rule_engine import build_initial_state
@@ -15,6 +15,8 @@ from wolven_hunt.core.seat import Role, Seat
 from wolven_hunt.core.state import GameState
 from wolven_hunt.orchestration.fsm import (
     _apply_and_log,
+    _apply_collected_wolf_votes,
+    _collect_actions_from_snapshot,
     _decide_with_fallback,
     _run_day,
     _run_night,
@@ -215,6 +217,49 @@ def test_night_wolf_chat_collects_and_publishes_in_seat_order(
         (seat_number, agents[seat_number].seen_chat_actors[0])
         for seat_number in sorted(agents)
     ] == expected_seen
+
+
+def test_night_wolf_vote_accepts_teammate_following_self_kill(
+    game_config: GameConfig,
+) -> None:
+    seed = "scripted-wolf-self-kill-follow"
+    state, start_events = build_initial_state(game_config, seed)
+    state = state.with_phase(Phase.NIGHT_WOLF_VOTE.value)
+    event_log = EventLog(seed=seed)
+    event_log.append_all(start_events)
+    wolves = tuple(sorted(state.wolf_seats(alive_only=True), key=lambda seat: seat.number))
+    self_killer = wolves[0]
+    agents = {
+        wolf.number: ScriptedWolfVoteAgent(wolf.number, target=self_killer.number)
+        for wolf in wolves
+    }
+    rng = DeterministicRNG(seed)
+
+    collected = _collect_actions_from_snapshot(
+        state,
+        game_config,
+        agents,
+        event_log.events,
+        wolves,
+        lambda agent, view: agent.decide_wolf_vote(view),
+        rng,
+    )
+    state = _apply_collected_wolf_votes(
+        state,
+        collected,
+        game_config,
+        rng,
+        event_log,
+        state_sink=None,
+        control_hook=None,
+    )
+
+    assert state.night_wolf_target == self_killer
+    assert [
+        event.payload["target"]
+        for event in event_log.events
+        if event.type is EventType.WOLF_KILL_VOTE
+    ] == [self_killer.number] * len(wolves)
 
 
 def test_dead_or_ineligible_gods_keep_audio_phases_without_private_actions(
@@ -481,6 +526,16 @@ class ScriptedWolfChatAgent:
             time.sleep(self.delay_seconds)
         self.seen_chat_actors.append(_visible_wolf_chat_actors(view))
         return WolfChatMessage(actor=self.seat, text=f"{self.seat.number}号狼聊")
+
+
+class ScriptedWolfVoteAgent:
+    def __init__(self, seat: int, *, target: int) -> None:
+        self.seat = Seat(seat)
+        self.target = Seat(target)
+
+    def decide_wolf_vote(self, view: PlayerView) -> WolfKillVote:
+        del view
+        return WolfKillVote(actor=self.seat, target=self.target)
 
 
 class CountingNightAgent:

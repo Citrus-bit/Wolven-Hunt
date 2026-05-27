@@ -65,6 +65,7 @@ class WolfRules(BaseModel):
     can_no_kill: bool
     can_kill_self: bool
     can_kill_wolf_teammate: bool
+    can_follow_teammate_self_kill: bool = True
 
 
 class WitchRules(BaseModel):

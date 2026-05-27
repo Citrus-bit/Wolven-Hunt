@@ -27,6 +27,7 @@ class Reject:
 
 
 ValidationResult: TypeAlias = None | Reject
+WolfKillVoteBatch: TypeAlias = tuple[WolfKillVote, ...]
 
 
 def validate_action(state: GameState, action: Action, rule_set: RuleSet) -> ValidationResult:
@@ -51,6 +52,40 @@ def validate_action(state: GameState, action: Action, rule_set: RuleSet) -> Vali
         return _validate_pk_vote(state, action, rule_set)
     if isinstance(action, LastWords):
         return _validate_text(state, action.actor, action.text, rule_set, expected_role=None)
+
+
+def validate_wolf_vote_batch(
+    state: GameState, actions: WolfKillVoteBatch, rule_set: RuleSet
+) -> ValidationResult:
+    for action in actions:
+        rejection = _validate_wolf_vote_base(state, action, rule_set)
+        if rejection is not None:
+            return rejection
+    if not actions:
+        return None
+    expected_actors = set(state.wolf_seats(alive_only=True))
+    actual_actors = {action.actor for action in actions}
+    if actual_actors != expected_actors:
+        return Reject("wolf.vote_batch", "wolf vote batch must include every alive wolf exactly once")
+    self_kill_targets = {action.actor for action in actions if action.actor == action.target}
+    for action in actions:
+        target = state.player(action.target)
+        if target.role is Role.WOLF and action.actor != action.target:
+            if rule_set.wolves.can_kill_wolf_teammate:
+                continue
+            if rule_set.wolves.can_follow_teammate_self_kill and action.target in self_kill_targets:
+                continue
+            return Reject(
+                "wolf.target_teammate",
+                "wolf teammate can only be targeted when they also self-kill this round",
+            )
+    return None
+
+
+def validate_wolf_vote_candidate(
+    state: GameState, action: WolfKillVote, rule_set: RuleSet
+) -> ValidationResult:
+    return _validate_wolf_vote_base(state, action, rule_set)
 
 
 def _validate_action_seats(state: GameState, action: Action) -> ValidationResult:
@@ -86,6 +121,22 @@ def _validate_guard(state: GameState, action: GuardProtect, rule_set: RuleSet) -
 def _validate_wolf_vote(
     state: GameState, action: WolfKillVote, rule_set: RuleSet
 ) -> ValidationResult:
+    rejection = _validate_wolf_vote_base(state, action, rule_set)
+    if rejection is not None:
+        return rejection
+    target = state.player(action.target)
+    if (
+        action.actor != action.target
+        and target.role is Role.WOLF
+        and not rule_set.wolves.can_kill_wolf_teammate
+    ):
+        return Reject("wolf.target_teammate", "wolf cannot kill wolf teammate")
+    return None
+
+
+def _validate_wolf_vote_base(
+    state: GameState, action: WolfKillVote, rule_set: RuleSet
+) -> ValidationResult:
     actor = state.player(action.actor)
     target = state.player(action.target)
     if actor.role is not Role.WOLF:
@@ -98,8 +149,6 @@ def _validate_wolf_vote(
         if not rule_set.wolves.can_kill_self:
             return Reject("wolf.self", "wolf cannot kill self")
         return None
-    if target.role is Role.WOLF and not rule_set.wolves.can_kill_wolf_teammate:
-        return Reject("wolf.target_teammate", "wolf cannot kill wolf teammate")
     return None
 
 

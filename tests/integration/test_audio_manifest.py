@@ -20,6 +20,18 @@ def test_audio_manifest_contains_copied_game_media() -> None:
         "day_dawn": "天,亮了.mp3",
         "day_death": "昨晚,他死了.mp3",
         "day_peaceful": "昨晚,是平安夜.mp3",
+        "speech_seat_1": "1号玩家请发言.mp3",
+        "speech_seat_2": "2号玩家请发言.mp3",
+        "speech_seat_3": "3号玩家请发言.mp3",
+        "speech_seat_4": "4号玩家请发言.mp3",
+        "speech_seat_5": "5号玩家请发言.mp3",
+        "speech_seat_6": "6号玩家请发言.mp3",
+        "speech_seat_7": "7号玩家请发言.mp3",
+        "speech_seat_8": "8号玩家请发言.mp3",
+        "speech_seat_9": "9号玩家请发言.mp3",
+        "speech_seat_10": "10号玩家请发言.mp3",
+        "day_vote_start": "请开始投票.mp3",
+        "day_last_words_start": "请发表遗言.mp3",
     }
 
     assert set(expected_sources) <= set(manifest)

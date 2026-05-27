@@ -27,9 +27,11 @@ import { type GameAudioKey } from '../../lib/audioAssets';
 import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
 import {
   dayAnnounceAudioPlan,
+  hostAudioPlan,
   phaseAudioPlan,
   type DayAnnounceAudioPlan,
   type GamePhaseAudioPlan,
+  type HostAudioPlan,
 } from '../../lib/gamePhaseAudio';
 import {
   clearLiveGameSession,
@@ -86,7 +88,6 @@ const MIN_TESTING_MS = 800;
 const RECONNECT_DELAYS_MS = [1000, 3000, 5000, 10000] as const;
 const MAX_RECONNECT_ATTEMPTS = RECONNECT_DELAYS_MS.length;
 const AUDIO_ACK_TIMEOUT_MS = 12000;
-const DAY_RESULT_AUDIO_KEYS: GameAudioKey[] = ['day_death', 'day_peaceful'];
 const leftSeats = [0, 1, 2, 3, 4];
 const rightSeats = [5, 6, 7, 8, 9];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
@@ -160,6 +161,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const effectSeqRef = useRef(restoredLiveSession?.effectSeq ?? 0);
   const effectAckSeqRef = useRef(new Set<number>());
   const audioQueueRef = useRef(Promise.resolve());
+  const audioTriggeredSeqRef = useRef(new Set<number>());
   const audioDayRef = useRef(0);
   const terminalRef = useRef(false);
   const streamCursorRef = useRef(restoredLiveSession?.streamCursor ?? 0);
@@ -487,6 +489,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       ? restoredLiveSession.effectSeq
       : 0;
     effectAckSeqRef.current = new Set();
+    audioTriggeredSeqRef.current = new Set();
     terminalRef.current = false;
     streamCursorRef.current = restoredLiveSession?.gameId === gameId
       ? restoredLiveSession.streamCursor
@@ -560,6 +563,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             event,
             eventsRef,
             audioDayRef,
+            audioTriggeredSeqRef,
             terminalRef,
           );
         },
@@ -1404,10 +1408,16 @@ function enqueueAudioTrigger(
   event: GameEvent,
   eventsRef: { current: GameEvent[] },
   audioDayRef: { current: number },
+  triggeredSeqRef: { current: Set<number> },
   terminalRef: { current: boolean },
 ) {
+  if (triggeredSeqRef.current.has(event.seq)) {
+    return;
+  }
+
   const plan = phaseAudioPlan(event, eventsRef.current);
   if (plan) {
+    triggeredSeqRef.current.add(event.seq);
     const cursor = audioCursorFromEvent(event);
     queueRef.current = queueRef.current
       .catch(() => undefined)
@@ -1425,6 +1435,7 @@ function enqueueAudioTrigger(
 
   const dayPlan = dayAnnounceAudioPlan(event);
   if (dayPlan) {
+    triggeredSeqRef.current.add(event.seq);
     const cursor = audioCursorFromEvent(event);
     queueRef.current = queueRef.current
       .catch(() => undefined)
@@ -1436,6 +1447,16 @@ function enqueueAudioTrigger(
           terminalRef,
         ),
       );
+    return;
+  }
+
+  const hostPlan = hostAudioPlan(event);
+  if (hostPlan) {
+    triggeredSeqRef.current.add(event.seq);
+    const cursor = audioCursorFromEvent(event);
+    queueRef.current = queueRef.current
+      .catch(() => undefined)
+      .then(() => playHostAudioSequence(hostPlan, cursor, audioDayRef, terminalRef));
   }
 }
 
@@ -1472,15 +1493,34 @@ async function playDayAnnounceSequence(
   if (!shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
     return;
   }
-  gameAudio.stopKeys(DAY_RESULT_AUDIO_KEYS);
   try {
     await withTimeout(
       gameAudio.playSequence(plan.sequence, plan.gapMs),
       AUDIO_ACK_TIMEOUT_MS,
-      DAY_RESULT_AUDIO_KEYS,
+      plan.sequence,
     );
   } catch {
     // Result voice is UI-only; stale or blocked audio should never block the game.
+  }
+}
+
+async function playHostAudioSequence(
+  plan: HostAudioPlan,
+  cursor: AudioQueueCursor,
+  audioDayRef: { current: number },
+  terminalRef: { current: boolean },
+) {
+  if (!shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
+    return;
+  }
+  try {
+    await withTimeout(
+      gameAudio.playSequence(plan.sequence, plan.gapMs),
+      AUDIO_ACK_TIMEOUT_MS,
+      plan.sequence,
+    );
+  } catch {
+    // Host voice is UI-only; stale or blocked audio should never block the game.
   }
 }
 

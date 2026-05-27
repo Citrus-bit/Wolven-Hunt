@@ -42,6 +42,18 @@ const ALL_GAME_AUDIO: GameAudioKey[] = [
   'day_dawn',
   'day_death',
   'day_peaceful',
+  'speech_seat_1',
+  'speech_seat_2',
+  'speech_seat_3',
+  'speech_seat_4',
+  'speech_seat_5',
+  'speech_seat_6',
+  'speech_seat_7',
+  'speech_seat_8',
+  'speech_seat_9',
+  'speech_seat_10',
+  'day_vote_start',
+  'day_last_words_start',
 ];
 const PLAY_BLOCKED_MESSAGE = '浏览器阻止了游戏语音，请点击右上角声音按钮';
 const listeners = new Set<() => void>();

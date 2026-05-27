@@ -20,6 +20,18 @@ const assets = [
   ['day_dawn', 'audio', '天,亮了.mp3', 'audio/day_dawn.mp3', 1800],
   ['day_death', 'audio', '昨晚,他死了.mp3', 'audio/day_death.mp3', 2500],
   ['day_peaceful', 'audio', '昨晚,是平安夜.mp3', 'audio/day_peaceful.mp3', 2500],
+  ['speech_seat_1', 'audio', '1号玩家请发言.mp3', 'audio/speech_seat_1.mp3', 1800],
+  ['speech_seat_2', 'audio', '2号玩家请发言.mp3', 'audio/speech_seat_2.mp3', 1800],
+  ['speech_seat_3', 'audio', '3号玩家请发言.mp3', 'audio/speech_seat_3.mp3', 1800],
+  ['speech_seat_4', 'audio', '4号玩家请发言.mp3', 'audio/speech_seat_4.mp3', 1800],
+  ['speech_seat_5', 'audio', '5号玩家请发言.mp3', 'audio/speech_seat_5.mp3', 1800],
+  ['speech_seat_6', 'audio', '6号玩家请发言.mp3', 'audio/speech_seat_6.mp3', 1800],
+  ['speech_seat_7', 'audio', '7号玩家请发言.mp3', 'audio/speech_seat_7.mp3', 1800],
+  ['speech_seat_8', 'audio', '8号玩家请发言.mp3', 'audio/speech_seat_8.mp3', 1800],
+  ['speech_seat_9', 'audio', '9号玩家请发言.mp3', 'audio/speech_seat_9.mp3', 1800],
+  ['speech_seat_10', 'audio', '10号玩家请发言.mp3', 'audio/speech_seat_10.mp3', 1800],
+  ['day_vote_start', 'audio', '请开始投票.mp3', 'audio/day_vote_start.mp3', 1800],
+  ['day_last_words_start', 'audio', '请发表遗言.mp3', 'audio/day_last_words_start.mp3', 1800],
 ];
 
 const effectAssets = [

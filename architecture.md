@@ -77,7 +77,7 @@
 - 多数决定刀人目标。
 - 平票时在被狼队投到的目标中 deterministic random 选择，并记录 `wolf_tie_random`。
 - 合法刀人目标是所有存活非狼玩家或狼人自己。
-- 允许自刀，不允许刀其他狼队友，不允许空刀。
+- 合法刀人目标以整轮 `NIGHT_WOLF_VOTE` 为单位校验：狼人可以投任一存活非狼玩家，也可以投自己自刀；`wolves.can_follow_teammate_self_kill: true` 时，若一名狼人本轮也投自己，其他狼人可以跟票该自刀目标。不允许单方面刀未自投的狼队友，不允许空刀。
 - 狼队投刀事件仅狼队可见；狼人夜聊对狼队玩家和 STEP-07 spectator 上帝视角可见。
 
 ### Witch
@@ -279,7 +279,7 @@ Referee 是唯一权限边界。核心规则和 Agent 不得自行拼接越权�
 |---|---|
 | `NIGHT_GUARD` | 随机选一个合法目标，排除昨晚守护对象 |
 | `NIGHT_WOLF_CHAT` | 发送空消息，占位为 `[沉默]` |
-| `NIGHT_WOLF_VOTE` | 随机选一个合法目标 |
+| `NIGHT_WOLF_VOTE` | 随机选一个存活非狼或自己（fallback 不主动创建队友自刀跟票） |
 | `NIGHT_WITCH` | 默认跳过，不消耗药品 |
 | `NIGHT_SEER` | 随机选一个非自己玩家 |
 | `DAY_SPEECH` | 基于 Referee 过滤后 PlayerView 的确定性公开发言模板 `contextual_public_speech` |

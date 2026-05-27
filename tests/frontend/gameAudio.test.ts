@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   GAME_AUDIO_MUTED_KEY,
   GAME_AUDIO_VOLUME_KEY,
@@ -7,8 +7,13 @@ import {
 } from '../../src/lib/gameAudio';
 
 describe('gameAudio', () => {
+  beforeEach(() => {
+    resetGameAudioElements();
+  });
+
   afterEach(() => {
     gameAudio.stopAll();
+    resetGameAudioElements();
     vi.unstubAllGlobals();
   });
 
@@ -81,7 +86,91 @@ describe('gameAudio', () => {
     expect(dawn!.paused).toBe(false);
     expect(dawn!.currentTime).toBe(12);
   });
+
+  it('preloads host speech, vote, and last words voices', () => {
+    const elements: FakeAudioElement[] = [];
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: () => null,
+        setItem: () => undefined,
+      },
+    });
+    vi.stubGlobal(
+      'Audio',
+      class extends FakeAudioElement {
+        constructor(src: string) {
+          super(src);
+          elements.push(this);
+        }
+      },
+    );
+
+    gameAudio.preload();
+
+    expect(elements.some((element) => element.src.includes('speech_seat_1'))).toBe(true);
+    expect(elements.some((element) => element.src.includes('speech_seat_10'))).toBe(true);
+    expect(elements.some((element) => element.src.includes('day_vote_start'))).toBe(true);
+    expect(elements.some((element) =>
+      element.src.includes('day_last_words_start'),
+    )).toBe(true);
+  });
+
+  it('waits for one audio element to end before starting the next sequence item', async () => {
+    const elements: ControllableAudioElement[] = [];
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: () => null,
+        setItem: () => undefined,
+      },
+      setTimeout: () => 1,
+      clearTimeout: () => undefined,
+    });
+    vi.stubGlobal(
+      'Audio',
+      class extends ControllableAudioElement {
+        constructor(src: string) {
+          super(src);
+          elements.push(this);
+        }
+      },
+    );
+
+    const playing = gameAudio.playSequence(
+      ['speech_seat_1', 'day_vote_start'],
+      0,
+    );
+    await Promise.resolve();
+
+    const speech = elements.find((element) =>
+      element.src.includes('speech_seat_1'),
+    );
+
+    expect(speech?.playCalls).toBe(1);
+    expect(elements.some((element) =>
+      element.src.includes('day_vote_start'),
+    )).toBe(false);
+
+    speech?.emit('ended');
+    await flushPromises();
+
+    const vote = elements.find((element) =>
+      element.src.includes('day_vote_start'),
+    );
+    expect(vote?.playCalls).toBe(1);
+
+    vote?.emit('ended');
+    await expect(playing).resolves.toBeUndefined();
+  });
 });
+
+async function flushPromises() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+function resetGameAudioElements() {
+  (gameAudio as unknown as { elements: Map<string, unknown> }).elements.clear();
+}
 
 class FakeAudioElement {
   currentTime = 0;
@@ -106,4 +195,31 @@ class FakeAudioElement {
   addEventListener() {}
 
   removeEventListener() {}
+}
+
+class ControllableAudioElement extends FakeAudioElement {
+  playCalls = 0;
+  private listeners = new Map<string, Set<() => void>>();
+
+  override play() {
+    this.playCalls += 1;
+    this.paused = false;
+    return Promise.resolve();
+  }
+
+  override addEventListener(type: string, listener: () => void) {
+    const listeners = this.listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  override removeEventListener(type: string, listener: () => void) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  emit(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener();
+    }
+  }
 }

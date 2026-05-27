@@ -65,7 +65,7 @@
 
 - 每晚最多 1 轮夜聊（每狼一句），然后**同时**提交刀人目标。`NIGHT_WOLF_CHAT` 必须按存活狼人 seat 升序逐席收集并立即追加 `wolf_chat_message`，后一位狼人通过 Referee 过滤后的狼队视角可看到前序狼聊。`NIGHT_WOLF_VOTE` 可基于同一份夜晚 snapshot 并发收集各狼决策，结算和事件追加仍按 actor seat 升序执行。
 - 多数决定刀人目标；平票时**在被狼队投到的目标中随机**选择，并记录 `wolf_tie_random` 事件。
-- 合法刀人目标 = 所有存活非狼玩家或狼人自己。**允许自刀，不允许刀其他狼队友，不允许空刀**。
+- 合法刀人目标以整轮 `NIGHT_WOLF_VOTE` 为单位校验：狼人可以投任一存活非狼玩家，也可以投自己自刀；`wolves.can_follow_teammate_self_kill: true` 时，若一名狼人本轮也投自己，其他狼人可以跟票该自刀目标。**不允许单方面刀未自投的狼队友，不允许空刀**。
 - 狼队夜聊内容对狼队玩家可见；STEP-07 spectator 上帝视角可在狼人聊天框看到真实发言者和内容。
 
 ### 1.7 女巫
@@ -254,7 +254,7 @@ STEP-07 live 观赛中，`NIGHT_GUARD`、`NIGHT_WITCH`、`NIGHT_SEER` 是公开�
 |---|---|
 | `NIGHT_GUARD` | 随机选一个合法目标（排除昨晚守护对象） |
 | `NIGHT_WOLF_CHAT` | 发送空消息（占位 `[沉默]`） |
-| `NIGHT_WOLF_VOTE` | 随机选一个合法目标 |
+| `NIGHT_WOLF_VOTE` | 随机选一个存活非狼或自己（fallback 不主动创建队友自刀跟票） |
 | `NIGHT_WITCH` | 默认跳过，不消耗药品 |
 | `NIGHT_SEER` | 随机选一个非自己玩家 |
 | `DAY_SPEECH` | 基于 Referee 过滤后 PlayerView 的确定性公开发言模板 `contextual_public_speech` |

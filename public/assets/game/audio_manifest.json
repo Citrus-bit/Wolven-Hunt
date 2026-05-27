@@ -70,5 +70,101 @@
     "duration_ms": 1700,
     "source_sha256": "6ac14d889405be3a9fbf802d330f35c52b3132a4e799dc4b6f136c5204a08519",
     "target_sha256": "6ac14d889405be3a9fbf802d330f35c52b3132a4e799dc4b6f136c5204a08519"
+  },
+  "speech_seat_1": {
+    "key": "speech_seat_1",
+    "kind": "audio",
+    "path": "/assets/game/audio/speech_seat_1.mp3",
+    "duration_ms": 1900,
+    "source_sha256": "4d89700764cd984d82180950083ec26c25dc31d453d852ae32ae795f2bf5d100",
+    "target_sha256": "4d89700764cd984d82180950083ec26c25dc31d453d852ae32ae795f2bf5d100"
+  },
+  "speech_seat_2": {
+    "key": "speech_seat_2",
+    "kind": "audio",
+    "path": "/assets/game/audio/speech_seat_2.mp3",
+    "duration_ms": 2040,
+    "source_sha256": "a905e96bdba036edf6a444db654239b60edf21736ee35c6eb2f6061ff6a3c456",
+    "target_sha256": "a905e96bdba036edf6a444db654239b60edf21736ee35c6eb2f6061ff6a3c456"
+  },
+  "speech_seat_3": {
+    "key": "speech_seat_3",
+    "kind": "audio",
+    "path": "/assets/game/audio/speech_seat_3.mp3",
+    "duration_ms": 1940,
+    "source_sha256": "e40a3c95d1de3beac45ee42549b459315d66c49ad41ab187e5a585744cb0b34f",
+    "target_sha256": "e40a3c95d1de3beac45ee42549b459315d66c49ad41ab187e5a585744cb0b34f"
+  },
+  "speech_seat_4": {
+    "key": "speech_seat_4",
+    "kind": "audio",
+    "path": "/assets/game/audio/speech_seat_4.mp3",
+    "duration_ms": 2040,
+    "source_sha256": "6f20b2c2bcda50bc47ee40c2fde30d140e1ed373438dec09dba3fd2994de5fa8",
+    "target_sha256": "6f20b2c2bcda50bc47ee40c2fde30d140e1ed373438dec09dba3fd2994de5fa8"
+  },
+  "speech_seat_5": {
+    "key": "speech_seat_5",
+    "kind": "audio",
+    "path": "/assets/game/audio/speech_seat_5.mp3",
+    "duration_ms": 1850,
+    "source_sha256": "f20f5412e6689f7fe27120cf534b22d14d5b882b3e0d86ed3cd8e06fd1e3c07b",
+    "target_sha256": "f20f5412e6689f7fe27120cf534b22d14d5b882b3e0d86ed3cd8e06fd1e3c07b"
+  },
+  "speech_seat_6": {
+    "key": "speech_seat_6",
+    "kind": "audio",
+    "path": "/assets/game/audio/speech_seat_6.mp3",
+    "duration_ms": 1850,
+    "source_sha256": "4f406be9f8c7f54ccc7996548cb076d6b5495ea0c76f15f235b122eec7146e73",
+    "target_sha256": "4f406be9f8c7f54ccc7996548cb076d6b5495ea0c76f15f235b122eec7146e73"
+  },
+  "speech_seat_7": {
+    "key": "speech_seat_7",
+    "kind": "audio",
+    "path": "/assets/game/audio/speech_seat_7.mp3",
+    "duration_ms": 2040,
+    "source_sha256": "a85bf541b6b02006725969b658e79a437bb722f0347afca13238d1bded602180",
+    "target_sha256": "a85bf541b6b02006725969b658e79a437bb722f0347afca13238d1bded602180"
+  },
+  "speech_seat_8": {
+    "key": "speech_seat_8",
+    "kind": "audio",
+    "path": "/assets/game/audio/speech_seat_8.mp3",
+    "duration_ms": 1940,
+    "source_sha256": "e08d3af259c41984352577d329ea5a71eef63b9db2e3427cf9bb06d8466dc8d9",
+    "target_sha256": "e08d3af259c41984352577d329ea5a71eef63b9db2e3427cf9bb06d8466dc8d9"
+  },
+  "speech_seat_9": {
+    "key": "speech_seat_9",
+    "kind": "audio",
+    "path": "/assets/game/audio/speech_seat_9.mp3",
+    "duration_ms": 2040,
+    "source_sha256": "20831fce4e6afc06e7a39f8c6375dcd226c1c913c2597037604779b19b8c3b49",
+    "target_sha256": "20831fce4e6afc06e7a39f8c6375dcd226c1c913c2597037604779b19b8c3b49"
+  },
+  "speech_seat_10": {
+    "key": "speech_seat_10",
+    "kind": "audio",
+    "path": "/assets/game/audio/speech_seat_10.mp3",
+    "duration_ms": 2090,
+    "source_sha256": "74d20609e1c7617900287e3984d27ced931a9f57d6d0c10b5241289157559a76",
+    "target_sha256": "74d20609e1c7617900287e3984d27ced931a9f57d6d0c10b5241289157559a76"
+  },
+  "day_vote_start": {
+    "key": "day_vote_start",
+    "kind": "audio",
+    "path": "/assets/game/audio/day_vote_start.mp3",
+    "duration_ms": 1300,
+    "source_sha256": "b3f708062be9b9fe996adc08e197de92a8b54524b816e3a9a3e0a9060511bc8c",
+    "target_sha256": "b3f708062be9b9fe996adc08e197de92a8b54524b816e3a9a3e0a9060511bc8c"
+  },
+  "day_last_words_start": {
+    "key": "day_last_words_start",
+    "kind": "audio",
+    "path": "/assets/game/audio/day_last_words_start.mp3",
+    "duration_ms": 1460,
+    "source_sha256": "cf0b2d69001f40ac4862a42a68c55152fcf2d8094fa4c4041dcfd17bcff8e2e4",
+    "target_sha256": "cf0b2d69001f40ac4862a42a68c55152fcf2d8094fa4c4041dcfd17bcff8e2e4"
   }
 }

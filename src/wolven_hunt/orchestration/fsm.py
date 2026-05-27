@@ -43,7 +43,12 @@ from wolven_hunt.core.state import GameState
 from wolven_hunt.llm.gateway import LLMErrorType, LLMFallbackRequired
 from wolven_hunt.orchestration.phases import Phase
 from wolven_hunt.referee.text_validate import validate_text_consistency
-from wolven_hunt.referee.validate import Reject, validate_action
+from wolven_hunt.referee.validate import (
+    Reject,
+    validate_action,
+    validate_wolf_vote_batch,
+    validate_wolf_vote_candidate,
+)
 from wolven_hunt.referee.view import PlayerView, build_view
 from wolven_hunt.storage.event_log import EventLog
 
@@ -183,17 +188,18 @@ def _run_night(
             control_hook,
         )
         wolf_voters = tuple(wolf for wolf in wolf_seats if state.player(wolf).alive)
-        state = _apply_collected_actions(
+        collected_wolf_votes = _collect_actions_from_snapshot(
             state,
-            _collect_actions_from_snapshot(
-                state,
-                config,
-                agents,
-                event_log.events,
-                wolf_voters,
-                lambda agent, view: agent.decide_wolf_vote(view),
-                rng,
-            ),
+            config,
+            agents,
+            event_log.events,
+            wolf_voters,
+            lambda agent, view: agent.decide_wolf_vote(view),
+            rng,
+        )
+        state = _apply_collected_wolf_votes(
+            state,
+            collected_wolf_votes,
             config,
             rng,
             event_log,
@@ -502,6 +508,76 @@ def _apply_collected_actions(
     return state
 
 
+def _apply_collected_wolf_votes(
+    state: GameState,
+    collected: tuple[tuple[Seat, Action, tuple[Event, ...]], ...],
+    config: GameConfig,
+    rng: DeterministicRNG,
+    event_log: EventLog,
+    state_sink: StateSink | None,
+    control_hook: ControlHook | None,
+) -> GameState:
+    wolf_votes = tuple(action for _, action, _ in collected if isinstance(action, WolfKillVote))
+    if len(wolf_votes) != len(collected):
+        raise RuntimeError("wolf vote collection produced non-wolf action")
+    rejection = validate_wolf_vote_batch(state, wolf_votes, config.rule_set)
+    if rejection is not None:
+        support_events = []
+        for seat, _, events in collected:
+            support_events.extend(events)
+            support_events.append(_invalid_action_event(state, seat, rejection))
+        event_log.append_all(support_events)
+        fallback_collected = tuple(
+            _fallback_wolf_vote_after_batch_rejection(
+                state,
+                config,
+                event_log.events,
+                seat,
+                rng,
+                f"validation_failed:{rejection.rule_id}",
+            )
+            for seat, _, _ in collected
+        )
+        return _apply_collected_wolf_votes(
+            state,
+            fallback_collected,
+            config,
+            rng,
+            event_log,
+            state_sink,
+            control_hook,
+        )
+    for _, action, support_events in collected:
+        event_log.append_all(support_events)
+        state, events = apply_action(state, action, config, rng)
+        event_log.append_all(events)
+        _sync_runtime(state, state_sink, control_hook)
+    return state
+
+
+def _fallback_wolf_vote_after_batch_rejection(
+    state: GameState,
+    config: GameConfig,
+    events: tuple[Event, ...],
+    seat: Seat,
+    rng: DeterministicRNG,
+    reason: str,
+) -> tuple[Seat, WolfKillVote, tuple[Event, ...]]:
+    view = build_view(state, events, rule_set=config.rule_set, seat=seat)
+    decision = _validated_fallback_decision(
+        state,
+        config,
+        seat,
+        rng,
+        view,
+        events,
+        reason,
+    )
+    if not isinstance(decision.action, WolfKillVote):
+        raise RuntimeError("wolf vote fallback produced non-wolf action")
+    return (seat, decision.action, (_fallback_event(state, seat, reason, decision),))
+
+
 def _apply_and_log(
     state: GameState,
     action: Action,
@@ -633,7 +709,10 @@ def _validate_action_output(
     config: GameConfig,
     events: tuple[Event, ...],
 ) -> Reject | None:
-    rejection = validate_action(state, action, config.rule_set)
+    if isinstance(action, WolfKillVote) and state.phase == Phase.NIGHT_WOLF_VOTE.value:
+        rejection = validate_wolf_vote_candidate(state, action, config.rule_set)
+    else:
+        rejection = validate_action(state, action, config.rule_set)
     if rejection is not None:
         return rejection
     return validate_text_consistency(state, action, config.rule_set, events)
@@ -805,7 +884,7 @@ def _validated_fallback_decision(
     reason: str,
 ) -> FallbackDecision:
     try:
-        decision = _fallback_decision_for_phase(state, seat, rng, view)
+        decision = _fallback_decision_for_phase(state, config, seat, rng, view)
     except Exception as exc:
         raise RuntimeError(f"fallback failed for {state.phase}: {reason}: {exc}") from exc
     rejection = _validate_action_output(state, decision.action, config, events)
@@ -819,6 +898,7 @@ def _validated_fallback_decision(
 
 def _fallback_decision_for_phase(
     state: GameState,
+    config: GameConfig,
     seat: Seat,
     rng: DeterministicRNG,
     view: PlayerView,
@@ -842,7 +922,9 @@ def _fallback_decision_for_phase(
         )
     if state.phase == Phase.NIGHT_WOLF_VOTE.value:
         candidates = _wolf_fallback_kill_candidates(state, seat, view)
-        target = rng.choice(stream, candidates)
+        target = _first_valid_wolf_fallback_target(
+            state, seat, candidates, config.rule_set, rng, stream
+        )
         return FallbackDecision(
             action=WolfKillVote(actor=seat, target=target),
             candidates=_candidate_payload(candidates),
@@ -901,11 +983,12 @@ def _fallback_decision_for_phase(
 
 def _fallback_for_phase(
     state: GameState,
+    config: GameConfig,
     seat: Seat,
     rng: DeterministicRNG,
     view: PlayerView,
 ) -> Action:
-    return _fallback_decision_for_phase(state, seat, rng, view).action
+    return _fallback_decision_for_phase(state, config, seat, rng, view).action
 
 
 def _candidate_payload(candidates: tuple[Seat, ...]) -> tuple[int, ...]:
@@ -926,6 +1009,23 @@ def _wolf_fallback_kill_candidates(
         or (player.seat == seat and can_kill_self)
         or (player.seat != seat and can_kill_teammate)
     )
+
+
+def _first_valid_wolf_fallback_target(
+    state: GameState,
+    seat: Seat,
+    candidates: tuple[Seat, ...],
+    rule_set: RuleSet,
+    rng: DeterministicRNG,
+    stream: str,
+) -> Seat:
+    valid_candidates = tuple(
+        target
+        for target in candidates
+        if validate_wolf_vote_candidate(state, WolfKillVote(actor=seat, target=target), rule_set)
+        is None
+    )
+    return rng.choice(stream, valid_candidates)
 
 
 def _contextual_public_speech(seat: Seat, view: PlayerView) -> str:

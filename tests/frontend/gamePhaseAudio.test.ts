@@ -3,6 +3,7 @@ import {
   DEAD_GOD_AUDIO_SETTLE_MS,
   dayAnnounceAudioPlan,
   deadGodSettleMs,
+  hostAudioPlan,
   phaseAudioPlan,
 } from '../../src/lib/gamePhaseAudio';
 import type { GameEvent } from '../../src/lib/gameApi';
@@ -100,6 +101,47 @@ describe('gamePhaseAudio', () => {
       gapMs: 0,
     });
   });
+
+  it('plays vote start voice for first vote and PK vote phase enters', () => {
+    expect(hostAudioPlan(phaseEnter(13, 'DAY_VOTE'))).toEqual({
+      sequence: ['day_vote_start'],
+      gapMs: 350,
+    });
+    expect(hostAudioPlan(phaseEnter(14, 'DAY_VOTE_PK'))).toEqual({
+      sequence: ['day_vote_start'],
+      gapMs: 350,
+    });
+  });
+
+  it('plays last words voice once when the last words phase enters', () => {
+    expect(hostAudioPlan(phaseEnter(15, 'DAY_LAST_WORDS'))).toEqual({
+      sequence: ['day_last_words_start'],
+      gapMs: 350,
+    });
+  });
+
+  it('plays the matching seat voice before normal day speech', () => {
+    expect(hostAudioPlan(speech(16, 2, 7))).toEqual({
+      sequence: ['speech_seat_7'],
+      gapMs: 350,
+    });
+  });
+
+  it('does not play seat speech voice for PK speeches', () => {
+    expect(hostAudioPlan(speech(17, 2, 7, 'DAY_VOTE_PK'))).toBeNull();
+  });
+
+  it('ignores speech voice when actor is missing or out of supported range', () => {
+    expect(hostAudioPlan(speech(18, 2, 11))).toBeNull();
+    expect(hostAudioPlan({
+      seq: 19,
+      day: 2,
+      phase: 'DAY_SPEECH',
+      type: 'speech',
+      actor: null,
+      payload: { text: '无人发言' },
+    })).toBeNull();
+  });
 });
 
 function gameStart(): GameEvent {
@@ -173,6 +215,22 @@ function noDeathTonight(seq: number, day: number): GameEvent {
     type: 'no_death_tonight',
     actor: null,
     payload: { message: '昨晚是平安夜' },
+  };
+}
+
+function speech(
+  seq: number,
+  day: number,
+  actor: number,
+  phase = 'DAY_SPEECH',
+): GameEvent {
+  return {
+    seq,
+    day,
+    phase,
+    type: 'speech',
+    actor,
+    payload: { text: `${actor}号发言` },
   };
 }
 
