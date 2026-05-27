@@ -4,7 +4,9 @@ import {
   createGame,
   generateReviewReport,
   getReviewReport,
+  pauseGame,
   runGame,
+  subscribeGameEvents,
 } from '../../src/lib/gameApi';
 
 describe('gameApi', () => {
@@ -70,6 +72,62 @@ describe('gameApi', () => {
     expect(fetchMock).toHaveBeenCalledWith('/games/game-1/run', { method: 'POST' });
   });
 
+  it('notifies stream readiness from EventSource open and stream_ready frames', () => {
+    const sourceClass = fakeEventSourceClass();
+    vi.stubGlobal('EventSource', sourceClass);
+    const onOpen = vi.fn();
+    const onReady = vi.fn();
+    const onEvent = vi.fn();
+    const onError = vi.fn();
+
+    subscribeGameEvents('game-1', onOpen, onReady, onEvent, onError);
+    const source = sourceClass.instances[0];
+    source.onopen?.();
+    source.emit('stream_ready', '{}');
+    source.emit(
+      'game_event',
+      JSON.stringify({
+        seq: 1,
+        day: 1,
+        phase: 'GAME_START',
+        type: 'game_start',
+        actor: null,
+        payload: {},
+      }),
+    );
+
+    expect(source.url).toBe('/games/game-1/stream');
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onReady).toHaveBeenCalledTimes(2);
+    expect(onEvent).toHaveBeenCalledWith({
+      seq: 1,
+      day: 1,
+      phase: 'GAME_START',
+      type: 'game_start',
+      actor: null,
+      payload: {},
+    });
+  });
+
+  it('pauses a live game through the pause endpoint', async () => {
+    const summary = {
+      game_id: 'game-1',
+      status: 'paused',
+      winner: null,
+      day: 1,
+      phase: 'NIGHT_START',
+      event_count: 1,
+      timings: {},
+      seat_presentation: {},
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(summary));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(pauseGame('game-1')).resolves.toEqual(summary);
+
+    expect(fetchMock).toHaveBeenCalledWith('/games/game-1/pause', { method: 'POST' });
+  });
+
   it('uses review report endpoints for reading and generation', async () => {
     const report = {
       schema_version: '1.1',
@@ -105,4 +163,36 @@ function jsonResponse(data: unknown) {
     ok: true,
     json: async () => data,
   } as Response;
+}
+
+function fakeEventSourceClass() {
+  class FakeEventSource {
+    static instances: FakeEventSource[] = [];
+    onopen: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    private listeners = new Map<string, ((message: MessageEvent<string>) => void)[]>();
+
+    constructor(public url: string) {
+      FakeEventSource.instances.push(this);
+    }
+
+    addEventListener(
+      event: string,
+      listener: (message: MessageEvent<string>) => void,
+    ) {
+      this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
+    }
+
+    emit(event: string, data: string) {
+      for (const listener of this.listeners.get(event) ?? []) {
+        listener({ data } as MessageEvent<string>);
+      }
+    }
+
+    close() {
+      return undefined;
+    }
+  }
+
+  return FakeEventSource;
 }

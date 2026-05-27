@@ -75,6 +75,19 @@ describe('liveGameSession', () => {
     expect(storage.getItem(LIVE_GAME_SESSION_KEY)).toBeNull();
   });
 
+  it('does not restore a live game after it has been explicitly cleared', () => {
+    storage = new MemoryStorage();
+    writeLiveGameSession(snapshot('game-1'), storage);
+
+    clearLiveGameSession('game-1', storage);
+    writeLiveGameSession(snapshot('game-1', { streamCursor: 12 }), storage);
+
+    expect(readLiveGameSession(storage)).toBeNull();
+
+    writeLiveGameSession(snapshot('game-2'), storage);
+    expect(readLiveGameSession(storage)?.gameId).toBe('game-2');
+  });
+
   it('hydrates old snapshots without cursor or recent effect fields', () => {
     storage = new MemoryStorage();
     storage.setItem(
@@ -144,6 +157,22 @@ function effect(
     asset_key: assetKey,
     duration_ms: 0,
     meta: {},
+  };
+}
+
+function snapshot(
+  gameId: string,
+  overrides: Partial<Parameters<typeof writeLiveGameSession>[0]> = {},
+): Parameters<typeof writeLiveGameSession>[0] {
+  return {
+    gameId,
+    assignments: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    seatPresentation: {},
+    launchState: 'running',
+    streamCursor: 0,
+    effectSeq: 0,
+    recentEffects: [],
+    ...overrides,
   };
 }
 

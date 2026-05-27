@@ -4,6 +4,8 @@ import type { RecentSpectatorEffect } from './gameEffects';
 import type { SeatPresentationMap } from './seatPresentation';
 
 export const LIVE_GAME_SESSION_KEY = 'wolven_hunt.live_session';
+const BLOCKED_LIVE_GAME_IDS_KEY = 'wolven_hunt.live_session.blocked_ids';
+const MAX_BLOCKED_LIVE_GAME_IDS = 24;
 
 export type LiveGameSessionSnapshot = {
   gameId: string;
@@ -29,7 +31,12 @@ export function readLiveGameSession(
     if (!raw) {
       return null;
     }
-    return parseLiveGameSession(raw);
+    const snapshot = parseLiveGameSession(raw);
+    if (snapshot && isLiveGameSessionBlocked(snapshot.gameId, storage)) {
+      storage.removeItem(LIVE_GAME_SESSION_KEY);
+      return null;
+    }
+    return snapshot;
   } catch (error) {
     console.warn('[game] failed to read live session snapshot', error);
     return null;
@@ -44,6 +51,9 @@ export function writeLiveGameSession(
     return;
   }
   try {
+    if (isLiveGameSessionBlocked(snapshot.gameId, storage)) {
+      return;
+    }
     storage.setItem(
       LIVE_GAME_SESSION_KEY,
       JSON.stringify({ ...snapshot, savedAtMs: Date.now() }),
@@ -68,9 +78,38 @@ export function clearLiveGameSession(
     const snapshot = readLiveGameSession(storage);
     if (!snapshot || snapshot.gameId === gameId) {
       storage.removeItem(LIVE_GAME_SESSION_KEY);
+      blockLiveGameSession(gameId, storage);
     }
   } catch (error) {
     console.warn('[game] failed to clear live session snapshot', error);
+  }
+}
+
+function blockLiveGameSession(gameId: string, storage: StorageLike) {
+  const blocked = [
+    gameId,
+    ...readBlockedLiveGameIds(storage).filter((item) => item !== gameId),
+  ].slice(0, MAX_BLOCKED_LIVE_GAME_IDS);
+  storage.setItem(BLOCKED_LIVE_GAME_IDS_KEY, JSON.stringify(blocked));
+}
+
+function isLiveGameSessionBlocked(gameId: string, storage: StorageLike) {
+  return readBlockedLiveGameIds(storage).includes(gameId);
+}
+
+function readBlockedLiveGameIds(storage: StorageLike): string[] {
+  try {
+    const raw = storage.getItem(BLOCKED_LIVE_GAME_IDS_KEY);
+    if (!raw) {
+      return [];
+    }
+    const value = JSON.parse(raw);
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter((item): item is string => typeof item === 'string');
+  } catch {
+    return [];
   }
 }
 

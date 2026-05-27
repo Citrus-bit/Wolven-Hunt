@@ -194,6 +194,13 @@ export async function runGame(gameId: string): Promise<GameSummary> {
   return parseJsonResponse<GameSummary>(res);
 }
 
+export async function pauseGame(gameId: string): Promise<GameSummary> {
+  const res = await fetch(`${API_BASE}/games/${gameId}/pause`, {
+    method: 'POST',
+  });
+  return parseJsonResponse<GameSummary>(res);
+}
+
 export async function getGame(gameId: string): Promise<GameSummary> {
   const res = await fetch(`${API_BASE}/games/${gameId}`);
   return parseJsonResponse<GameSummary>(res);
@@ -279,6 +286,7 @@ export async function submitWolfChat(
 export function subscribeGameEvents(
   gameId: string,
   onOpen: () => void,
+  onReady: () => void,
   onEvent: (event: GameEvent) => void,
   onError: () => void,
   onNarrative?: (row: NarrativeRow) => void,
@@ -289,7 +297,13 @@ export function subscribeGameEvents(
     ? `?last_event_id=${encodeURIComponent(String(lastEventId))}`
     : '';
   const source = new EventSource(`${API_BASE}/games/${gameId}/stream${params}`);
-  source.onopen = onOpen;
+  source.onopen = () => {
+    onOpen();
+    onReady();
+  };
+  source.addEventListener('stream_ready', () => {
+    onReady();
+  });
   source.addEventListener('game_event', (message) => {
     onEvent(JSON.parse((message as MessageEvent<string>).data) as GameEvent);
   });

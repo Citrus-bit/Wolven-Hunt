@@ -18,6 +18,7 @@ def sse_response(session: GameSession, *, last_event_id: str | None) -> Streamin
 
     async def stream() -> AsyncIterator[str]:
         cursor = start_after
+        yield "event: stream_ready\ndata: {}\n\n"
         while True:
             events = session.raw_events_after(cursor)
             if events:

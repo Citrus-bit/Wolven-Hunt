@@ -1,11 +1,14 @@
 import { useCallback, type MutableRefObject } from 'react';
+import type { LaunchState } from '../lib/gameLaunchState';
 import {
-  launchStateAfterPhase,
-  type LaunchState,
-} from '../lib/gameLaunchState';
-import { checkHealth, createGame, runGame, type GameTimings } from '../lib/gameApi';
+  checkHealth,
+  createGame,
+  pauseGame,
+  runGame,
+  type GameTimings,
+} from '../lib/gameApi';
 import { buildAgentSpecs } from '../lib/agentSpecs';
-import { writeLiveGameSession } from '../lib/liveGameSession';
+import { clearLiveGameSession, writeLiveGameSession } from '../lib/liveGameSession';
 import {
   buildSeatPresentation,
   type SeatPresentationMap,
@@ -29,6 +32,7 @@ type UseGameLaunchFlowParams = {
   stage: GameStage;
   pendingRunGameIdRef: MutableRefObject<string | null>;
   runStartedGameIdsRef: MutableRefObject<Set<string>>;
+  liveSessionAbandonedRef: MutableRefObject<boolean>;
   liveSessionSnapshotRef: MutableRefObject<LiveSessionSnapshotDraft | {
     gameId: string | null;
     assignments: (number | null)[];
@@ -62,6 +66,7 @@ export function useGameLaunchFlow({
   stage,
   pendingRunGameIdRef,
   runStartedGameIdsRef,
+  liveSessionAbandonedRef,
   liveSessionSnapshotRef,
   streamCursorRef,
   effectSeqRef,
@@ -87,6 +92,9 @@ export function useGameLaunchFlow({
     try {
       void unlockAudio();
       const healthy = await checkHealth();
+      if (liveSessionAbandonedRef.current) {
+        return;
+      }
       if (!healthy) {
         updateLaunchState('failed');
         setTestMessage('本地服务未连接，请先运行 make dev 或检查 7002 后端');
@@ -112,6 +120,11 @@ export function useGameLaunchFlow({
         startPaused: true,
         seatPresentation: presentation,
       });
+      if (liveSessionAbandonedRef.current) {
+        clearLiveGameSession(created.game_id);
+        void pauseGame(created.game_id).catch(() => undefined);
+        return;
+      }
       streamCursorRef.current = 0;
       effectSeqRef.current = 0;
       pendingRunGameIdRef.current = created.game_id;
@@ -130,6 +143,9 @@ export function useGameLaunchFlow({
       setGameId(created.game_id);
       transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
     } catch (caught) {
+      if (liveSessionAbandonedRef.current) {
+        return;
+      }
       updateLaunchState('failed');
       setTestMessage(caught instanceof Error ? caught.message : '创建游戏失败');
     }
@@ -138,6 +154,7 @@ export function useGameLaunchFlow({
     effectSeqRef,
     gameStarted,
     isStartingGame,
+    liveSessionAbandonedRef,
     liveSessionSnapshotRef,
     pendingRunGameIdRef,
     setGameId,
@@ -154,6 +171,9 @@ export function useGameLaunchFlow({
 
   const startPausedGameWhenReady = useCallback(
     async (id: string) => {
+      if (liveSessionAbandonedRef.current) {
+        return;
+      }
       if (pendingRunGameIdRef.current !== id || runStartedGameIdsRef.current.has(id)) {
         return;
       }
@@ -165,9 +185,19 @@ export function useGameLaunchFlow({
         }, 50);
         return;
       }
-      runStartedGameIdsRef.current.add(id);
+      if (!claimPendingRunGame(id, pendingRunGameIdRef, runStartedGameIdsRef)) {
+        return;
+      }
+      updateLaunchState('starting_backend');
       try {
+        if (liveSessionAbandonedRef.current) {
+          runStartedGameIdsRef.current.delete(id);
+          return;
+        }
         const summary = await runGame(id);
+        if (liveSessionAbandonedRef.current) {
+          return;
+        }
         pendingRunGameIdRef.current = null;
         setTimings(summary.timings);
         setCurrentPhase(summary.phase);
@@ -175,7 +205,7 @@ export function useGameLaunchFlow({
           updateLaunchState('failed');
           setStreamStatus('failed');
         } else {
-          updateLaunchState((current) => launchStateAfterPhase(current, summary.phase));
+          updateLaunchState((current) => current === 'creating' ? 'starting_backend' : current);
         }
       } catch (error) {
         runStartedGameIdsRef.current.delete(id);
@@ -185,6 +215,7 @@ export function useGameLaunchFlow({
       }
     },
     [
+      liveSessionAbandonedRef,
       pendingRunGameIdRef,
       runStartedGameIdsRef,
       setCurrentPhase,
@@ -199,4 +230,16 @@ export function useGameLaunchFlow({
     startGameWithAssignments,
     startPausedGameWhenReady,
   };
+}
+
+export function claimPendingRunGame(
+  id: string,
+  pendingRunGameIdRef: MutableRefObject<string | null>,
+  runStartedGameIdsRef: MutableRefObject<Set<string>>,
+) {
+  if (pendingRunGameIdRef.current !== id || runStartedGameIdsRef.current.has(id)) {
+    return false;
+  }
+  runStartedGameIdsRef.current.add(id);
+  return true;
 }
