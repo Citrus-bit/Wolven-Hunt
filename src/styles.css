@@ -1355,32 +1355,71 @@ button {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   pointer-events: none;
+  transition:
+    grid-template-columns 280ms ease,
+    gap 280ms ease;
+}
+
+.game-chat--general-expanded {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0fr);
+  gap: 0;
 }
 
 .game-chat-panel {
   display: flex;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.4);
   border-radius: 12px;
   flex-direction: column;
   pointer-events: auto;
+  transition:
+    opacity 220ms ease,
+    transform 280ms ease,
+    background-color 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    visibility 0s linear 0s;
+}
+
+.game-chat--general-expanded .game-chat-panel--general {
+  background: rgba(0, 0, 0, 0.52);
+  border-color: rgba(255, 238, 184, 0.62);
+  box-shadow: 0 0 22px rgba(245, 211, 107, 0.12);
 }
 
 .game-chat-panel--wolf {
+  visibility: visible;
   background: rgba(60, 10, 10, 0.4);
   border-color: rgba(220, 80, 80, 0.75);
+}
+
+.game-chat--general-expanded .game-chat-panel--wolf {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateX(10px) scale(0.98);
+  pointer-events: none;
+  transition:
+    opacity 220ms ease,
+    transform 280ms ease,
+    background-color 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    visibility 0s linear 220ms;
 }
 
 .game-chat-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 8px 12px;
   color: #fff;
   font-size: 14px;
   font-weight: 600;
+  line-height: 20px;
   background: rgba(255, 255, 255, 0.06);
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
 }
@@ -1388,6 +1427,54 @@ button {
 .game-chat-panel--wolf .game-chat-header {
   background: rgba(220, 80, 80, 0.18);
   border-bottom-color: rgba(220, 80, 80, 0.4);
+}
+
+.game-chat-title {
+  min-width: 0;
+}
+
+.game-chat-header-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.game-chat-expand-toggle {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: #fff8df;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  place-items: center;
+  touch-action: manipulation;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.game-chat-expand-toggle svg {
+  width: 13px;
+  height: 13px;
+}
+
+.game-chat-expand-toggle:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 238, 184, 0.52);
+}
+
+.game-chat-expand-toggle:active {
+  transform: scale(0.95);
+}
+
+.game-chat-expand-toggle:focus-visible {
+  outline: 3px solid rgba(255, 238, 184, 0.86);
+  outline-offset: 2px;
 }
 
 .game-chat-body {
@@ -1914,10 +2001,23 @@ button {
     grid-template-columns: 1fr;
     grid-template-rows: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    transition:
+      grid-template-rows 280ms ease,
+      gap 280ms ease;
+  }
+
+  .game-chat--general-expanded {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 0fr);
+    gap: 0;
   }
 
   .game-chat-panel {
     min-height: 0;
+  }
+
+  .game-chat--general-expanded .game-chat-panel--wolf {
+    transform: translateY(10px) scale(0.98);
   }
 
   .game-page:has(.game-test-status) .game-chat {
@@ -1937,6 +2037,15 @@ button {
 
   .game-page:has(.game-test-timings) .game-chat {
     top: clamp(440px, 56vh, 520px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-chat,
+  .game-chat-panel,
+  .game-chat--general-expanded .game-chat-panel--wolf,
+  .game-chat-expand-toggle {
+    transition: none;
   }
 }
 

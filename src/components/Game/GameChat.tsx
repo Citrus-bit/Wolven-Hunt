@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { Minus, Plus } from 'lucide-react';
 import type { GameEvent, NarrativeRow } from '../../lib/gameApi';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import {
@@ -33,6 +34,7 @@ export function GameChat({
 }: GameChatProps) {
   const generalBodyRef = useRef<HTMLDivElement | null>(null);
   const wolfBodyRef = useRef<HTMLDivElement | null>(null);
+  const [generalExpanded, setGeneralExpanded] = useState(false);
   const rows = useMemo(() => narrativeRows.slice(-80), [narrativeRows]);
   const wolfRows = useMemo(
     () => events.filter((event) => event.type === 'wolf_chat_message').slice(-80),
@@ -55,25 +57,16 @@ export function GameChat({
   }, [wolfRows.length, wolfRows[wolfRows.length - 1]?.seq, scrollWolfToBottom]);
 
   return (
-    <div className="game-chat" aria-label="游戏聊天区">
+    <div className={gameChatClassName(generalExpanded)} aria-label="游戏聊天区">
       <section
         className="game-chat-panel game-chat-panel--general"
-        aria-label="好人聊天框"
+        aria-label="通用聊天框"
       >
-        <header className="game-chat-header">
-          <span>好人聊天框</span>
-          <span className={`game-stream-status game-stream-status--${streamStatus}`}>
-            {streamStatus === 'open'
-              ? '已连接'
-              : streamStatus === 'connecting'
-                ? '连接中'
-                : streamStatus === 'idle'
-                  ? '待开始'
-                  : streamStatus === 'failed'
-                    ? '失败'
-                    : '未连接'}
-          </span>
-        </header>
+        <GeneralChatHeader
+          streamStatus={streamStatus}
+          generalExpanded={generalExpanded}
+          onToggleGeneralExpanded={() => setGeneralExpanded((expanded) => !expanded)}
+        />
         <div
           ref={generalBodyRef}
           className="game-chat-body"
@@ -104,8 +97,10 @@ export function GameChat({
         )}
       </section>
       <section
+        id="game-chat-wolf-panel"
         className="game-chat-panel game-chat-panel--wolf"
         aria-label="狼人聊天框"
+        aria-hidden={generalExpanded}
       >
         <header className="game-chat-header">狼人聊天框</header>
         <div
@@ -139,6 +134,61 @@ export function GameChat({
       </section>
     </div>
   );
+}
+
+export function GeneralChatHeader({
+  streamStatus,
+  generalExpanded,
+  onToggleGeneralExpanded,
+}: {
+  streamStatus: GameChatProps['streamStatus'];
+  generalExpanded: boolean;
+  onToggleGeneralExpanded: () => void;
+}) {
+  const Icon = generalExpanded ? Minus : Plus;
+
+  return (
+    <header className="game-chat-header">
+      <span className="game-chat-title">通用聊天框</span>
+      <span className="game-chat-header-actions">
+        <span className={`game-stream-status game-stream-status--${streamStatus}`}>
+          {streamStatusLabel(streamStatus)}
+        </span>
+        <button
+          type="button"
+          className="game-chat-expand-toggle"
+          aria-label={generalExpanded ? '还原通用聊天框' : '展开通用聊天框'}
+          aria-expanded={generalExpanded}
+          aria-controls="game-chat-wolf-panel"
+          onClick={onToggleGeneralExpanded}
+        >
+          <Icon aria-hidden="true" strokeWidth={2.4} />
+        </button>
+      </span>
+    </header>
+  );
+}
+
+export function gameChatClassName(generalExpanded: boolean) {
+  return generalExpanded
+    ? 'game-chat game-chat--general-expanded'
+    : 'game-chat';
+}
+
+function streamStatusLabel(streamStatus: GameChatProps['streamStatus']) {
+  if (streamStatus === 'open') {
+    return '已连接';
+  }
+  if (streamStatus === 'connecting') {
+    return '连接中';
+  }
+  if (streamStatus === 'idle') {
+    return '待开始';
+  }
+  if (streamStatus === 'failed') {
+    return '失败';
+  }
+  return '未连接';
 }
 
 function NarrativeLine({

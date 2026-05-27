@@ -1,6 +1,17 @@
+import {
+  Children,
+  createElement,
+  isValidElement,
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   chatScrollBehavior,
+  gameChatClassName,
+  GeneralChatHeader,
   scrollChatBodyToBottom,
   shouldShowWolfNightDivider,
   wolfNightLabel,
@@ -59,6 +70,57 @@ describe('GameChat auto-scroll', () => {
   });
 });
 
+describe('GameChat general panel expansion', () => {
+  it('renders the default collapsed state with an accessible expand button', () => {
+    const html = renderToStaticMarkup(
+      createElement(GeneralChatHeader, {
+        streamStatus: 'open',
+        generalExpanded: false,
+        onToggleGeneralExpanded: () => undefined,
+      }),
+    );
+
+    expect(gameChatClassName(false)).toBe('game-chat');
+    expect(html).toContain('aria-label="展开通用聊天框"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-controls="game-chat-wolf-panel"');
+    expect(html).toContain('已连接');
+  });
+
+  it('exposes the expanded state and toggle callback contract', () => {
+    const onToggleGeneralExpanded = vi.fn();
+    const expandedHeader = GeneralChatHeader({
+      streamStatus: 'open',
+      generalExpanded: true,
+      onToggleGeneralExpanded,
+    });
+    const button = findByAriaLabel(expandedHeader, '还原通用聊天框');
+    const html = renderToStaticMarkup(expandedHeader);
+
+    expect(gameChatClassName(true)).toBe('game-chat game-chat--general-expanded');
+    expect(html).toContain('aria-label="还原通用聊天框"');
+    expect(html).toContain('aria-expanded="true"');
+    expect(button).not.toBeNull();
+    (button?.props as { onClick?: () => void }).onClick?.();
+    expect(onToggleGeneralExpanded).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns to the default state when rendered collapsed again', () => {
+    const html = renderToStaticMarkup(
+      createElement(GeneralChatHeader, {
+        streamStatus: 'open',
+        generalExpanded: false,
+        onToggleGeneralExpanded: () => undefined,
+      }),
+    );
+
+    expect(gameChatClassName(false)).toBe('game-chat');
+    expect(html).toContain('aria-label="展开通用聊天框"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain('还原通用聊天框');
+  });
+});
+
 describe('GameChat wolf night divider', () => {
   it('shows a divider for the first wolf chat message', () => {
     const events = [{ day: 1 }];
@@ -96,4 +158,24 @@ function mockChatBody(scrollHeight: number) {
     scrollHeight,
     scrollTo: vi.fn(),
   } satisfies Pick<HTMLDivElement, 'scrollHeight' | 'scrollTo'>;
+}
+
+function findByAriaLabel(
+  node: ReactNode,
+  label: string,
+): ReactElement<Record<string, unknown>> | null {
+  if (!isValidElement(node)) {
+    return null;
+  }
+  const element = node as ReactElement<Record<string, unknown>>;
+  if (element.props['aria-label'] === label) {
+    return element;
+  }
+  for (const child of Children.toArray(element.props.children as ReactNode)) {
+    const match = findByAriaLabel(child, label);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
 }
