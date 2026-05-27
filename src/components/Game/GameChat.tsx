@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { GameEvent, NarrativeRow } from '../../lib/gameApi';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import {
@@ -112,14 +119,20 @@ export function GameChat({
               等待狼人夜聊。
             </p>
           ) : (
-            wolfRows.map((event) => (
-              <WolfChatLine
-                key={`${event.seq}-wolf-chat`}
-                event={event}
-                assignments={assignments}
-                liveTypingEnabled={liveTypingEnabled}
-                onTypingFrame={scrollWolfToBottom}
-              />
+            wolfRows.map((event, index) => (
+              <Fragment key={`${event.seq}-wolf-chat`}>
+                {shouldShowWolfNightDivider(wolfRows, index) && (
+                  <div className="game-wolf-night-divider" role="separator">
+                    <span>{wolfNightLabel(event.day)}</span>
+                  </div>
+                )}
+                <WolfChatLine
+                  event={event}
+                  assignments={assignments}
+                  liveTypingEnabled={liveTypingEnabled}
+                  onTypingFrame={scrollWolfToBottom}
+                />
+              </Fragment>
             ))
           )}
         </div>
@@ -305,6 +318,30 @@ export function chatScrollBehavior(): ScrollBehavior {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
     ? 'auto'
     : 'smooth';
+}
+
+export function shouldShowWolfNightDivider(
+  events: { day?: unknown }[],
+  index: number,
+) {
+  if (index < 0 || index >= events.length) {
+    return false;
+  }
+  if (index === 0) {
+    return true;
+  }
+  return wolfNightKey(events[index]?.day) !== wolfNightKey(events[index - 1]?.day);
+}
+
+export function wolfNightLabel(day: unknown) {
+  const night = wolfNightKey(day);
+  return night === null ? '夜晚' : `第${night}晚`;
+}
+
+function wolfNightKey(day: unknown) {
+  return typeof day === 'number' && Number.isInteger(day) && day > 0
+    ? day
+    : null;
 }
 
 function latestVoteCounts(events: GameEvent[]) {

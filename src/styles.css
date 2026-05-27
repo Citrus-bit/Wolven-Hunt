@@ -1539,6 +1539,29 @@ button {
   color: rgba(255, 235, 235, 0.9);
 }
 
+.game-wolf-night-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 10px;
+  color: rgba(255, 210, 210, 0.86);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.game-wolf-night-divider::before,
+.game-wolf-night-divider::after {
+  flex: 1;
+  height: 1px;
+  content: '';
+  background: rgba(220, 80, 80, 0.36);
+}
+
+.game-wolf-night-divider span {
+  flex: 0 0 auto;
+}
+
 .game-narrative-avatar {
   width: 34px;
   height: 34px;

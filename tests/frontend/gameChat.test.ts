@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   chatScrollBehavior,
   scrollChatBodyToBottom,
+  shouldShowWolfNightDivider,
+  wolfNightLabel,
 } from '../../src/components/Game/GameChat';
 
 describe('GameChat auto-scroll', () => {
@@ -54,6 +56,38 @@ describe('GameChat auto-scroll', () => {
       top: 320,
       behavior: 'auto',
     });
+  });
+});
+
+describe('GameChat wolf night divider', () => {
+  it('shows a divider for the first wolf chat message', () => {
+    const events = [{ day: 1 }];
+
+    expect(shouldShowWolfNightDivider(events, 0)).toBe(true);
+  });
+
+  it('does not repeat the divider within the same night', () => {
+    const events = [{ day: 1 }, { day: 1 }, { day: 1 }];
+
+    expect(shouldShowWolfNightDivider(events, 1)).toBe(false);
+    expect(shouldShowWolfNightDivider(events, 2)).toBe(false);
+  });
+
+  it('shows a divider when wolf chat crosses into a new night', () => {
+    const events = [{ day: 1 }, { day: 1 }, { day: 2 }];
+
+    expect(shouldShowWolfNightDivider(events, 2)).toBe(true);
+  });
+
+  it('falls back for invalid night values', () => {
+    expect(wolfNightLabel(undefined)).toBe('夜晚');
+    expect(wolfNightLabel(0)).toBe('夜晚');
+    expect(wolfNightLabel(1.5)).toBe('夜晚');
+  });
+
+  it('formats valid night values', () => {
+    expect(wolfNightLabel(1)).toBe('第1晚');
+    expect(wolfNightLabel(12)).toBe('第12晚');
   });
 });
 
