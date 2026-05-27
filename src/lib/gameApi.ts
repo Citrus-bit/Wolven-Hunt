@@ -149,6 +149,22 @@ export type ModelTestResponse = {
 const API_BASE =
   import.meta.env.VITE_WH_API_BASE?.replace(/\/+$/, '') ?? '';
 
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/healthz`, {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      return false;
+    }
+    const data = (await res.json().catch(() => null)) as { ok?: unknown } | null;
+    return data?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createGame(opts: {
   seed?: string;
   agents?: Record<number, AgentSpec>;

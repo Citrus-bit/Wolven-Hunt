@@ -13,6 +13,18 @@ CONFIG_PATH = "configs/games/classic_10.yaml"
 SEATS = range(1, 11)
 
 
+def test_api_healthz(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        response = client.get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert not any(tmp_path.iterdir())
+
+
 def test_api_creates_game_and_returns_spectator_events(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     monkeypatch.setenv("WH_LLM_PROVIDER", "mock")

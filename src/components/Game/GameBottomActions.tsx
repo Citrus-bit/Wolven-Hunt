@@ -17,6 +17,7 @@ type GameBottomActionsProps = {
   canStartWithWarnings: boolean;
   isTesting: boolean;
   isStartingGame?: boolean;
+  startingLabel?: string;
   testMessage?: string | null;
   testFailures?: readonly string[];
   testTimings?: readonly ModelTestTimingRow[];
@@ -30,6 +31,7 @@ export function GameBottomActions({
   canStartWithWarnings,
   isTesting,
   isStartingGame = false,
+  startingLabel = '正在创建对局',
   testMessage,
   testFailures = [],
   testTimings = [],
@@ -47,7 +49,7 @@ export function GameBottomActions({
       ? '夜深了...'
       : '仍然开局'
     : isStartingGame
-      ? '正在创建对局'
+      ? startingLabel
       : isTesting
         ? '正在测试中'
       : '测试模型连通性';

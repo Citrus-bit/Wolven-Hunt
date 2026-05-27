@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  checkHealth,
   createGame,
   generateReviewReport,
   getReviewReport,
@@ -29,6 +30,24 @@ describe('gameApi', () => {
       pacing: 'live',
       start_paused: true,
       agents: { 1: 'llm:mock' },
+    });
+  });
+
+  it('checks backend health without throwing on unavailable service', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: false }))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(checkHealth()).resolves.toBe(true);
+    await expect(checkHealth()).resolves.toBe(false);
+    await expect(checkHealth()).resolves.toBe(false);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/healthz', {
+      method: 'GET',
+      cache: 'no-store',
     });
   });
 

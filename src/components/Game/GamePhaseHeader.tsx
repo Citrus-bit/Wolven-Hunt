@@ -23,7 +23,7 @@ export function GamePhaseHeader({
   speakerSeat,
   speechComplete = false,
   startupPending = false,
-  startupMessage = '后端服务正在启动，请耐心等待',
+  startupMessage = '正在启动对局',
 }: GamePhaseHeaderProps) {
   const durationMs = useMemo(() => phaseDurationMs(phase, timings), [phase, timings]);
   const [remainingMs, setRemainingMs] = useState(durationMs);

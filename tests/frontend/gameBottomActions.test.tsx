@@ -50,6 +50,18 @@ describe('GameBottomActions', () => {
     expect(html).toContain('0.82s');
     expect(html).toContain('0.51s');
   });
+
+  it('can show the service connection label while startup is in progress', () => {
+    const html = renderToStaticMarkup(
+      bottomActions({
+        isStartingGame: true,
+        startingLabel: '正在连接本地服务',
+      }),
+    );
+
+    expect(html).toContain('正在连接本地服务');
+    expect(html).not.toContain('正在创建对局');
+  });
 });
 
 function bottomActions(overrides: Partial<Parameters<typeof GameBottomActions>[0]> = {}) {

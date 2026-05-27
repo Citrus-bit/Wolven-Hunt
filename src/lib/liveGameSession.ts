@@ -194,6 +194,7 @@ function normalizeSeatPresentation(value: unknown): SeatPresentationMap {
 function isLaunchState(value: unknown): value is LaunchState {
   return (
     value === 'idle' ||
+    value === 'connecting_service' ||
     value === 'creating' ||
     value === 'connecting_stream' ||
     value === 'starting_backend' ||

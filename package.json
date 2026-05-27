@@ -6,6 +6,7 @@
   "scripts": {
     "predev": "npm run copy:game-audio",
     "dev": "vite",
+    "dev:all": "node scripts/dev_all.mjs",
     "prebuild": "npm run copy:game-audio",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

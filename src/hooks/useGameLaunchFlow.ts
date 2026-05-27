@@ -3,7 +3,7 @@ import {
   launchStateAfterPhase,
   type LaunchState,
 } from '../lib/gameLaunchState';
-import { createGame, runGame, type GameTimings } from '../lib/gameApi';
+import { checkHealth, createGame, runGame, type GameTimings } from '../lib/gameApi';
 import { buildAgentSpecs } from '../lib/agentSpecs';
 import { writeLiveGameSession } from '../lib/liveGameSession';
 import {
@@ -82,10 +82,18 @@ export function useGameLaunchFlow({
       return;
     }
     setPickerSeat(null);
-    updateLaunchState('creating');
-    setTestMessage('正在创建对局并接入模型');
+    updateLaunchState('connecting_service');
+    setTestMessage('正在连接本地服务');
     try {
       void unlockAudio();
+      const healthy = await checkHealth();
+      if (!healthy) {
+        updateLaunchState('failed');
+        setTestMessage('本地服务未连接，请先运行 make dev 或检查 7002 后端');
+        return;
+      }
+      updateLaunchState('creating');
+      setTestMessage('正在创建对局并接入模型');
       const agents = buildAgentSpecs(assignments);
       const presentation = buildSeatPresentation(assignments);
       setSeatPresentation(presentation);

@@ -3,10 +3,18 @@ import {
   isPendingRunLaunchState,
   isStartupPendingLaunchState,
   launchStateAfterPhase,
+  startupMessageForLaunchState,
 } from '../../src/lib/gameLaunchState';
 
 describe('gameLaunchState', () => {
   it('shows startup feedback only during the live startup handshake', () => {
+    expect(
+      isStartupPendingLaunchState('connecting_service', {
+        isReplay: false,
+        gameStarted: false,
+        finished: false,
+      }),
+    ).toBe(false);
     expect(
       isStartupPendingLaunchState('connecting_stream', {
         isReplay: false,
@@ -39,8 +47,16 @@ describe('gameLaunchState', () => {
   });
 
   it('identifies restored sessions that still need the run handshake', () => {
+    expect(isPendingRunLaunchState('connecting_service')).toBe(false);
     expect(isPendingRunLaunchState('connecting_stream')).toBe(true);
     expect(isPendingRunLaunchState('starting_backend')).toBe(true);
     expect(isPendingRunLaunchState('running')).toBe(false);
+  });
+
+  it('labels service connection separately from game startup', () => {
+    expect(startupMessageForLaunchState('connecting_service')).toBe('正在连接本地服务');
+    expect(startupMessageForLaunchState('creating')).toBe('正在创建对局');
+    expect(startupMessageForLaunchState('connecting_stream')).toBe('正在启动对局');
+    expect(startupMessageForLaunchState('starting_backend')).toBe('正在启动对局');
   });
 });

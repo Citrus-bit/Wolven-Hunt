@@ -37,8 +37,7 @@ Open [http://localhost:7002](http://localhost:7002).
 Development run:
 
 ```bash
-make serve
-npm run dev
+make dev
 ```
 
 Open [http://localhost:7001](http://localhost:7001). Vite proxies `/games`, `/models`, and `/healthz` to the backend on port 7002.

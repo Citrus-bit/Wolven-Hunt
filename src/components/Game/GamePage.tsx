@@ -4,6 +4,7 @@ import {
   isPendingRunLaunchState,
   isStartupPendingLaunchState,
   launchStateAfterPhase,
+  startupMessageForLaunchState,
   type LaunchState,
 } from '../../lib/gameLaunchState';
 import {
@@ -220,10 +221,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     stage.phase === 'day' ? '/assets/game/day_bg.png' : '/assets/game/night_bg.png';
   const gameStarted = gameId !== null;
   const finished = isGameFinished(events);
-  const isStartingGame = ['creating', 'connecting_stream', 'starting_backend'].includes(
-    launchState,
-  );
+  const isStartingGame = [
+    'connecting_service',
+    'creating',
+    'connecting_stream',
+    'starting_backend',
+  ].includes(launchState);
   const startupPending =
+    launchState === 'connecting_service' ||
     isStartupPendingLaunchState(launchState, { isReplay, gameStarted, finished });
   const freezePhase = deriveLastPlayablePhase(events);
   const renderPhase = finished ? freezePhase : currentPhase;
@@ -985,7 +990,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           speakerSeat={currentSpeakerSeat}
           speechComplete={finished || speechProgress.complete}
           startupPending={startupPending}
-          startupMessage="后端服务正在启动，请耐心等待"
+          startupMessage={startupMessageForLaunchState(launchState)}
         />
       )}
       <GameChat
@@ -1089,6 +1094,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           canStartWithWarnings={allowStartWithWarnings || allTestsCompleted}
           isTesting={isTesting}
           isStartingGame={isStartingGame}
+          startingLabel={startupMessageForLaunchState(launchState)}
           testMessage={testMessage}
           testFailures={failedModelSummaries}
           testTimings={modelTestTimings}
