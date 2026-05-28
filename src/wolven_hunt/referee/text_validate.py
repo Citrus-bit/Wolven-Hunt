@@ -84,6 +84,21 @@ _FUTURE_SPEAKER_NEGATIVE_PATTERNS = (
     re.compile(r"(?:不|没|未).{0,4}(?:回应|回复|解释|发言|说话|表态|开口)"),
     re.compile(r"(?:沉默|划水|不活跃|发言少|藏身份|装死|闭麦)"),
 )
+_NIGHT_RESULT_CLAIM_PATTERNS = (
+    re.compile(r"(?:昨晚|昨夜|昨天夜里|今晚|今夜).{0,8}(?:平安夜|无人死亡|没人死|没死人)"),
+    re.compile(r"(?:昨晚|昨夜|昨天夜里|今晚|今夜).{0,8}(?:死|倒).{0,8}(?:[0-9一二三四五六七八九十]+|两|二)个"),
+    re.compile(r"(?:平安夜|无人死亡|没人死|没死人).{0,8}(?:坐实|确定|必然|已经)"),
+)
+_WITCH_CERTAINTY_PATTERNS = (
+    re.compile(r"女巫.{0,8}(?:还有|有|没了|没有|无).{0,4}毒"),
+    re.compile(r"女巫.{0,8}(?:已经|肯定|必然|一定|确定).{0,8}(?:用|用了|开|开了).{0,4}毒"),
+    re.compile(r"毒药.{0,8}(?:已经|肯定|必然|一定|确定).{0,8}(?:用|用了|没了|还在|还留着|还没用)"),
+    re.compile(r"(?:还有毒|没毒了|毒还在|毒没了|开毒|用了毒|用毒了)"),
+)
+_DOUBLE_DEATH_POISON_PATTERNS = (
+    re.compile(r"(?:双死|死了两|死两|两个.{0,4}倒).{0,16}(?:必然|一定|肯定|确定|坐实).{0,8}(?:毒|女巫)"),
+    re.compile(r"(?:必然|一定|肯定|确定|坐实).{0,8}(?:毒|女巫).{0,16}(?:双死|死了两|死两|两个.{0,4}倒)"),
+)
 
 
 def validate_text_consistency(
@@ -106,6 +121,12 @@ def validate_text_consistency(
     private_rejection = _validate_private_fact_text(state, text)
     if private_rejection is not None:
         return private_rejection
+    witch_rejection = _validate_witch_fact_text(state, actor.role, text)
+    if witch_rejection is not None:
+        return witch_rejection
+    night_result_rejection = _validate_night_result_text(state, text, events)
+    if night_result_rejection is not None:
+        return night_result_rejection
     future_speaker_rejection = _validate_future_speaker_text(state, action, text, events)
     if future_speaker_rejection is not None:
         return future_speaker_rejection
@@ -183,6 +204,52 @@ def _validate_private_fact_text(state: GameState, text: str) -> ValidationResult
     return None
 
 
+def _validate_night_result_text(
+    state: GameState,
+    text: str,
+    events: tuple[Event, ...],
+) -> ValidationResult:
+    for pattern in _NIGHT_RESULT_CLAIM_PATTERNS:
+        for match in pattern.finditer(text):
+            if _has_claim_uncertainty(text, match.start(), match.end()):
+                continue
+            if _has_public_night_announcement(state, events):
+                continue
+            return Reject(
+                "text.night_result_unannounced",
+                "night result cannot be claimed before public announcement",
+            )
+    return None
+
+
+def _validate_witch_fact_text(
+    state: GameState,
+    actor_role: Role,
+    text: str,
+) -> ValidationResult:
+    if state.phase not in {"DAY_SPEECH", "DAY_LAST_WORDS"}:
+        return None
+    for pattern in _DOUBLE_DEATH_POISON_PATTERNS:
+        for match in pattern.finditer(text):
+            if _has_uncertainty(text, match.start(), match.end()):
+                continue
+            return Reject(
+                "text.witch_poison_inferred_from_deaths",
+                "double death alone does not publicly prove witch poison status",
+            )
+    for pattern in _WITCH_CERTAINTY_PATTERNS:
+        for match in pattern.finditer(text):
+            if _has_uncertainty(text, match.start(), match.end()):
+                continue
+            if actor_role is Role.WITCH:
+                continue
+            return Reject(
+                "text.witch_private_fact_claim",
+                "non-witch cannot claim witch poison status as confirmed fact",
+            )
+    return None
+
+
 def _validate_future_speaker_text(
     state: GameState,
     action: Action,
@@ -216,6 +283,20 @@ def _validate_future_speaker_text(
     return None
 
 
+def _has_public_night_announcement(state: GameState, events: tuple[Event, ...]) -> bool:
+    return any(
+        event.visibility.public
+        and event.day == state.day
+        and event.type
+        in {
+            EventType.DAY_ANNOUNCE,
+            EventType.NO_DEATH_TONIGHT,
+            EventType.DEATH_AT_NIGHT,
+        }
+        for event in events
+    )
+
+
 def _guard_targets_by_day(events: tuple[Event, ...], actor: Seat) -> dict[int, Seat]:
     targets: dict[int, Seat] = {}
     for event in events:
@@ -242,6 +323,11 @@ def _is_rule_statement(text: str, start: int, end: int) -> bool:
 
 def _has_uncertainty(text: str, start: int, end: int) -> bool:
     window = text[max(0, start - 10) : min(len(text), end + 10)]
+    return any(marker in window for marker in _UNCERTAINTY_MARKERS)
+
+
+def _has_claim_uncertainty(text: str, start: int, end: int) -> bool:
+    window = text[max(0, start - 6) : end]
     return any(marker in window for marker in _UNCERTAINTY_MARKERS)
 
 

@@ -12,6 +12,7 @@ from wolven_hunt.config.settings import Settings
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.seat import ROLE_TO_CAMP, Role, Seat
 from wolven_hunt.llm.provider import LiteLLMProvider, MockLLMProvider, ProviderResponse
+from wolven_hunt.llm.thinking import thinking_extra_body, thinking_reasoning_effort
 
 REVIEW_REPORT_SCHEMA_VERSION: Literal["1.1"] = "1.1"
 REVIEW_PROMPT_TEMPLATE = Path("configs/prompts/zh/review/report.v1.md")
@@ -367,6 +368,8 @@ def _review_provider(settings: Settings) -> LiteLLMProvider | MockLLMProvider:
             api_key=settings.review_api_key,
             base_url=settings.review_base_url,
             timeout_seconds=settings.review_timeout_seconds,
+            extra_body=thinking_extra_body(settings.review_model, enabled=True),
+            reasoning_effort=thinking_reasoning_effort(settings.review_model, enabled=True),
         )
     return _MockReviewProvider(model=settings.review_model)
 

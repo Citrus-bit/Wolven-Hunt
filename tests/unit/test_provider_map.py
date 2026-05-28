@@ -265,6 +265,40 @@ def test_build_provider_from_config_omits_non_qwen_thinking_extra_body_when_disa
     )
 
     assert "extra_body" not in captured
+    assert "reasoning_effort" not in captured
+
+
+def test_build_provider_from_config_applies_gpt_max_reasoning_when_thinking_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_completion(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": '{"target":1}'}}], "model": "m", "usage": {}}
+
+    monkeypatch.setattr(
+        "wolven_hunt.llm.provider._litellm_module",
+        lambda: SimpleNamespace(completion=fake_completion),
+    )
+    provider = build_provider_from_config(
+        ProviderConfig(
+            provider="litellm",
+            model="gpt-5.5",
+            api_key="test-key",
+            thinking_enabled=True,
+        )
+    )
+
+    provider.complete(
+        seat=Seat(1),
+        phase="NIGHT_GUARD",
+        prompt="{}",
+        rng=DeterministicRNG("gpt-thinking-provider"),
+    )
+
+    assert captured["reasoning_effort"] == "xhigh"
+    assert "extra_body" not in captured
 
 
 def test_provider_api_key_is_not_written_to_manifest(tmp_path: Path) -> None:

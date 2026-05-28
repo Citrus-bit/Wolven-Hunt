@@ -364,6 +364,54 @@ def test_wolf_night_prompt_v5_contains_refined_attack_strategy(
     assert "不要因为首夜刀的是外置位就认为第二夜刀预言家必成" in prompt
     assert "不能把该刀口当成守卫上一守" in prompt
     assert "守卫风险应按轮次切换评估" in prompt
+    assert "夜聊必须同时给出刀口和次日公开策略" in prompt
+    assert "谁悍跳、谁倒钩、谁冲锋或切割" in prompt
+
+
+@pytest.mark.leakage
+def test_system_prompt_v5_contains_night_result_and_witch_fact_boundaries(
+    game_config: GameConfig,
+) -> None:
+    prompt, _ = _render_prompt(game_config, role=Role.VILLAGER, phase="DAY_SPEECH")
+
+    assert "只能在 `DAY_ANNOUNCE` 或公开 `visible_events` 已经出现后" in prompt
+    assert "夜晚未结算、未公开前不得提前宣布平安夜或死亡结果" in prompt
+    assert "公开双死不等于公开证明女巫一定用毒" in prompt
+    assert "非女巫不得确定声称女巫毒药状态" in prompt
+    assert "死因、狼刀、守卫挡刀等私有夜晚原因" in prompt
+
+
+@pytest.mark.leakage
+def test_vote_prompts_v5_warn_against_unjustified_self_vote(
+    game_config: GameConfig,
+) -> None:
+    for role in (Role.WOLF, Role.SEER, Role.GUARD, Role.WITCH, Role.VILLAGER):
+        prompt, _ = _render_prompt(game_config, role=role, phase="DAY_VOTE")
+
+        assert "规则允许普通投票自投，但默认不要自投" in prompt
+        assert "公开收益" in prompt
+
+
+@pytest.mark.leakage
+def test_wolf_speech_prompt_v5_requires_public_strategy_consistency(
+    game_config: GameConfig,
+) -> None:
+    prompt, _ = _render_prompt(game_config, role=Role.WOLF, phase="DAY_SPEECH")
+
+    assert "白天发言要和自己此前公开发言" in prompt
+    assert "夜间制定的公开战术方向自洽" in prompt
+    assert "仍不得泄露夜聊或狼队身份" in prompt
+
+
+@pytest.mark.leakage
+def test_witch_prompts_v5_warn_against_unproven_potion_claims(
+    game_config: GameConfig,
+) -> None:
+    for phase in ("DAY_SPEECH", "DAY_VOTE", "DAY_LAST_WORDS"):
+        prompt, _ = _render_prompt(game_config, role=Role.WITCH, phase=phase)
+
+        assert "自己的私有用药记录支持" in prompt
+        assert "未公开死因" in prompt
 
 
 @pytest.mark.leakage

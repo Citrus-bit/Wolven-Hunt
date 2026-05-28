@@ -119,6 +119,103 @@ def test_day_speech_allows_check_claim_comment_after_target_spoke(
     assert rejection is None
 
 
+def test_day_speech_rejects_unannounced_night_result_claim(
+    game_config: GameConfig,
+    initial_state: GameState,
+) -> None:
+    state = replace(initial_state, day=1, phase="DAY_SPEECH")
+
+    rejection = validate_text_consistency(
+        state,
+        Speech(actor=Seat(1), text="昨晚是平安夜，女巫应该救了人，今天先听预言家。"),
+        game_config.rule_set,
+        (),
+    )
+
+    assert rejection is not None
+    assert rejection.rule_id == "text.night_result_unannounced"
+
+
+def test_day_speech_allows_announced_night_result_reference(
+    game_config: GameConfig,
+    initial_state: GameState,
+) -> None:
+    state = replace(initial_state, day=1, phase="DAY_SPEECH")
+    events = (
+        draft_event(
+            game_id=state.game_id,
+            phase="DAY_ANNOUNCE",
+            day=state.day,
+            event_type=EventType.DAY_ANNOUNCE,
+            actor=None,
+            visibility=public_visibility(),
+            payload={"deaths": []},
+        ),
+    )
+
+    rejection = validate_text_consistency(
+        state,
+        Speech(actor=Seat(1), text="昨晚是平安夜，但原因不能确定，先看发言和站边。"),
+        game_config.rule_set,
+        events,
+    )
+
+    assert rejection is None
+
+
+def test_non_witch_rejects_confirmed_witch_poison_status(
+    game_config: GameConfig,
+    initial_state: GameState,
+) -> None:
+    non_witch = next(
+        player.seat for player in initial_state.players if player.role is not Role.WITCH
+    )
+    state = replace(initial_state, day=4, phase="DAY_SPEECH")
+
+    rejection = validate_text_consistency(
+        state,
+        Speech(actor=non_witch, text="昨晚死了两个人，女巫肯定已经用了毒，现在没毒了。"),
+        game_config.rule_set,
+        (),
+    )
+
+    assert rejection is not None
+    assert rejection.rule_id == "text.witch_poison_inferred_from_deaths"
+
+
+def test_witch_may_claim_own_poison_status(
+    game_config: GameConfig,
+    initial_state: GameState,
+) -> None:
+    witch = initial_state.seats_by_role(Role.WITCH)[0]
+    state = replace(initial_state, day=4, phase="DAY_SPEECH")
+
+    rejection = validate_text_consistency(
+        state,
+        Speech(actor=witch, text="我女巫身份可以负责：毒药已经用了，今天不要再指望我追轮次。"),
+        game_config.rule_set,
+        (),
+    )
+
+    assert rejection is None
+
+
+def test_double_death_allows_uncertain_poison_language(
+    game_config: GameConfig,
+    initial_state: GameState,
+) -> None:
+    state = replace(initial_state, day=4, phase="DAY_SPEECH")
+
+    rejection = validate_text_consistency(
+        state,
+        Speech(actor=Seat(1), text="昨晚双死可能有毒药参与，但不确定，还是要看白天发言。"),
+        game_config.rule_set,
+        (),
+    )
+
+    assert rejection is None
+
+
 def _guard_events(
     state: GameState,
     guard: Seat,

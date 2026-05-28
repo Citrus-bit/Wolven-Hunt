@@ -14,7 +14,7 @@ from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.seat import Seat
 from wolven_hunt.llm.cost import TokenUsage
 from wolven_hunt.llm.provider_map import ProviderConfig, ProviderMap
-from wolven_hunt.llm.thinking import thinking_extra_body
+from wolven_hunt.llm.thinking import ReasoningEffort, thinking_extra_body, thinking_reasoning_effort
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +93,7 @@ class LiteLLMProvider:
         base_url: str = "",
         timeout_seconds: float = 30.0,
         extra_body: dict[str, Any] | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
         phase_timeout_seconds: dict[str, float] | None = None,
     ) -> None:
         self.model = normalize_litellm_model(model=model, base_url=base_url)
@@ -100,6 +101,7 @@ class LiteLLMProvider:
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
         self.extra_body = dict(extra_body or {})
+        self.reasoning_effort = reasoning_effort
         self.phase_timeout_seconds = dict(phase_timeout_seconds or {})
 
     def complete(
@@ -122,6 +124,8 @@ class LiteLLMProvider:
         }
         if self.base_url:
             kwargs["api_base"] = self.base_url
+        if self.reasoning_effort:
+            kwargs["reasoning_effort"] = self.reasoning_effort
         if self.extra_body:
             kwargs["extra_body"] = dict(self.extra_body)
         try:
@@ -306,6 +310,10 @@ def build_provider_from_config(
             base_url=config.base_url,
             timeout_seconds=config.timeout_seconds,
             extra_body=thinking_extra_body(config.model, enabled=config.thinking_enabled),
+            reasoning_effort=thinking_reasoning_effort(
+                config.model,
+                enabled=config.thinking_enabled,
+            ),
             phase_timeout_seconds=phase_timeout_seconds,
         )
     return MockLLMProvider(model=config.model)

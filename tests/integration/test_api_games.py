@@ -322,6 +322,44 @@ def test_model_test_litellm_defaults_qwen_thinking_off(monkeypatch, tmp_path) ->
     assert not any(tmp_path.iterdir())
 
 
+def test_model_test_litellm_applies_gpt_max_reasoning(monkeypatch, tmp_path) -> None:
+    from wolven_hunt.llm.provider import _litellm_module
+
+    litellm = _litellm_module()
+    captured: dict[str, object] = {}
+
+    def fake_completion(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "choices": [{"message": {"content": '{"ok": true}'}}],
+            "model": kwargs["model"],
+            "usage": {},
+        }
+
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/models/test",
+            json={
+                "provider": "litellm",
+                "model": "gpt-5.5",
+                "base_url": "https://example.test/v1",
+                "api_key": "test-secret",
+                "thinking_enabled": True,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "message": None}
+    assert captured["model"] == "custom_openai/gpt-5.5"
+    assert captured["reasoning_effort"] == "xhigh"
+    assert "extra_body" not in captured
+    assert not any(tmp_path.iterdir())
+
+
 def test_model_test_litellm_failure_message_is_sanitized(monkeypatch, tmp_path) -> None:
     import litellm
 
@@ -527,6 +565,8 @@ def test_review_report_litellm_provider_is_used_without_mock_downgrade(
             api_key: str,
             base_url: str = "",
             timeout_seconds: float = 30.0,
+            extra_body: dict[str, object] | None = None,
+            reasoning_effort: str | None = None,
         ) -> None:
             captured.append(
                 {
@@ -534,6 +574,8 @@ def test_review_report_litellm_provider_is_used_without_mock_downgrade(
                     "api_key": api_key,
                     "base_url": base_url,
                     "timeout_seconds": timeout_seconds,
+                    "extra_body": extra_body,
+                    "reasoning_effort": reasoning_effort,
                 }
             )
 
@@ -590,7 +632,71 @@ def test_review_report_litellm_provider_is_used_without_mock_downgrade(
         assert response.status_code == 200
         assert captured and captured[0]["api_key"] == "review-secret"
         assert captured[0]["model"] == "review-model"
+        assert captured[0]["reasoning_effort"] is None
         assert response.json()["generation_mode"] == "real_ai"
+
+
+def test_review_report_gpt55_uses_max_reasoning_effort(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import wolven_hunt.storage.review_report as review_report_module
+
+    captured: list[dict[str, object]] = []
+
+    class FakeReviewProvider:
+        def __init__(self, **kwargs: object) -> None:
+            captured.append(dict(kwargs))
+
+        def complete(self, *, seat, phase, prompt, rng):
+            del seat, phase, rng
+            payload = json.loads(prompt[prompt.rindex("\n\n{") + 2 :])
+            report = review_report_module.build_mock_review_report(
+                game_id="fake",
+                reveal=payload["role_reveal"],
+                seat_presentation={
+                    int(seat): value for seat, value in payload["seat_presentation"].items()
+                },
+                narrative_rows=tuple(payload["narrative_rows"]),
+                events=tuple(payload["spectator_events"]),
+            )
+            content = {
+                key: value
+                for key, value in report.items()
+                if key not in {"schema_version", "game_id", "generated_at", "generation_mode"}
+            }
+            from wolven_hunt.llm.provider import ProviderResponse
+
+            return ProviderResponse(content=json.dumps(content, ensure_ascii=False), model="fake")
+
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_REVIEW_PROVIDER", "litellm")
+    monkeypatch.setenv("WH_REVIEW_API_KEY", "review-secret")
+    monkeypatch.setenv("WH_REVIEW_MODEL", "gpt-5.5")
+    monkeypatch.setattr(review_report_module, "LiteLLMProvider", FakeReviewProvider)
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-review-gpt55-max-reasoning",
+                "pacing": "off",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+            },
+        )
+        assert created.status_code == 200
+        game_id = created.json()["game_id"]
+        _wait_until_finished(client, game_id)
+
+        response = client.post(f"/games/{game_id}/review-report")
+
+    assert response.status_code == 200
+    assert captured and captured[0]["model"] == "gpt-5.5"
+    assert captured[0]["reasoning_effort"] == "xhigh"
+    assert captured[0]["extra_body"] == {}
 
 
 def test_review_report_real_provider_failure_does_not_write_report(

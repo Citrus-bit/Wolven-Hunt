@@ -28,7 +28,7 @@ from wolven_hunt.core.events import Event
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.seat import Seat
 from wolven_hunt.llm.provider import LiteLLMProvider, MockLLMProvider
-from wolven_hunt.llm.thinking import thinking_extra_body
+from wolven_hunt.llm.thinking import thinking_extra_body, thinking_reasoning_effort
 from wolven_hunt.orchestration.runtime import GameRegistry, GameSession
 from wolven_hunt.referee.reveal import build_role_reveal_payload
 from wolven_hunt.referee.visibility import filter_spectator_events
@@ -369,6 +369,10 @@ def test_model(request: ModelTestRequest) -> ModelTestResponse:
                 base_url=request.base_url,
                 timeout_seconds=request.timeout_seconds,
                 extra_body=thinking_extra_body(request.model, enabled=request.thinking_enabled),
+                reasoning_effort=thinking_reasoning_effort(
+                    request.model,
+                    enabled=request.thinking_enabled,
+                ),
             )
             if request.provider == "litellm"
             else MockLLMProvider(model=request.model)
