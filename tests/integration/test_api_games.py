@@ -553,11 +553,14 @@ def test_review_report_litellm_provider_is_used_without_mock_downgrade(
     monkeypatch,
     tmp_path,
 ) -> None:
+    from tests.unit.test_review_pipeline import _StubProvider
+
     import wolven_hunt.storage.review_report as review_report_module
 
     captured: list[dict[str, object]] = []
+    providers: list[_StubProvider] = []
 
-    class FakeReviewProvider:
+    class FakeReviewProvider(_StubProvider):
         def __init__(
             self,
             *,
@@ -578,33 +581,8 @@ def test_review_report_litellm_provider_is_used_without_mock_downgrade(
                     "reasoning_effort": reasoning_effort,
                 }
             )
-
-        def complete(self, *, seat, phase, prompt, rng):
-            del seat, phase, rng
-            assert "Wolven Hunt 赛后复盘评审 v1" in prompt
-            assert "独有的公开证据" in prompt
-            assert "leaderboard.reason 必须是一段话概括该模型/玩家本局整体表现" in prompt
-            assert "key_decisions 选择 2-4 个最关键公开节点" in prompt
-            assert "counterfactuals 必须基于 key_decisions 或公开证据" in prompt
-            payload = json.loads(prompt[prompt.rindex("\n\n{") + 2 :])
-            seat_presentation = {
-                int(seat): value for seat, value in payload["seat_presentation"].items()
-            }
-            report = review_report_module.build_mock_review_report(
-                game_id="fake",
-                reveal=payload["role_reveal"],
-                seat_presentation=seat_presentation,
-                narrative_rows=tuple(payload["narrative_rows"]),
-                events=tuple(payload["spectator_events"]),
-            )
-            content = {
-                key: value
-                for key, value in report.items()
-                if key not in {"schema_version", "game_id", "generated_at", "generation_mode"}
-            }
-            from wolven_hunt.llm.provider import ProviderResponse
-
-            return ProviderResponse(content=json.dumps(content, ensure_ascii=False), model="fake")
+            super().__init__()
+            providers.append(self)
 
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
@@ -634,40 +612,25 @@ def test_review_report_litellm_provider_is_used_without_mock_downgrade(
         assert captured[0]["model"] == "review-model"
         assert captured[0]["reasoning_effort"] is None
         assert response.json()["generation_mode"] == "real_ai"
+        assert providers and len(providers[0].calls) == 11
+        assert "Wolven Hunt 全局复盘" in providers[0].calls[0]
+        assert "Wolven Hunt 单玩家复盘" in providers[0].calls[1]
 
 
 def test_review_report_gpt55_uses_max_reasoning_effort(
     monkeypatch,
     tmp_path,
 ) -> None:
+    from tests.unit.test_review_pipeline import _StubProvider
+
     import wolven_hunt.storage.review_report as review_report_module
 
     captured: list[dict[str, object]] = []
 
-    class FakeReviewProvider:
+    class FakeReviewProvider(_StubProvider):
         def __init__(self, **kwargs: object) -> None:
             captured.append(dict(kwargs))
-
-        def complete(self, *, seat, phase, prompt, rng):
-            del seat, phase, rng
-            payload = json.loads(prompt[prompt.rindex("\n\n{") + 2 :])
-            report = review_report_module.build_mock_review_report(
-                game_id="fake",
-                reveal=payload["role_reveal"],
-                seat_presentation={
-                    int(seat): value for seat, value in payload["seat_presentation"].items()
-                },
-                narrative_rows=tuple(payload["narrative_rows"]),
-                events=tuple(payload["spectator_events"]),
-            )
-            content = {
-                key: value
-                for key, value in report.items()
-                if key not in {"schema_version", "game_id", "generated_at", "generation_mode"}
-            }
-            from wolven_hunt.llm.provider import ProviderResponse
-
-            return ProviderResponse(content=json.dumps(content, ensure_ascii=False), model="fake")
+            super().__init__()
 
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
@@ -699,7 +662,7 @@ def test_review_report_gpt55_uses_max_reasoning_effort(
     assert captured[0]["extra_body"] == {}
 
 
-def test_review_report_real_provider_failure_does_not_write_report(
+def test_review_report_real_provider_global_failure_uses_offline_mock_fallback(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -709,7 +672,7 @@ def test_review_report_real_provider_failure_does_not_write_report(
         def __init__(self, **kwargs: object) -> None:
             del kwargs
 
-        def complete(self, *, seat, phase, prompt, rng):
+        async def acomplete(self, *, seat, phase, prompt, rng):
             del seat, phase, prompt, rng
             raise RuntimeError("provider failed with review-secret")
 
@@ -738,10 +701,11 @@ def test_review_report_real_provider_failure_does_not_write_report(
         before_events = events_path.read_text(encoding="utf-8")
         response = client.post(f"/games/{game_id}/review-report")
 
-        assert response.status_code == 502
-        assert response.json()["code"] == "review_report_generation_failed"
-        assert "review-secret" not in response.json()["message"]
-        assert not (tmp_path / game_id / "review_report.json").exists()
+        assert response.status_code == 200
+        assert response.json()["generation_mode"] == "offline_mock"
+        report_path = tmp_path / game_id / "review_report.json"
+        assert report_path.exists()
+        assert "review-secret" not in report_path.read_text(encoding="utf-8")
         assert events_path.read_text(encoding="utf-8") == before_events
 
 

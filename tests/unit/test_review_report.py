@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from wolven_hunt.config.settings import Settings
 from wolven_hunt.storage import review_report
 
 
@@ -167,3 +168,38 @@ def test_mock_review_report_uses_distinct_player_wording() -> None:
     )
     assert any("狼聊" in item for item in players[0]["evidence"])
     assert "技能" not in json.dumps(report, ensure_ascii=False)
+
+
+def test_generate_review_report_routes_litellm_to_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.unit.test_review_pipeline import _StubProvider
+
+    from wolven_hunt.storage import review_report as rr
+
+    stub = _StubProvider()
+    monkeypatch.setattr(rr, "_review_provider", lambda settings: stub)
+    settings = Settings(review_provider="litellm", review_api_key="x")
+
+    report = rr.generate_review_report(
+        game_id="g1",
+        events=(
+            {
+                "seq": 1,
+                "day": 1,
+                "phase": "DAY_SPEECH",
+                "type": "speech",
+                "actor": 1,
+                "payload": {"text": "我"},
+            },
+        ),
+        narrative_rows=(),
+        reveal={
+            "winner": "good",
+            "seats": [{"seat": 1, "role": "wolf", "alive": False}],
+        },
+        seat_presentation={1: {"nickname": "A", "icon_path": ""}},
+        settings=settings,
+    )
+
+    assert report["generation_mode"] == "real_ai"
+    assert len(report["players"]) == 1
+    assert len(stub.calls) == 2

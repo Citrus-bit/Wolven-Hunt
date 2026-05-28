@@ -35,6 +35,15 @@ class LLMProvider(Protocol):
         rng: DeterministicRNG,
     ) -> ProviderResponse: ...
 
+    async def acomplete(
+        self,
+        *,
+        seat: Seat,
+        phase: str,
+        prompt: str,
+        rng: DeterministicRNG,
+    ) -> ProviderResponse: ...
+
 
 class MockLLMProvider:
     def __init__(self, *, model: str = "mock/deterministic") -> None:
@@ -83,6 +92,16 @@ class MockLLMProvider:
             usage=usage,
         )
 
+    async def acomplete(
+        self,
+        *,
+        seat: Seat,
+        phase: str,
+        prompt: str,
+        rng: DeterministicRNG,
+    ) -> ProviderResponse:
+        return self.complete(seat=seat, phase=phase, prompt=prompt, rng=rng)
+
 
 class LiteLLMProvider:
     def __init__(
@@ -114,6 +133,37 @@ class LiteLLMProvider:
     ) -> ProviderResponse:
         del seat, rng
         litellm = _litellm_module()
+        kwargs = self._completion_kwargs(phase=phase, prompt=prompt)
+        try:
+            response = litellm.completion(**kwargs)
+        except Exception as exc:
+            if not _requires_stream_retry(exc):
+                raise
+            response = litellm.completion(**{**kwargs, "stream": True})
+            return _provider_response_from_stream(response, model=self.model)
+        return _provider_response_from_completion(response, model=self.model)
+
+    async def acomplete(
+        self,
+        *,
+        seat: Seat,
+        phase: str,
+        prompt: str,
+        rng: DeterministicRNG,
+    ) -> ProviderResponse:
+        del seat, rng
+        litellm = _litellm_module()
+        kwargs = self._completion_kwargs(phase=phase, prompt=prompt)
+        try:
+            response = await litellm.acompletion(**kwargs)
+        except Exception as exc:
+            if not _requires_stream_retry(exc):
+                raise
+            response = await litellm.acompletion(**{**kwargs, "stream": True})
+            return await _provider_response_from_async_stream(response, model=self.model)
+        return _provider_response_from_completion(response, model=self.model)
+
+    def _completion_kwargs(self, *, phase: str, prompt: str) -> dict[str, Any]:
         timeout_seconds = self.phase_timeout_seconds.get(phase, self.timeout_seconds)
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -128,14 +178,7 @@ class LiteLLMProvider:
             kwargs["reasoning_effort"] = self.reasoning_effort
         if self.extra_body:
             kwargs["extra_body"] = dict(self.extra_body)
-        try:
-            response = litellm.completion(**kwargs)
-        except Exception as exc:
-            if not _requires_stream_retry(exc):
-                raise
-            response = litellm.completion(**{**kwargs, "stream": True})
-            return _provider_response_from_stream(response, model=self.model)
-        return _provider_response_from_completion(response, model=self.model)
+        return kwargs
 
 
 def _provider_response_from_completion(response: Any, *, model: str) -> ProviderResponse:
@@ -162,6 +205,49 @@ def _provider_response_from_stream(chunks: Any, *, model: str) -> ProviderRespon
     completion_tokens = 0
     cost_usd = 0.0
     for chunk in chunks:
+        chunk_model = _get_response_value(chunk, "model")
+        if chunk_model:
+            response_model = str(chunk_model)
+        hidden = _get_response_value(chunk, "_hidden_params") or {}
+        if isinstance(hidden, dict):
+            cost_usd += float(hidden.get("response_cost") or 0.0)
+        usage_raw = _get_response_value(chunk, "usage") or {}
+        if isinstance(usage_raw, dict):
+            prompt_tokens = max(prompt_tokens, int(usage_raw.get("prompt_tokens") or 0))
+            completion_tokens = max(
+                completion_tokens,
+                int(usage_raw.get("completion_tokens") or 0),
+            )
+        choices = _get_response_value(chunk, "choices")
+        if not isinstance(choices, Sequence) or isinstance(choices, (str, bytes)):
+            continue
+        if not choices:
+            continue
+        choice = choices[0]
+        delta = _get_response_value(choice, "delta") or {}
+        content = _get_response_value(delta, "content")
+        if content:
+            parts.append(str(content))
+    return ProviderResponse(
+        content="".join(parts),
+        model=response_model,
+        usage=TokenUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        ),
+        cost_usd=cost_usd,
+    )
+
+
+async def _provider_response_from_async_stream(chunks: Any, *, model: str) -> ProviderResponse:
+    if not hasattr(chunks, "__aiter__"):
+        return _provider_response_from_stream(chunks, model=model)
+    parts: list[str] = []
+    response_model = model
+    prompt_tokens = 0
+    completion_tokens = 0
+    cost_usd = 0.0
+    async for chunk in chunks:
         chunk_model = _get_response_value(chunk, "model")
         if chunk_model:
             response_model = str(chunk_model)
@@ -296,6 +382,16 @@ class ReplayLLMProvider:
             ),
             cost_usd=_float_value(row.get("cost_usd")),
         )
+
+    async def acomplete(
+        self,
+        *,
+        seat: Seat,
+        phase: str,
+        prompt: str,
+        rng: DeterministicRNG,
+    ) -> ProviderResponse:
+        return self.complete(seat=seat, phase=phase, prompt=prompt, rng=rng)
 
 
 def build_provider_from_config(

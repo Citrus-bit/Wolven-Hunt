@@ -165,31 +165,25 @@ def generate_review_report(
     seat_presentation: dict[int, dict[str, str]],
     settings: Settings,
 ) -> dict[str, Any]:
-    prompt = build_review_prompt(
+    if settings.review_provider != "litellm":
+        return build_mock_review_report(
+            game_id=game_id,
+            reveal=reveal,
+            seat_presentation=seat_presentation,
+            narrative_rows=narrative_rows,
+            events=events,
+        )
+
+    from wolven_hunt.storage import review_pipeline
+
+    return review_pipeline.run_pipeline_sync(
         game_id=game_id,
         events=events,
         narrative_rows=narrative_rows,
         reveal=reveal,
         seat_presentation=seat_presentation,
+        settings=settings,
     )
-    provider = _review_provider(settings)
-    response = provider.complete(
-        seat=Seat(1),
-        phase="REVIEW_REPORT",
-        prompt=prompt,
-        rng=DeterministicRNG(f"review-report:{game_id}"),
-    )
-    raw = json.loads(response.content)
-    report = ReviewReportModel.model_validate(
-        {
-            **(raw if isinstance(raw, dict) else {}),
-            "schema_version": REVIEW_REPORT_SCHEMA_VERSION,
-            "game_id": game_id,
-            "generated_at": _now_iso(),
-            "generation_mode": _generation_mode(settings),
-        }
-    )
-    return report.model_dump(mode="json")
 
 
 def build_mock_review_report(
