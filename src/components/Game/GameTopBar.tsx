@@ -94,7 +94,7 @@ function statusMessage(
   reconnectAttempts: number,
 ) {
   if (status === 'connecting' && reconnectAttempts > 0) {
-    return `事件流断开，正在重连 ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`;
+    return `正在恢复事件流 ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`;
   }
   if (status === 'error') {
     return reconnectAttempts > MAX_RECONNECT_ATTEMPTS

@@ -1,9 +1,16 @@
-import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { INITIAL_STAGE, type GameStage } from '../../lib/gameStage';
 import {
   isPendingRunLaunchState,
   isStartupPendingLaunchState,
   launchStateAfterPhase,
+  launchStateAfterSummary,
   startupMessageForLaunchState,
   type LaunchState,
 } from '../../lib/gameLaunchState';
@@ -137,8 +144,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const audioDayRef = useRef(0);
   const terminalRef = useRef(false);
   const liveSessionAbandonedRef = useRef(false);
+  const liveShellMountedRef = useRef(false);
   const streamCursorRef = useRef(restoredLiveSession?.streamCursor ?? 0);
-  const pendingStreamCursorSeqRef = useRef(restoredLiveSession?.streamCursor ?? 0);
+  const initialStreamCursorRef = useRef(restoredLiveSession?.streamCursor ?? 0);
   const pendingRunGameIdRef = useRef<string | null>(
     restoredLiveSession && isPendingRunLaunchState(restoredLiveSession.launchState)
       ? restoredLiveSession.gameId
@@ -192,6 +200,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     eventsRef,
     audioDayRef,
     terminalRef,
+    initialStreamCursorRef,
   });
   const liveSessionSnapshotRef = useRef({
     gameId,
@@ -229,9 +238,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     'connecting_stream',
     'starting_backend',
   ].includes(launchState);
+  const liveShellActive = gameStarted || isStartingGame;
   const startupPending =
     launchState === 'connecting_service' ||
-    isStartupPendingLaunchState(launchState, { isReplay, gameStarted, finished });
+    isStartupPendingLaunchState(launchState, {
+      isReplay,
+      gameStarted: liveShellActive,
+      finished,
+    });
   const freezePhase = deriveLastPlayablePhase(events);
   const renderPhase = finished ? freezePhase : currentPhase;
   const phaseHeaderPhase = startupPending && renderPhase === null ? 'GAME_START' : renderPhase;
@@ -247,7 +261,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const deadSeats = publicEliminatedSeats(events, spectatorEffects);
   const seatRoles = deriveSeatRoles(events);
   const failedModelSummaries =
-    !gameStarted && allTestsCompleted
+    !liveShellActive && allTestsCompleted
       ? assignments
           .filter((slotIndex): slotIndex is number => slotIndex !== null)
           .filter((slotIndex) => testResults[slotIndex]?.status === 'fail')
@@ -259,7 +273,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           })
       : [];
   const modelTestTimings: ModelTestTimingRow[] =
-    !gameStarted && allTestsCompleted
+    !liveShellActive && allTestsCompleted
       ? assignments
           .map((slotIndex, seatIndex): ModelTestTimingRow | null => {
             if (slotIndex === null) {
@@ -366,11 +380,23 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     setBgPhase('fade-out');
   };
 
+  const startPausedGameWhenReadyRef = useLatestRef<
+    ((gameId: string) => Promise<void>) | null
+  >(null);
+  const updateLaunchStateRef = useLatestRef(updateLaunchState);
+  const enqueueAudioTriggerRef = useLatestRef(enqueueAudioTrigger);
+  const resetAudioPacingRef = useLatestRef(resetAudioPacing);
+  const resetSpectatorEffectsForGameRef = useLatestRef(resetSpectatorEffectsForGame);
+  const ingestLiveEffectsRef = useLatestRef(ingestLiveEffects);
+  const ingestHistoricalEffectsRef = useLatestRef(ingestHistoricalEffects);
+  const markSpectatorEffectsFinishedRef = useLatestRef(markSpectatorEffectsFinished);
+
   const { startGameWithAssignments, startPausedGameWhenReady } = useGameLaunchFlow({
     assignments,
     isStartingGame,
     gameStarted,
     stage,
+    liveShellMountedRef,
     pendingRunGameIdRef,
     runStartedGameIdsRef,
     liveSessionAbandonedRef,
@@ -389,11 +415,30 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     setCurrentPhase,
     setStreamStatus,
   });
+  startPausedGameWhenReadyRef.current = startPausedGameWhenReady;
 
   useEffect(() => {
-    gameAudio.preload();
-    preloadGameEffectAssets();
     return () => gameAudio.stopAll();
+  }, []);
+
+  useEffect(() => {
+    if (!liveShellActive) {
+      return undefined;
+    }
+    const preloadTimer = window.setTimeout(() => {
+      gameAudio.preload();
+      preloadGameEffectAssets();
+    }, 0);
+    return () => {
+      window.clearTimeout(preloadTimer);
+    };
+  }, [liveShellActive]);
+
+  useEffect(() => {
+    liveShellMountedRef.current = true;
+    return () => {
+      liveShellMountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -418,8 +463,8 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       ...liveSessionSnapshotRef.current,
       recentEffects: [],
     };
-    markSpectatorEffectsFinished();
-  }, [finished, gameId, markSpectatorEffectsFinished]);
+    markSpectatorEffectsFinishedRef.current();
+  }, [finished, gameId]);
 
   useEffect(() => {
     if (!isReplay || !replayGameId) {
@@ -444,10 +489,8 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           (max, effect) => Math.max(max, effect.seq),
           0,
         );
-        streamCursorRef.current = Math.max(
-          loadedEvents[loadedEvents.length - 1]?.seq ?? 0,
-          loadedEffectSeq,
-        );
+        streamCursorRef.current = loadedEvents[loadedEvents.length - 1]?.seq ?? 0;
+        effectSeqRef.current = loadedEffectSeq;
         setNarrativeRows(
           loadedEvents
             .map(toNarrative)
@@ -478,7 +521,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     if (!gameId) {
       setStreamStatus('idle');
       setCurrentPhase(null);
-      updateLaunchState('idle');
+      if (!isStartingGame) {
+        updateLaunchStateRef.current('idle');
+      }
       return undefined;
     }
 
@@ -486,13 +531,13 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     eventsRef.current = [];
     setNarrativeRows([]);
     narrativeSeqRef.current = 0;
-    resetSpectatorEffectsForGame(gameId);
-    resetAudioPacing();
+    resetSpectatorEffectsForGameRef.current(gameId);
     terminalRef.current = false;
     streamCursorRef.current = restoredLiveSession?.gameId === gameId
       ? restoredLiveSession.streamCursor
       : 0;
-    pendingStreamCursorSeqRef.current = streamCursorRef.current;
+    initialStreamCursorRef.current = streamCursorRef.current;
+    resetAudioPacingRef.current(initialStreamCursorRef.current);
     runStartedGameIdsRef.current.delete(gameId);
     setCurrentPhase(null);
     setStreamStatus('connecting');
@@ -504,9 +549,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         return;
       }
       if (pendingRunGameIdRef.current === gameId) {
-        updateLaunchState('starting_backend');
+        updateLaunchStateRef.current('starting_backend');
       }
-      void startPausedGameWhenReady(gameId);
+      void startPausedGameWhenReadyRef.current?.(gameId);
     };
 
     const connect = (lastSeq: number, attempt: number) => {
@@ -520,28 +565,34 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           setReconnectAttempts(0);
         },
         handleStreamReady,
-        (event) => {
+        (event, streamCursor) => {
           if (closed || liveSessionAbandonedRef.current) {
             return;
           }
           setStreamStatus('open');
           setReconnectAttempts(0);
-          updateStreamCursor(event.seq);
-          pendingStreamCursorSeqRef.current = Math.max(
-            pendingStreamCursorSeqRef.current,
-            event.seq,
-          );
+          if (streamCursor !== null) {
+            updateStreamCursor(streamCursor);
+          }
           audioDayRef.current = Math.max(audioDayRef.current, event.day);
           if (isTerminalGameEvent(event)) {
             terminalRef.current = true;
-            markSpectatorEffectsFinished();
+            markSpectatorEffectsFinishedRef.current();
           }
-          if (event.type === 'phase_enter') {
+          if (event.type === 'game_start') {
+            updateLaunchStateRef.current((current) =>
+              current === 'connecting_stream' || current === 'starting_backend'
+                ? 'running'
+                : current,
+            );
+          } else if (event.type === 'phase_enter') {
             setCurrentPhase(String(event.payload.phase ?? event.phase));
             const phase = String(event.payload.phase ?? event.phase);
-            updateLaunchState((current) => launchStateAfterPhase(current, phase));
+            updateLaunchStateRef.current((current) => launchStateAfterPhase(current, phase));
           } else if (event.phase !== 'GAME_START') {
-            updateLaunchState((current) => launchStateAfterPhase(current, event.phase));
+            updateLaunchStateRef.current((current) =>
+              launchStateAfterPhase(current, event.phase),
+            );
           }
           setEvents((prev) => {
             if (prev.some((existing) => existing.seq === event.seq)) {
@@ -556,7 +607,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
             narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
             appendNarrativeRow(setNarrativeRows, row);
           }
-          enqueueAudioTrigger(event);
+          enqueueAudioTriggerRef.current(event);
         },
         () => {
           source?.close();
@@ -579,7 +630,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 ...liveSessionSnapshotRef.current,
                 recentEffects: [],
               };
-              markSpectatorEffectsFinished();
+              markSpectatorEffectsFinishedRef.current();
               clearLiveGameSession(gameId);
             }
             if (summary.status === 'failed') {
@@ -600,7 +651,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
               if (closed || liveSessionAbandonedRef.current) {
                 return;
               }
-              ingestHistoricalEffects(effects, terminalRef.current);
+              ingestHistoricalEffectsRef.current(effects, terminalRef.current);
             })
             .catch(() => undefined);
           if (closed || liveSessionAbandonedRef.current) {
@@ -608,41 +659,38 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           }
           const nextAttempt = attempt + 1;
           setReconnectAttempts(nextAttempt);
-          setStreamStatus('error');
           if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
-            updateLaunchState((current) =>
+            setStreamStatus('error');
+            updateLaunchStateRef.current((current) =>
               current === 'connecting_stream' || current === 'starting_backend'
                 ? 'failed'
                 : current,
             );
             return;
           }
+          setStreamStatus('connecting');
           reconnectTimer = window.setTimeout(() => {
             connect(streamCursorRef.current || lastSeq, nextAttempt);
           }, RECONNECT_DELAYS_MS[nextAttempt - 1]);
         },
-        (row) => {
+        (row, streamCursor) => {
           if (closed || liveSessionAbandonedRef.current) {
             return;
           }
-          updateStreamCursor(row.seq);
-          pendingStreamCursorSeqRef.current = Math.max(
-            pendingStreamCursorSeqRef.current,
-            row.seq,
-          );
+          if (streamCursor !== null) {
+            updateStreamCursor(streamCursor);
+          }
           narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
           appendNarrativeRow(setNarrativeRows, row);
         },
-        (effect) => {
+        (effect, streamCursor) => {
           if (closed || liveSessionAbandonedRef.current) {
             return;
           }
-          updateStreamCursor(effect.seq);
-          pendingStreamCursorSeqRef.current = Math.max(
-            pendingStreamCursorSeqRef.current,
-            effect.seq,
-          );
-          ingestLiveEffects([effect]);
+          if (streamCursor !== null) {
+            updateStreamCursor(streamCursor);
+          }
+          ingestLiveEffectsRef.current([effect]);
         },
         lastSeq,
       );
@@ -656,16 +704,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         window.clearTimeout(reconnectTimer);
       }
     };
-  }, [
-    enqueueAudioTrigger,
-    gameId,
-    ingestHistoricalEffects,
-    ingestLiveEffects,
-    isReplay,
-    markSpectatorEffectsFinished,
-    resetAudioPacing,
-    resetSpectatorEffectsForGame,
-  ]);
+  }, [gameId, isReplay]);
 
   useEffect(() => {
     if (!gameId || isReplay) {
@@ -680,9 +719,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           setCurrentPhase(summary.phase);
           setTimings(summary.timings);
           updateLaunchState((current) =>
-            summary.status === 'failed'
-              ? 'failed'
-              : launchStateAfterPhase(current, summary.phase),
+            launchStateAfterSummary(current, summary),
           );
           if (summary.status === 'finished') {
             clearLiveGameSession(gameId);
@@ -715,7 +752,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   }, [bgPhase, events, stage.dayNumber, stage.phase]);
 
   const handleClickSeat = (seatIndex: number) => {
-    if (isTesting || gameStarted) {
+    if (isTesting || liveShellActive) {
       return;
     }
 
@@ -723,7 +760,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   };
 
   const handlePickModel = (slotIndex: number) => {
-    if (pickerSeat === null || gameStarted) {
+    if (pickerSeat === null || liveShellActive) {
       return;
     }
 
@@ -762,7 +799,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   };
 
   const handleSwapModel = (slotIndex: number) => {
-    if (pickerSeat === null || isTesting || gameStarted) {
+    if (pickerSeat === null || isTesting || liveShellActive) {
       return;
     }
 
@@ -789,7 +826,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   };
 
   const handleQuickAssign = () => {
-    if (isTesting || gameStarted) {
+    if (isTesting || liveShellActive) {
       return;
     }
 
@@ -814,7 +851,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   };
 
   const handleClickTest = async () => {
-    if (!allSeatsAssigned || isTesting || gameStarted) {
+    if (!allSeatsAssigned || isTesting || liveShellActive) {
       return;
     }
 
@@ -997,7 +1034,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         onToggleGameAudio={handleToggleGameAudio}
       />
       <StageIndicator stage={stage} />
-      {gameStarted && (
+      {liveShellActive && (
         <GamePhaseHeader
           phase={phaseHeaderPhase}
           timings={timings}
@@ -1025,7 +1062,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         terminal={finished}
         onEffectRendered={handleRenderedSpectatorEffect}
       />
-      {!gameStarted && !isReplay && (
+      {!liveShellActive && !isReplay && (
         <div className="game-quick-assign-helper">
           <button
             type="button"
@@ -1055,7 +1092,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                     ? testResults[assignment]?.status
                     : undefined
                 }
-                showTestBadge={!gameStarted}
+                showTestBadge={!liveShellActive}
                 thinkingEnabled={
                   assignment !== null &&
                   readModelConfig(assignment)?.thinkingEnabled === true
@@ -1063,7 +1100,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 speaking={currentSpeakerSeat === seatIndex + 1}
                 dead={deadSeats.has(seatIndex + 1)}
                 effects={seatEffects[seatIndex + 1]}
-                disabled={gameStarted}
+                disabled={liveShellActive}
                 onClickSeat={handleClickSeat}
               />
             );
@@ -1086,7 +1123,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                     ? testResults[assignment]?.status
                     : undefined
                 }
-                showTestBadge={!gameStarted}
+                showTestBadge={!liveShellActive}
                 thinkingEnabled={
                   assignment !== null &&
                   readModelConfig(assignment)?.thinkingEnabled === true
@@ -1094,14 +1131,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 speaking={currentSpeakerSeat === seatIndex + 1}
                 dead={deadSeats.has(seatIndex + 1)}
                 effects={seatEffects[seatIndex + 1]}
-                disabled={gameStarted}
+                disabled={liveShellActive}
                 onClickSeat={handleClickSeat}
               />
             );
           })}
         </div>
       </div>
-      {!gameStarted && !isReplay && (
+      {!liveShellActive && !isReplay && (
         <GameBottomActions
           allSeatsAssigned={allSeatsAssigned}
           allTestsPassed={allTestsPassed}
@@ -1163,6 +1200,12 @@ function appendNarrativeRow(
 
 function isTerminalGameEvent(event: GameEvent) {
   return event.type === 'game_end' || event.type === 'role_reveal';
+}
+
+function useLatestRef<T>(value: T) {
+  const ref = useRef(value);
+  ref.current = value;
+  return ref;
 }
 
 function deriveSeatRoles(events: GameEvent[]): Partial<Record<number, SeatRole>> {

@@ -1,5 +1,6 @@
 import { useCallback, type MutableRefObject } from 'react';
 import type { LaunchState } from '../lib/gameLaunchState';
+import { launchStateAfterSummary } from '../lib/gameLaunchState';
 import {
   checkHealth,
   createGame,
@@ -30,6 +31,7 @@ type UseGameLaunchFlowParams = {
   isStartingGame: boolean;
   gameStarted: boolean;
   stage: GameStage;
+  liveShellMountedRef: MutableRefObject<boolean>;
   pendingRunGameIdRef: MutableRefObject<string | null>;
   runStartedGameIdsRef: MutableRefObject<Set<string>>;
   liveSessionAbandonedRef: MutableRefObject<boolean>;
@@ -64,6 +66,7 @@ export function useGameLaunchFlow({
   isStartingGame,
   gameStarted,
   stage,
+  liveShellMountedRef,
   pendingRunGameIdRef,
   runStartedGameIdsRef,
   liveSessionAbandonedRef,
@@ -89,6 +92,9 @@ export function useGameLaunchFlow({
     setPickerSeat(null);
     updateLaunchState('connecting_service');
     setTestMessage('正在连接本地服务');
+    const presentation = buildSeatPresentation(assignments);
+    setSeatPresentation(presentation);
+    transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
     try {
       void unlockAudio();
       const healthy = await checkHealth();
@@ -103,8 +109,6 @@ export function useGameLaunchFlow({
       updateLaunchState('creating');
       setTestMessage('正在创建对局并接入模型');
       const agents = buildAgentSpecs(assignments);
-      const presentation = buildSeatPresentation(assignments);
-      setSeatPresentation(presentation);
       liveSessionSnapshotRef.current = {
         gameId: null,
         assignments,
@@ -141,7 +145,6 @@ export function useGameLaunchFlow({
       writeLiveGameSession(createdSnapshot);
       setLaunchState('connecting_stream');
       setGameId(created.game_id);
-      transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
     } catch (caught) {
       if (liveSessionAbandonedRef.current) {
         return;
@@ -154,6 +157,7 @@ export function useGameLaunchFlow({
     effectSeqRef,
     gameStarted,
     isStartingGame,
+    liveShellMountedRef,
     liveSessionAbandonedRef,
     liveSessionSnapshotRef,
     pendingRunGameIdRef,
@@ -177,9 +181,7 @@ export function useGameLaunchFlow({
       if (pendingRunGameIdRef.current !== id || runStartedGameIdsRef.current.has(id)) {
         return;
       }
-      const seatsMounted = document.querySelector('.game-seats') !== null;
-      const effectsLayerMounted = document.querySelector('.game-effects-layer') !== null;
-      if (!seatsMounted || !effectsLayerMounted) {
+      if (!liveShellMountedRef.current) {
         window.setTimeout(() => {
           void startPausedGameWhenReady(id);
         }, 50);
@@ -205,7 +207,13 @@ export function useGameLaunchFlow({
           updateLaunchState('failed');
           setStreamStatus('failed');
         } else {
-          updateLaunchState((current) => current === 'creating' ? 'starting_backend' : current);
+          updateLaunchState((current) => {
+            const afterSummary = launchStateAfterSummary(current, summary);
+            if (afterSummary !== current) {
+              return afterSummary;
+            }
+            return current === 'creating' ? 'starting_backend' : current;
+          });
         }
       } catch (error) {
         runStartedGameIdsRef.current.delete(id);
@@ -218,6 +226,7 @@ export function useGameLaunchFlow({
       liveSessionAbandonedRef,
       pendingRunGameIdRef,
       runStartedGameIdsRef,
+      liveShellMountedRef,
       setCurrentPhase,
       setStreamStatus,
       setTestMessage,

@@ -37,6 +37,22 @@ export function launchStateAfterPhase(
   return launchState;
 }
 
+export function launchStateAfterSummary(
+  launchState: LaunchState,
+  summary: { status: string; phase: string | null },
+) {
+  if (summary.status === 'failed') {
+    return 'failed';
+  }
+  if (summary.status === 'running') {
+    if (launchState === 'connecting_stream' || launchState === 'starting_backend') {
+      return 'running';
+    }
+    return launchStateAfterPhase(launchState, summary.phase);
+  }
+  return launchState;
+}
+
 export function startupMessageForLaunchState(launchState: LaunchState) {
   if (launchState === 'connecting_service') {
     return '正在连接本地服务';

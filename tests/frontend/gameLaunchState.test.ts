@@ -3,6 +3,7 @@ import {
   isPendingRunLaunchState,
   isStartupPendingLaunchState,
   launchStateAfterPhase,
+  launchStateAfterSummary,
   startupMessageForLaunchState,
 } from '../../src/lib/gameLaunchState';
 
@@ -44,6 +45,27 @@ describe('gameLaunchState', () => {
     );
     expect(launchStateAfterPhase('starting_backend', 'NIGHT_START')).toBe('running');
     expect(launchStateAfterPhase('connecting_stream', 'NIGHT_GUARD')).toBe('running');
+  });
+
+  it('clears startup feedback from a running backend summary with a playable phase', () => {
+    expect(
+      launchStateAfterSummary('starting_backend', {
+        status: 'running',
+        phase: 'NIGHT_START',
+      }),
+    ).toBe('running');
+    expect(
+      launchStateAfterSummary('starting_backend', {
+        status: 'running',
+        phase: 'GAME_START',
+      }),
+    ).toBe('running');
+    expect(
+      launchStateAfterSummary('starting_backend', {
+        status: 'failed',
+        phase: 'NIGHT_START',
+      }),
+    ).toBe('failed');
   });
 
   it('identifies restored sessions that still need the run handshake', () => {

@@ -94,6 +94,7 @@ describe('GameEffectsLayer', () => {
     expect(html).not.toContain('missing_asset');
   });
 
+
   it('suppresses transient announcements in terminal mode', () => {
     const wolf = effect(2, 'wolf_attack', 4, 'wolf_attack', {}, 0, 'NIGHT_WOLF_VOTE');
     const guard = effect(1, 'guard_shield', 8, 'guard_shield', {}, 0, 'NIGHT_GUARD');

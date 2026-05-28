@@ -138,6 +138,25 @@ export function GameEffectsLayer({
 
   useEffect(() => {
     if (terminal) {
+      return;
+    }
+    for (const item of activeRecentEffects) {
+      const effect = item.effect;
+      if (effect.kind === 'death_reveal' || isEffectAssetKey(effect.asset_key)) {
+        continue;
+      }
+      markLiveEffectRendered(
+        renderedLiveEffectIdsRef.current,
+        renderAckTimersRef.current,
+        item.id,
+        effect,
+        onEffectRendered,
+      );
+    }
+  }, [activeRecentEffects, onEffectRendered, terminal]);
+
+  useEffect(() => {
+    if (terminal) {
       setFlights([]);
       setBursts([]);
       return;

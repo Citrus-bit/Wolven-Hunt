@@ -1,6 +1,6 @@
-import { useCallback, useRef, type MutableRefObject } from 'react';
+import { useRef, type MutableRefObject } from 'react';
 import { type GameAudioKey } from '../lib/audioAssets';
-import { sendAck, type GameEvent } from '../lib/gameApi';
+import { sendAck as defaultSendAck, type GameEvent } from '../lib/gameApi';
 import { gameAudio } from '../lib/gameAudio';
 import {
   dayAnnounceAudioPlan,
@@ -23,41 +23,95 @@ type UseGameAudioPacingParams = {
   eventsRef: MutableRefObject<GameEvent[]>;
   audioDayRef: MutableRefObject<number>;
   terminalRef: MutableRefObject<boolean>;
+  initialStreamCursorRef?: MutableRefObject<number>;
+  sendAck?: typeof defaultSendAck;
 };
 
-export function useGameAudioPacing({
+export type AudioPacingRuntime = {
+  enqueueAudioTrigger(event: GameEvent): void;
+  resetAudioPacing(playedThroughSeq?: number): void;
+};
+
+type MutableAudioPacingRuntime = AudioPacingRuntime & {
+  updateParams(params: UseGameAudioPacingParams): void;
+};
+
+export function useGameAudioPacing(
+  params: UseGameAudioPacingParams,
+): AudioPacingRuntime {
+  const runtimeRef = useRef<MutableAudioPacingRuntime | null>(null);
+  if (runtimeRef.current === null) {
+    runtimeRef.current = createGameAudioPacingRuntime(params);
+  }
+  runtimeRef.current.updateParams(params);
+  return runtimeRef.current;
+}
+
+export function createGameAudioPacingRuntime({
   gameId,
   eventsRef,
   audioDayRef,
   terminalRef,
-}: UseGameAudioPacingParams) {
-  const audioQueueRef = useRef(Promise.resolve());
-  const audioTriggeredSeqRef = useRef(new Set<number>());
+  initialStreamCursorRef,
+  sendAck = defaultSendAck,
+}: UseGameAudioPacingParams): MutableAudioPacingRuntime {
+  const refs = {
+    gameId,
+    eventsRef,
+    audioDayRef,
+    terminalRef,
+    initialStreamCursorRef,
+    sendAck,
+  };
+  let audioQueue = Promise.resolve();
+  let audioTriggeredSeq = new Set<number>();
+  let audioGeneration = 0;
 
-  const resetAudioPacing = useCallback(() => {
-    audioQueueRef.current = Promise.resolve();
-    audioTriggeredSeqRef.current = new Set();
-  }, []);
+  const resetAudioPacing = (playedThroughSeq = 0) => {
+    audioGeneration += 1;
+    gameAudio.stopAll();
+    audioQueue = Promise.resolve();
+    audioTriggeredSeq = new Set(
+      Array.from({ length: Math.max(0, playedThroughSeq) }, (_, index) => index + 1),
+    );
+  };
 
-  const enqueueAudioTrigger = useCallback(
-    (event: GameEvent) => {
-      if (!gameId || audioTriggeredSeqRef.current.has(event.seq)) {
+  const runtime = {
+    updateParams(params: UseGameAudioPacingParams) {
+      refs.gameId = params.gameId;
+      refs.eventsRef = params.eventsRef;
+      refs.audioDayRef = params.audioDayRef;
+      refs.terminalRef = params.terminalRef;
+      refs.initialStreamCursorRef = params.initialStreamCursorRef;
+      refs.sendAck = params.sendAck ?? defaultSendAck;
+    },
+    resetAudioPacing,
+    enqueueAudioTrigger(event: GameEvent) {
+      if (
+        !refs.gameId ||
+        event.seq <= (refs.initialStreamCursorRef?.current ?? 0) ||
+        audioTriggeredSeq.has(event.seq)
+      ) {
         return;
       }
+      const gameId = refs.gameId;
+      const generation = audioGeneration;
 
-      const plan = phaseAudioPlan(event, eventsRef.current);
+      const plan = phaseAudioPlan(event, refs.eventsRef.current);
       if (plan) {
-        audioTriggeredSeqRef.current.add(event.seq);
+        audioTriggeredSeq.add(event.seq);
         const cursor = audioCursorFromEvent(event);
-        audioQueueRef.current = audioQueueRef.current
+        audioQueue = audioQueue
           .catch(() => undefined)
           .then(() =>
             playSequenceThenAck(
               gameId,
               plan,
               cursor,
-              audioDayRef,
-              terminalRef,
+              refs.audioDayRef,
+              refs.terminalRef,
+              refs.sendAck,
+              () => generation === audioGeneration,
             ),
           );
         return;
@@ -65,16 +119,17 @@ export function useGameAudioPacing({
 
       const dayPlan = dayAnnounceAudioPlan(event);
       if (dayPlan) {
-        audioTriggeredSeqRef.current.add(event.seq);
+        audioTriggeredSeq.add(event.seq);
         const cursor = audioCursorFromEvent(event);
-        audioQueueRef.current = audioQueueRef.current
+        audioQueue = audioQueue
           .catch(() => undefined)
           .then(() =>
             playDayAnnounceSequence(
               dayPlan,
               cursor,
-              audioDayRef,
-              terminalRef,
+              refs.audioDayRef,
+              refs.terminalRef,
+              () => generation === audioGeneration,
             ),
           );
         return;
@@ -82,20 +137,24 @@ export function useGameAudioPacing({
 
       const hostPlan = hostAudioPlan(event);
       if (hostPlan) {
-        audioTriggeredSeqRef.current.add(event.seq);
+        audioTriggeredSeq.add(event.seq);
         const cursor = audioCursorFromEvent(event);
-        audioQueueRef.current = audioQueueRef.current
+        audioQueue = audioQueue
           .catch(() => undefined)
-          .then(() => playHostAudioSequence(hostPlan, cursor, audioDayRef, terminalRef));
+          .then(() =>
+            playHostAudioSequence(
+              hostPlan,
+              cursor,
+              refs.audioDayRef,
+              refs.terminalRef,
+              () => generation === audioGeneration,
+            ),
+          );
       }
     },
-    [audioDayRef, eventsRef, gameId, terminalRef],
-  );
-
-  return {
-    enqueueAudioTrigger,
-    resetAudioPacing,
   };
+
+  return runtime;
 }
 
 async function playSequenceThenAck(
@@ -104,9 +163,14 @@ async function playSequenceThenAck(
   cursor: AudioQueueCursor,
   audioDayRef: MutableRefObject<number>,
   terminalRef: MutableRefObject<boolean>,
+  sendAck: typeof defaultSendAck,
+  isCurrent: () => boolean,
 ) {
+  if (!isCurrent()) {
+    return;
+  }
   try {
-    if (shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
+    if (shouldPlayAudio(cursor, audioDayRef, terminalRef) && isCurrent()) {
       await withTimeout(
         gameAudio.playSequence(plan.sequence, plan.gapMs),
         AUDIO_ACK_TIMEOUT_MS,
@@ -116,8 +180,17 @@ async function playSequenceThenAck(
   } catch {
     // Audio playback is best-effort; pacing must keep moving even if autoplay hangs.
   }
-  if (plan.settleMs > 0) {
+  if (!isCurrent()) {
+    return;
+  }
+  if (
+    plan.settleMs > 0 &&
+    shouldPlayAudio(cursor, audioDayRef, terminalRef)
+  ) {
     await delay(plan.settleMs);
+  }
+  if (!isCurrent()) {
+    return;
   }
   await sendAck(gameId, plan.phase, plan.ackEvent).catch(() => undefined);
 }
@@ -127,8 +200,9 @@ async function playDayAnnounceSequence(
   cursor: AudioQueueCursor,
   audioDayRef: MutableRefObject<number>,
   terminalRef: MutableRefObject<boolean>,
+  isCurrent: () => boolean,
 ) {
-  if (!shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
+  if (!isCurrent() || !shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
     return;
   }
   try {
@@ -147,8 +221,9 @@ async function playHostAudioSequence(
   cursor: AudioQueueCursor,
   audioDayRef: MutableRefObject<number>,
   terminalRef: MutableRefObject<boolean>,
+  isCurrent: () => boolean,
 ) {
-  if (!shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
+  if (!isCurrent() || !shouldPlayAudio(cursor, audioDayRef, terminalRef)) {
     return;
   }
   try {
@@ -174,7 +249,11 @@ function shouldPlayAudio(
   audioDayRef: MutableRefObject<number>,
   terminalRef: MutableRefObject<boolean>,
 ) {
-  return !terminalRef.current && cursor.day >= audioDayRef.current;
+  return (
+    !terminalRef.current &&
+    cursor.day >= audioDayRef.current &&
+    !gameAudio.getSnapshot().muted
+  );
 }
 
 function withTimeout<T>(

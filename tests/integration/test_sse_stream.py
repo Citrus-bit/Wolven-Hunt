@@ -65,6 +65,47 @@ def test_sse_paused_game_sends_stream_ready_without_cursor_id(monkeypatch, tmp_p
         assert "id:" not in first_frame
 
 
+def test_sse_paused_live_game_runs_after_stream_ready(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_PACING_PROFILE", "live")
+    monkeypatch.setenv("WH_PACING_PHASE_MS", "0")
+    monkeypatch.setenv("WH_PACING_NIGHT_MS", "0")
+    monkeypatch.setenv("WH_PACING_SPEECH_MS", "0")
+    monkeypatch.setenv("WH_PACING_ACK_TIMEOUT_MS", "0")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        game_id = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "sse-paused-live-run",
+                "start_paused": True,
+                "pacing": "live",
+                "agents": {str(seat): "llm:mock" for seat in range(1, 11)},
+            },
+        ).json()["game_id"]
+
+        session = get_registry().require(game_id)
+        response = sse_response(session, last_event_id=None)
+        iterator = response.body_iterator
+
+        first_frame = asyncio.run(iterator.__anext__())
+        assert first_frame == "event: stream_ready\ndata: {}\n\n"
+
+        run_summary = client.post(f"/games/{game_id}/run").json()
+        assert run_summary["status"] == "running"
+
+        frame = _next_sse_frame_containing(iterator, "NIGHT_START")
+        assert "event: game_event" in frame
+        assert '"phase":"NIGHT_START"' in frame
+
+        summary = client.get(f"/games/{game_id}").json()
+        assert summary["status"] in {"running", "finished"}
+        assert summary["phase"] != "GAME_START"
+
+
 def test_sse_resume_replays_all_projection_types_for_same_raw_seq(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
@@ -105,3 +146,11 @@ def _wait_for_non_death_effect(client: TestClient, game_id: str) -> dict[str, ob
                 return effect
         sleep(0.02)
     raise AssertionError("spectator effect was not published")
+
+
+def _next_sse_frame_containing(iterator, text: str) -> str:
+    for _ in range(50):
+        frame = asyncio.run(iterator.__anext__())
+        if text in frame:
+            return frame
+    raise AssertionError(f"SSE frame containing {text!r} was not published")

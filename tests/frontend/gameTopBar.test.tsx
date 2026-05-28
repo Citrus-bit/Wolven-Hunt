@@ -45,12 +45,12 @@ describe('GameTopBar', () => {
     expect(onToggleAutoScroll).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the fixed reconnect attempt limit', () => {
+  it('renders transient reconnects as recovery instead of a hard disconnect', () => {
     const html = renderToStaticMarkup(
       topBar({ streamStatus: 'connecting', reconnectAttempts: 3 }),
     );
 
-    expect(html).toContain('事件流断开，正在重连 3/4');
+    expect(html).toContain('正在恢复事件流 3/4');
   });
 
   it('renders a failed connection message after fixed retries are exhausted', () => {

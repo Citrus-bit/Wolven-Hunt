@@ -4,6 +4,7 @@ import {
   createGame,
   generateReviewReport,
   getReviewReport,
+  parseEventSourceCursor,
   pauseGame,
   runGame,
   subscribeGameEvents,
@@ -99,14 +100,78 @@ describe('gameApi', () => {
     expect(source.url).toBe('/games/game-1/stream');
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onReady).toHaveBeenCalledTimes(2);
-    expect(onEvent).toHaveBeenCalledWith({
-      seq: 1,
-      day: 1,
-      phase: 'GAME_START',
-      type: 'game_start',
-      actor: null,
-      payload: {},
-    });
+    expect(onEvent).toHaveBeenCalledWith(
+      {
+        seq: 1,
+        day: 1,
+        phase: 'GAME_START',
+        type: 'game_start',
+        actor: null,
+        payload: {},
+      },
+      null,
+    );
+  });
+
+  it('passes EventSource lastEventId as the raw stream cursor for projections', () => {
+    const sourceClass = fakeEventSourceClass();
+    vi.stubGlobal('EventSource', sourceClass);
+    const onEvent = vi.fn();
+    const onNarrative = vi.fn();
+    const onEffect = vi.fn();
+
+    subscribeGameEvents(
+      'game-1',
+      vi.fn(),
+      vi.fn(),
+      onEvent,
+      vi.fn(),
+      onNarrative,
+      onEffect,
+      5,
+    );
+    const source = sourceClass.instances[0];
+
+    expect(source.url).toBe('/games/game-1/stream?last_event_id=5');
+    source.emit(
+      'narrative_row',
+      JSON.stringify({
+        seq: 8,
+        day: 1,
+        phase: 'NIGHT_GUARD',
+        kind: 'action',
+        text: '守卫行动',
+        actor: 4,
+        icon: null,
+      }),
+      '7',
+    );
+    source.emit(
+      'spectator_effect',
+      JSON.stringify({
+        seq: 9,
+        day: 1,
+        phase: 'NIGHT_GUARD',
+        kind: 'guard_shield',
+        actor: 4,
+        source_seat: 4,
+        target_seat: 2,
+        asset_key: 'guard_shield',
+        duration_ms: 1000,
+        meta: {},
+      }),
+      '9',
+    );
+
+    expect(onNarrative).toHaveBeenCalledWith(expect.objectContaining({ seq: 8 }), 7);
+    expect(onEffect).toHaveBeenCalledWith(expect.objectContaining({ seq: 9 }), 9);
+  });
+
+  it('parses only positive integer EventSource cursors', () => {
+    expect(parseEventSourceCursor('12')).toBe(12);
+    expect(parseEventSourceCursor('')).toBeNull();
+    expect(parseEventSourceCursor('0')).toBeNull();
+    expect(parseEventSourceCursor('abc')).toBeNull();
   });
 
   it('pauses a live game through the pause endpoint', async () => {
@@ -183,9 +248,9 @@ function fakeEventSourceClass() {
       this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
     }
 
-    emit(event: string, data: string) {
+    emit(event: string, data: string, lastEventId = '') {
       for (const listener of this.listeners.get(event) ?? []) {
-        listener({ data } as MessageEvent<string>);
+        listener({ data, lastEventId } as MessageEvent<string>);
       }
     }
 

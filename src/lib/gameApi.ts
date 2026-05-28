@@ -287,10 +287,10 @@ export function subscribeGameEvents(
   gameId: string,
   onOpen: () => void,
   onReady: () => void,
-  onEvent: (event: GameEvent) => void,
+  onEvent: (event: GameEvent, streamCursor: number | null) => void,
   onError: () => void,
-  onNarrative?: (row: NarrativeRow) => void,
-  onEffect?: (effect: SpectatorEffect) => void,
+  onNarrative?: (row: NarrativeRow, streamCursor: number | null) => void,
+  onEffect?: (effect: SpectatorEffect, streamCursor: number | null) => void,
   lastEventId?: number,
 ) {
   const params = lastEventId && lastEventId > 0
@@ -305,16 +305,36 @@ export function subscribeGameEvents(
     onReady();
   });
   source.addEventListener('game_event', (message) => {
-    onEvent(JSON.parse((message as MessageEvent<string>).data) as GameEvent);
+    const eventMessage = message as MessageEvent<string>;
+    onEvent(
+      JSON.parse(eventMessage.data) as GameEvent,
+      parseEventSourceCursor(eventMessage.lastEventId),
+    );
   });
   source.addEventListener('narrative_row', (message) => {
-    onNarrative?.(JSON.parse((message as MessageEvent<string>).data) as NarrativeRow);
+    const eventMessage = message as MessageEvent<string>;
+    onNarrative?.(
+      JSON.parse(eventMessage.data) as NarrativeRow,
+      parseEventSourceCursor(eventMessage.lastEventId),
+    );
   });
   source.addEventListener('spectator_effect', (message) => {
-    onEffect?.(JSON.parse((message as MessageEvent<string>).data) as SpectatorEffect);
+    const eventMessage = message as MessageEvent<string>;
+    onEffect?.(
+      JSON.parse(eventMessage.data) as SpectatorEffect,
+      parseEventSourceCursor(eventMessage.lastEventId),
+    );
   });
   source.onerror = onError;
   return source;
+}
+
+export function parseEventSourceCursor(lastEventId: string) {
+  if (!lastEventId) {
+    return null;
+  }
+  const cursor = Number(lastEventId);
+  return Number.isInteger(cursor) && cursor > 0 ? cursor : null;
 }
 
 export async function testModelConnection(req: {
