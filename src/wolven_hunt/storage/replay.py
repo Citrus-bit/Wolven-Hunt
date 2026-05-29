@@ -185,7 +185,7 @@ def _prompt_version_from_manifest(manifest: dict[str, object]) -> str:
     value = manifest.get("prompt_pack_version")
     if isinstance(value, str) and value:
         return value
-    return "v1"
+    return "v5"
 
 
 def _optional_int_value(value: object) -> int | None:

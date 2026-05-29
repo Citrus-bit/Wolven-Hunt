@@ -51,8 +51,10 @@ def load_game_config(path: str | Path) -> GameConfig:
 
     if not prompt_pack_root.exists():
         raise ConfigError(f"missing prompt pack root: {prompt_pack_root}")
-    if not any(prompt_pack_root.glob("*/*.v1.md")):
-        raise ConfigError(f"prompt pack root has no *.v1.md templates: {prompt_pack_root}")
+    missing_prompt_templates = _missing_current_prompt_templates(prompt_pack_root)
+    if missing_prompt_templates:
+        missing = ", ".join(missing_prompt_templates)
+        raise ConfigError(f"prompt pack root is missing current v5 templates: {missing}")
 
     role_pack = RolePack.model_validate(role_pack_raw)
     rule_set = RuleSet.model_validate(rule_set_raw)
@@ -82,3 +84,15 @@ def load_game_config(path: str | Path) -> GameConfig:
             "model_roster_path": model_roster_path,
         }
     )
+
+
+def _missing_current_prompt_templates(prompt_pack_root: Path) -> list[str]:
+    expected_paths = [prompt_pack_root / "system.v5.md"]
+    for role_name in ("guard", "seer", "villager", "witch", "wolf"):
+        for kind in ("last_words", "night_action", "speech", "vote"):
+            expected_paths.append(prompt_pack_root / role_name / f"{kind}.v5.md")
+    return [
+        str(path.relative_to(prompt_pack_root))
+        for path in expected_paths
+        if not path.exists()
+    ]
