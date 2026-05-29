@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from wolven_hunt.agents.deterministic_mock import DeterministicMockAgent
-from wolven_hunt.config.loader import load_game_config
+from wolven_hunt.config.loader import ensure_prompt_version, load_game_config
 from wolven_hunt.config.settings import load_settings
 from wolven_hunt.core.ids import GameId
 from wolven_hunt.core.seat import Seat
+from wolven_hunt.evolution.engine import maybe_step_after_game
+from wolven_hunt.evolution.engine import step as evolution_step
+from wolven_hunt.evolution.state import active_prompt_version
 from wolven_hunt.orchestration.fsm import run_game
 from wolven_hunt.referee.view import build_view
 from wolven_hunt.storage.disk import GameRunStore
@@ -52,6 +57,10 @@ def main(argv: list[str] | None = None) -> int:
     serve_prod.add_argument("--host", default="0.0.0.0")
     serve_prod.add_argument("--port", type=int, default=7002)
 
+    evolve = subparsers.add_parser("evolve", help="run one prompt evolution step")
+    evolve.add_argument("--config", required=True)
+    evolve.add_argument("--dry-run", action="store_true")
+
     args = parser.parse_args(argv)
     if args.cmd == "simulate":
         return _run_simulate(args)
@@ -63,11 +72,19 @@ def main(argv: list[str] | None = None) -> int:
         return _run_serve(args)
     if args.cmd == "serve-prod":
         return _run_serve_prod(args)
+    if args.cmd == "evolve":
+        return _run_evolve(args)
     return 2
 
 
 def _run_simulate(args: argparse.Namespace) -> int:
     config = load_game_config(Path(args.config))
+    settings = load_settings()
+    prompt_version = active_prompt_version(
+        settings.runs_dir,
+        enabled=settings.evolution_enabled,
+    )
+    ensure_prompt_version(config.prompt_pack_root, prompt_version)
     agents = {
         seat: DeterministicMockAgent(Seat(seat))
         for seat in range(config.seat_range.start, config.seat_range.end + 1)
@@ -90,11 +107,18 @@ def _run_simulate(args: argparse.Namespace) -> int:
                 "config_hash": config.config_hash,
                 "config_path": str(config.path),
                 "seed": str(args.seed),
-                "prompt_pack_version": "v5",
+                "prompt_pack_version": prompt_version,
                 "started_at": None,
-                "ended_at": None,
+                "ended_at": datetime.now(tz=UTC).isoformat(),
                 "winner": None if state.winner is None else state.winner.value,
+                "seat_presentation": {},
             }
+        )
+        maybe_step_after_game(
+            config_path=config.path,
+            settings=settings,
+            game_id=store.root.name,
+            prompt_version=prompt_version,
         )
     perspective = str(args.perspective)
     seat = None if perspective == "spectator" else Seat(int(perspective.split(":", 1)[1]))
@@ -134,6 +158,17 @@ def _run_resimulate(args: argparse.Namespace) -> int:
         None if args.config is None else Path(args.config),
     )
     sys.stdout.write(events_to_jsonl(events))
+    return 0
+
+
+def _run_evolve(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    result = evolution_step(
+        config_path=Path(args.config),
+        settings=settings,
+        dry_run=bool(args.dry_run),
+    )
+    sys.stdout.write(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return 0
 
 

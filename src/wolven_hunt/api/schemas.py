@@ -44,6 +44,7 @@ class CreateGameRequest(BaseModel):
     pacing: Literal["live", "fast", "off"] | None = None
     start_paused: bool = False
     seat_presentation: dict[int, SeatPresentation] = Field(default_factory=dict)
+    evolution_enabled: bool | None = None
 
 
 class CreateGameResponse(BaseModel):

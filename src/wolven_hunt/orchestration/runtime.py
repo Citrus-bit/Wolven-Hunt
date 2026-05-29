@@ -13,7 +13,7 @@ from typing import cast
 from wolven_hunt.agents.deterministic_mock import DeterministicMockAgent
 from wolven_hunt.agents.interface import PlayerInterface
 from wolven_hunt.agents.llm_agent import LLMAgent
-from wolven_hunt.config.loader import load_game_config
+from wolven_hunt.config.loader import ensure_prompt_version, load_game_config
 from wolven_hunt.config.schema import GameConfig
 from wolven_hunt.config.settings import Settings
 from wolven_hunt.core.actions import (
@@ -32,6 +32,8 @@ from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.rule_engine import build_initial_state
 from wolven_hunt.core.seat import Seat
 from wolven_hunt.core.state import GameState
+from wolven_hunt.evolution.engine import maybe_step_after_game
+from wolven_hunt.evolution.state import active_prompt_version
 from wolven_hunt.llm.cost import CostTracker
 from wolven_hunt.llm.gateway import LLMGateway
 from wolven_hunt.llm.prompts import PromptRenderer
@@ -191,6 +193,8 @@ class GameSession:
     started_at: str
     seat_presentation: dict[int, dict[str, str]]
     agents: dict[int, PlayerInterface]
+    prompt_version: str
+    evolution_enabled: bool
     task: asyncio.Task[None] | None = None
     error: str | None = None
     final_reveal: dict[str, object] | None = None
@@ -313,8 +317,19 @@ class GameRegistry:
         pacing: PacingName | None = None,
         start_paused: bool = False,
         seat_presentation: SeatPresentationValue | None = None,
+        evolution_enabled: bool | None = None,
     ) -> GameSession:
         config = load_game_config(config_path)
+        game_evolution_enabled = (
+            self.settings.evolution_enabled
+            if evolution_enabled is None
+            else evolution_enabled
+        )
+        prompt_version = active_prompt_version(
+            self.settings.runs_dir,
+            enabled=game_evolution_enabled,
+        )
+        ensure_prompt_version(config.prompt_pack_root, prompt_version)
         initial_state, _ = build_initial_state(config, seed)
         game_id = str(initial_state.game_id)
         store = GameRunStore(runs_dir=self.settings.runs_dir, game_id=game_id)
@@ -329,6 +344,7 @@ class GameRegistry:
                 ended_at=None,
                 winner=None,
                 seat_presentation=normalized_presentation,
+                prompt_version=prompt_version,
             )
         )
         session_ref: dict[str, GameSession] = {}
@@ -343,6 +359,7 @@ class GameRegistry:
             specs=agent_specs,
             store=store,
             pending=pending,
+            prompt_version=prompt_version,
         )
         session = GameSession(
             game_id=game_id,
@@ -360,6 +377,8 @@ class GameRegistry:
             started_at=started_at,
             seat_presentation=normalized_presentation,
             agents=agents,
+            prompt_version=prompt_version,
+            evolution_enabled=game_evolution_enabled,
         )
         session_ref["session"] = session
         with self._lock:
@@ -485,7 +504,16 @@ class GameRegistry:
                     ended_at=_now(),
                     winner=None if state.winner is None else state.winner.value,
                     seat_presentation=session.seat_presentation,
+                    prompt_version=session.prompt_version,
                 )
+            )
+            maybe_step_after_game(
+                config_path=session.config.path,
+                settings=self.settings.model_copy(
+                    update={"evolution_enabled": session.evolution_enabled}
+                ),
+                game_id=session.game_id,
+                prompt_version=session.prompt_version,
             )
             session.set_status("finished")
         except Exception as exc:  # pragma: no cover - preserved in session for API debugging.
@@ -502,11 +530,12 @@ class GameRegistry:
         specs: Mapping[int, AgentSpecValue],
         store: GameRunStore,
         pending: PendingTextActions,
+        prompt_version: str,
     ) -> dict[int, PlayerInterface]:
         agents: dict[int, PlayerInterface] = {}
         provider_map = load_provider_map(self.settings)
         cost_tracker = CostTracker(budget_tokens=self.settings.llm_budget_per_game)
-        renderer = PromptRenderer(config.prompt_pack_root, version="v5")
+        renderer = PromptRenderer(config.prompt_pack_root, version=prompt_version)
         llm_rng = DeterministicRNG(seed)
         use_default_provider = bool(specs) or bool(self.settings.llm_provider_map)
         for seat_number in range(config.seat_range.start, config.seat_range.end + 1):
@@ -537,7 +566,7 @@ class GameRegistry:
                     ),
                     retry_backoff_jitter=config.rule_set.fallback.retry_backoff_jitter,
                     cost_tracker=cost_tracker,
-                    prompt_version="v5",
+                    prompt_version=prompt_version,
                     raw_response_sink=lambda row: _write_llm_rows(store, row),
                 )
                 base: PlayerInterface = LLMAgent(
@@ -646,12 +675,13 @@ def _manifest_payload(
     ended_at: str | None,
     winner: str | None,
     seat_presentation: dict[int, dict[str, str]],
+    prompt_version: str,
 ) -> dict[str, object]:
     return {
         "config_hash": config_hash,
         "config_path": config_path,
         "seed": seed,
-        "prompt_pack_version": "v5",
+        "prompt_pack_version": prompt_version,
         "started_at": started_at,
         "ended_at": ended_at,
         "winner": winner,

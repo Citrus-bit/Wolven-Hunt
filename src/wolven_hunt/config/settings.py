@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     review_base_url: str = "https://yunwu.ai/v1"
     review_model: str = "gpt-5.5"
     review_timeout_seconds: float = Field(default=60.0, gt=0)
+    evolution_enabled: bool = False
+    evolution_window_size: int = Field(default=5, ge=1)
+    evolution_min_margin: float = 2.0
+    evolution_regression_tolerance: float = 3.0
+    evolution_char_cap_ratio: float = Field(default=1.10, gt=0)
     pacing_profile: Literal["live", "fast", "off"] = "live"
     pacing_phase_ms: int = Field(default=600, ge=0)
     pacing_speech_ms: int = Field(default=400, ge=0)

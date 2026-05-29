@@ -171,6 +171,7 @@ export async function createGame(opts: {
   pacing?: 'live' | 'fast' | 'off';
   startPaused?: boolean;
   seatPresentation?: SeatPresentationMap;
+  evolutionEnabled?: boolean;
 } = {}): Promise<CreateGameResponse> {
   const res = await fetch(`${API_BASE}/games`, {
     method: 'POST',
@@ -182,6 +183,7 @@ export async function createGame(opts: {
       pacing: opts.pacing,
       start_paused: opts.startPaused ?? false,
       seat_presentation: opts.seatPresentation ?? {},
+      evolution_enabled: opts.evolutionEnabled ?? false,
     }),
   });
   return parseJsonResponse<CreateGameResponse>(res);

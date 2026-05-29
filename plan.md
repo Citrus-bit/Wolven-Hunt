@@ -15,6 +15,9 @@
 - 当前阶段：**STEP-07 / P3 观赛 MVP**。在 STEP-06 外部接入基础上允许实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与终局定格态。
 - STEP-07 增加 **spectator-only 观赛特效流**：观众上帝视角可以看到护盾、狼袭、预言、女巫药瓶与死亡揭晓动画；普通 PlayerView、prompt、玩家 SSE、narrative 仍不得暴露守卫/预言家/女巫私有结果、狼刀投票细节、provider 配置或 raw response。
 - `DAY_SPEECH` / `DAY_LAST_WORDS` 输出必须经过 Referee 文本事实一致性 hook；确定性违反规则机制、本人私有行动历史或越权私有事实的文本按 `illegal_action` 处理，不得进入 EventLog、narrative、spectator API 或 SSE。
+- STEP-07 允许默认关闭的 **Prompt Evolution** 子系统：只能通过配置开关启用，基于已结束对局的复盘报告生成新 prompt pack 快照；事件日志仍是单一事实源，ack、replay hash、胜负判定、Referee 权限边界和事件 schema 不得受进化状态影响。
+- Prompt pack 版本必须是整包不可变快照。每局 manifest 必须记录启动时实际使用的 `prompt_pack_version`；旧版本文件不得就地覆盖或删除。自动进化只允许改写目标角色提示词文件，不自动改写 `system.*.md` 或 `last_words.*.md`。
+- 进化相关 raw LLM response 若落盘，只能写入私有 `runs/_evolution/raw_responses.jsonl`；不得进入 PlayerView、spectator API、narrative、SSE 或普通 EventLog。
 
 ---
 

@@ -18,6 +18,8 @@
 
 `DAY_SPEECH` / `DAY_LAST_WORDS` 输出必须经过 Referee 文本事实一致性 hook；确定性违反规则机制、本人私有行动历史或越权私有事实的文本按 `illegal_action` 处理，不得进入 EventLog、narrative、spectator API 或 SSE。
 
+STEP-07 同时允许默认关闭的 Prompt Evolution 子系统。该子系统只通过配置开关启用，基于已结束对局的 `review_report.json` 生成新提示词整包快照；不得修改事件 schema、胜负判定、Referee 权限边界、普通 PlayerView、spectator 投影或 replay/resimulate 语义。
+
 ## 2. Rule Contract
 
 `GameConfig = RolePack + RuleSet + ModelRoster + PromptPack + random_seed`
@@ -30,6 +32,8 @@
 - `role_assignment`
 
 这些 metadata 用于 replay 校验。进入 PlayerView 前必须由 Referee 脱敏。
+
+每局 manifest 必须记录启动时实际使用的 `prompt_pack_version`。Prompt pack 版本使用整包不可变快照：旧版本文件不得就地覆盖或删除，新增版本必须包含 `system` 与所有角色 action prompt 文件。自动进化只能改写目标角色的 `speech`、`vote` 或 `night_action` 文件；`system` 与 `last_words` 不参与自动进化。
 
 座位统一使用 1-based 编号，默认固定为 1 到 10 号。`GAME_START` 使用 `random_seed` 派生的 deterministic RNG 洗牌分配角色。玩家只知道自己的角色；狼人额外知道全部狼队同伴身份；STEP-07 起 spectator 是观众上帝视角，可看到全部座位身份、狼人夜聊和 spectator-only 观赛特效，但仍不得看到 raw response、provider 配置、守卫/预言家私有结果、女巫私有结果或狼队投刀事件原文。
 
@@ -233,6 +237,8 @@ STEP-07 live 观赛中，`NIGHT_GUARD`、`NIGHT_WITCH`、`NIGHT_SEER` 同时承�
 `vote_cast` 只在投票 phase 结算时公开追加；投票收集过程中不得提前写入 EventLog。弃票 `vote_cast` 使用 `{target: null, abstain: true}`。`vote_result` 仍然 public，`counts` 只统计非弃票目标，并通过 `abstain_count` / `abstentions` 暴露弃票数量与座位，继续作为前端直方图与叙事票型来源。
 
 `llm_call` 包含 `prompt_hash`、`raw_response_hash`、`storage_ref`、`model`、`prompt_tokens`、`completion_tokens`、`cost_usd`、`prompt_version`，但仅写入存储层，不进入 PlayerView。完整 raw response 仅写入私有存储；`llm_call` payload 不得包含 raw response 原文。
+
+Prompt Evolution 的 raw response 若保存，只能写入私有 `runs/_evolution/raw_responses.jsonl`。进化状态、ledger、候选 diff 和 prompt 文件版本不进入普通 EventLog，不影响 replay hash；回放必须始终使用 manifest 中记录的 `prompt_pack_version`。
 
 `role_reveal` 仅在 `GAME_END` 后由 Referee 生成，公开可见，payload 固定为 `{winner, seats: [{seat, role, alive}], highlights}`。`pacing_tick` 是未来保留事件；STEP-07 不写入事件日志，避免污染 replay hash。
 

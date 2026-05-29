@@ -383,6 +383,7 @@ button {
 }
 
 .lobby-settings-volume,
+.lobby-settings-evolution,
 .lobby-settings-models {
   display: flex;
   flex-direction: column;
@@ -412,6 +413,7 @@ button {
 }
 
 .lobby-settings-volume h3,
+.lobby-settings-evolution h3,
 .lobby-settings-models h3 {
   margin: 0;
   color: #fff7df;
@@ -420,6 +422,92 @@ button {
   line-height: 1.3;
   letter-spacing: 0;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.48);
+}
+
+.lobby-settings-evolution {
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 232, 166, 0.16);
+  border-radius: 8px;
+  background: rgba(20, 3, 8, 0.28);
+}
+
+.lobby-evolution-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  color: #fff7df;
+  font-size: 13px;
+  line-height: 1.25;
+  cursor: pointer;
+  user-select: none;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.42);
+}
+
+.lobby-evolution-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.lobby-evolution-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  border: 1px solid rgba(255, 232, 166, 0.32);
+  border-radius: 999px;
+  background: rgba(22, 4, 8, 0.7);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 4px 12px rgba(0, 0, 0, 0.18);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.lobby-evolution-switch::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff7df;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.34);
+  content: "";
+  transition: transform 160ms ease;
+}
+
+.lobby-evolution-toggle input:checked + .lobby-evolution-switch {
+  border-color: rgba(255, 211, 106, 0.82);
+  background: rgba(120, 56, 18, 0.8);
+}
+
+.lobby-evolution-toggle input:checked + .lobby-evolution-switch::after {
+  transform: translateX(16px);
+}
+
+.lobby-evolution-toggle input:focus-visible + .lobby-evolution-switch {
+  outline: 3px solid rgba(255, 232, 166, 0.95);
+  outline-offset: 4px;
+}
+
+.lobby-evolution-label {
+  white-space: nowrap;
+}
+
+.lobby-evolution-hint {
+  margin: 0;
+  color: #ffd36a;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.44);
 }
 
 .lobby-volume-slider {

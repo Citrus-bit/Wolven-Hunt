@@ -33,6 +33,19 @@ describe('gameApi', () => {
       pacing: 'live',
       start_paused: true,
       agents: { 1: 'llm:mock' },
+      evolution_enabled: false,
+    });
+  });
+
+  it('sends prompt evolution preference when creating games', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ game_id: 'game-1' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createGame({ evolutionEnabled: true });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      evolution_enabled: true,
     });
   });
 

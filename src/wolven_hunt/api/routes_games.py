@@ -60,6 +60,7 @@ async def create_game(
             seat: presentation.model_dump(mode="json")
             for seat, presentation in request.seat_presentation.items()
         },
+        evolution_enabled=request.evolution_enabled,
     )
     return CreateGameResponse(game_id=session.game_id)
 

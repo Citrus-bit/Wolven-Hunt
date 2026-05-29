@@ -15,6 +15,7 @@ import {
   type SeatPresentationMap,
 } from '../lib/seatPresentation';
 import type { GameStage } from '../lib/gameStage';
+import { readPromptEvolutionEnabled } from '../lib/evolutionSettings';
 
 type LiveSessionSnapshotDraft = {
   gameId: string | null;
@@ -123,6 +124,7 @@ export function useGameLaunchFlow({
         pacing: 'live',
         startPaused: true,
         seatPresentation: presentation,
+        evolutionEnabled: readPromptEvolutionEnabled(),
       });
       if (liveSessionAbandonedRef.current) {
         clearLiveGameSession(created.game_id);
