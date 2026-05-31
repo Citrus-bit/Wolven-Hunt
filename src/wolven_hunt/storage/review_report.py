@@ -10,8 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from wolven_hunt.config.settings import Settings
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.seat import ROLE_TO_CAMP, Role, Seat
-from wolven_hunt.llm.provider import LiteLLMProvider, MockLLMProvider, ProviderResponse
-from wolven_hunt.llm.thinking import thinking_extra_body, thinking_reasoning_effort
+from wolven_hunt.llm.provider import (
+    LiteLLMProvider,
+    MockLLMProvider,
+    ProviderResponse,
+    normalize_litellm_model,
+)
+from wolven_hunt.llm.thinking import ReasoningEffort, thinking_extra_body, thinking_reasoning_effort
 
 REVIEW_REPORT_SCHEMA_VERSION: Literal["1.1"] = "1.1"
 
@@ -270,9 +275,19 @@ def _review_provider(settings: Settings) -> LiteLLMProvider | MockLLMProvider:
             base_url=settings.review_base_url,
             timeout_seconds=settings.review_timeout_seconds,
             extra_body=thinking_extra_body(settings.review_model, enabled=True),
-            reasoning_effort=thinking_reasoning_effort(settings.review_model, enabled=True),
+            reasoning_effort=_review_reasoning_effort(settings),
         )
     return _MockReviewProvider(model=settings.review_model)
+
+
+def _review_reasoning_effort(settings: Settings) -> ReasoningEffort | None:
+    normalized_model = normalize_litellm_model(
+        model=settings.review_model,
+        base_url=settings.review_base_url,
+    )
+    if normalized_model.startswith("custom_openai/"):
+        return None
+    return thinking_reasoning_effort(settings.review_model, enabled=True)
 
 
 def _generation_mode(settings: Settings) -> GenerationMode:

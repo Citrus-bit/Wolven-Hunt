@@ -155,6 +155,37 @@ def test_litellm_provider_uses_phase_timeout_override(monkeypatch: pytest.Monkey
     assert captured["timeout"] == 20
 
 
+def test_litellm_provider_omits_reasoning_effort_for_custom_openai(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_completion(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": '{"target":1}'}}], "model": "m", "usage": {}}
+
+    monkeypatch.setattr(
+        "wolven_hunt.llm.provider._litellm_module",
+        lambda: SimpleNamespace(completion=fake_completion),
+    )
+    provider = LiteLLMProvider(
+        model="gpt-5.5",
+        api_key="test-key",
+        base_url="https://yunwu.ai/v1",
+        reasoning_effort="xhigh",
+    )
+
+    provider.complete(
+        seat=Seat(1),
+        phase="NIGHT_GUARD",
+        prompt="{}",
+        rng=DeterministicRNG("custom-openai-no-reasoning"),
+    )
+
+    assert captured["model"] == "custom_openai/gpt-5.5"
+    assert "reasoning_effort" not in captured
+
+
 def test_litellm_provider_retries_stream_when_upstream_requires_stream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -255,7 +255,7 @@ def test_per_seat_schema_failure_retries_before_success() -> None:
     assert "具体引语2" in seat_2["evaluation"]
 
 
-def test_global_stage_exhaustion_uses_offline_report_after_retries() -> None:
+def test_global_stage_exhaustion_raises_after_retries() -> None:
     settings = Settings(
         review_provider="litellm",
         review_api_key="x",
@@ -264,13 +264,17 @@ def test_global_stage_exhaustion_uses_offline_report_after_retries() -> None:
     )
     provider = _FlakyReviewProvider(fail_global_attempts=3)
 
-    report = review_pipeline.run_pipeline_sync(
-        **_sample_pipeline_kwargs(),
-        settings=settings,
-        provider=provider,
-    )
+    try:
+        review_pipeline.run_pipeline_sync(
+            **_sample_pipeline_kwargs(),
+            settings=settings,
+            provider=provider,
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "temporary global review failure"
+    else:
+        raise AssertionError("global review failure should propagate")
 
-    assert report["generation_mode"] == "offline_mock"
     assert provider.global_attempts == 3
 
 

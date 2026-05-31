@@ -364,7 +364,7 @@ def test_model_test_litellm_defaults_qwen_thinking_off(monkeypatch, tmp_path) ->
     assert not any(tmp_path.iterdir())
 
 
-def test_model_test_litellm_applies_gpt_max_reasoning(monkeypatch, tmp_path) -> None:
+def test_model_test_litellm_custom_openai_omits_gpt_reasoning(monkeypatch, tmp_path) -> None:
     from wolven_hunt.llm.provider import _litellm_module
 
     litellm = _litellm_module()
@@ -397,7 +397,7 @@ def test_model_test_litellm_applies_gpt_max_reasoning(monkeypatch, tmp_path) -> 
     assert response.status_code == 200
     assert response.json() == {"ok": True, "message": None}
     assert captured["model"] == "custom_openai/gpt-5.5"
-    assert captured["reasoning_effort"] == "xhigh"
+    assert "reasoning_effort" not in captured
     assert "extra_body" not in captured
     assert not any(tmp_path.iterdir())
 
@@ -659,7 +659,7 @@ def test_review_report_litellm_provider_is_used_without_mock_downgrade(
         assert "Wolven Hunt 单玩家复盘" in providers[0].calls[1]
 
 
-def test_review_report_gpt55_uses_max_reasoning_effort(
+def test_review_report_gpt55_custom_openai_omits_reasoning_effort(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -700,11 +700,12 @@ def test_review_report_gpt55_uses_max_reasoning_effort(
 
     assert response.status_code == 200
     assert captured and captured[0]["model"] == "gpt-5.5"
-    assert captured[0]["reasoning_effort"] == "xhigh"
+    assert captured[0]["base_url"] == "https://yunwu.ai/v1"
+    assert captured[0]["reasoning_effort"] is None
     assert captured[0]["extra_body"] == {}
 
 
-def test_review_report_real_provider_global_failure_uses_offline_mock_fallback(
+def test_review_report_real_provider_global_failure_returns_error_without_report(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -750,12 +751,13 @@ def test_review_report_real_provider_global_failure_uses_offline_mock_fallback(
         before_events = events_path.read_text(encoding="utf-8")
         response = client.post(f"/games/{game_id}/review-report")
 
-        assert response.status_code == 200
-        assert response.json()["generation_mode"] == "offline_mock"
+        assert response.status_code == 502
+        body = response.json()
+        assert body["code"] == "review_report_generation_failed"
+        assert "review-secret" not in body["message"]
         assert providers and providers[0].calls == 3
         report_path = tmp_path / game_id / "review_report.json"
-        assert report_path.exists()
-        assert "review-secret" not in report_path.read_text(encoding="utf-8")
+        assert not report_path.exists()
         assert events_path.read_text(encoding="utf-8") == before_events
 
 

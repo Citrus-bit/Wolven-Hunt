@@ -70,33 +70,19 @@ async def run_pipeline(
     if provider is None:
         provider = rr._review_provider(settings)
 
-    try:
-        global_part = await _run_review_stage_with_retries(
-            lambda: run_global_stage(
-                provider=provider,
-                game_id=game_id,
-                events=events,
-                narrative_rows=narrative_rows,
-                reveal=reveal,
-                seat_presentation=seat_presentation,
-            ),
-            settings=settings,
-            stage="global",
-            seat=None,
-        )
-    except Exception as exc:
-        logger.warning(
-            "review global stage exhausted retries, using full mock fallback: %s",
-            exc.__class__.__name__,
-        )
-        return rr.build_mock_review_report(
+    global_part = await _run_review_stage_with_retries(
+        lambda: run_global_stage(
+            provider=provider,
             game_id=game_id,
+            events=events,
+            narrative_rows=narrative_rows,
             reveal=reveal,
             seat_presentation=seat_presentation,
-            seat_agent_kinds=seat_agent_kinds,
-            narrative_rows=narrative_rows,
-            events=events,
-        )
+        ),
+        settings=settings,
+        stage="global",
+        seat=None,
+    )
 
     dossiers = rd.build_dossiers(
         events=events,

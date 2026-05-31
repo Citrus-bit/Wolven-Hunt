@@ -120,7 +120,7 @@ class LiteLLMProvider:
         self.base_url = base_url
         self.timeout_seconds = timeout_seconds
         self.extra_body = dict(extra_body or {})
-        self.reasoning_effort = reasoning_effort
+        self.reasoning_effort = None if self.model.startswith("custom_openai/") else reasoning_effort
         self.phase_timeout_seconds = dict(phase_timeout_seconds or {})
 
     def complete(

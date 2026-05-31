@@ -154,3 +154,31 @@ def test_generate_review_report_routes_litellm_to_pipeline(monkeypatch: pytest.M
     assert report["generation_mode"] == "real_ai"
     assert len(report["players"]) == 1
     assert len(stub.calls) == 2
+
+
+def test_review_provider_omits_reasoning_effort_for_custom_openai(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from wolven_hunt.storage import review_report as rr
+
+    captured: dict[str, object] = {}
+
+    class FakeReviewProvider:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(rr, "LiteLLMProvider", FakeReviewProvider)
+
+    provider = rr._review_provider(
+        Settings(
+            review_provider="litellm",
+            review_api_key="x",
+            review_base_url="https://yunwu.ai/v1",
+            review_model="gpt-5.5",
+        )
+    )
+
+    assert isinstance(provider, FakeReviewProvider)
+    assert captured["model"] == "gpt-5.5"
+    assert captured["base_url"] == "https://yunwu.ai/v1"
+    assert captured["reasoning_effort"] is None
