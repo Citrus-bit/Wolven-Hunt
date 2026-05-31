@@ -517,11 +517,13 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 - `WH_LLM_MAX_RETRIES`：重试预算，默认 4；已加载 RuleSet 的 `fallback.max_retries` 优先
 - `WH_LLM_BUDGET_PER_GAME`：单局 token 上限，默认 100000
 - `WH_LLM_PROVIDER_MAP`：空字符串或 YAML 路径；非空时按座位路由 provider，缺失座位回退到全局 `WH_LLM_*`
-- `WH_REVIEW_PROVIDER`：赛后 AI 复盘报告 provider，`mock | litellm`，默认 `mock`；`litellm` 生成 `generation_mode=real_ai`，`mock` 生成明确标记的 `generation_mode=offline_mock`
+- `WH_REVIEW_PROVIDER`：赛后 AI 复盘报告 provider，`mock | litellm`，默认 `litellm`；`litellm` 生成 `generation_mode=real_ai`，`mock` 生成明确标记的 `generation_mode=offline_mock`
 - `WH_REVIEW_API_KEY`：赛后报告真实 provider 的 API key；仅 `WH_REVIEW_PROVIDER=litellm` 且触发报告生成时需要，缺失时生成失败但不得静默降级为 mock
 - `WH_REVIEW_BASE_URL`：赛后报告 LiteLLM base URL，默认 `https://yunwu.ai/v1`
 - `WH_REVIEW_MODEL`：赛后报告模型名，默认 `gpt-5.5`
-- `WH_REVIEW_TIMEOUT_SECONDS`：赛后报告单次调用超时，默认 60
+- `WH_REVIEW_TIMEOUT_SECONDS`：赛后报告单次调用超时，默认 180
+- `WH_REVIEW_MAX_RETRIES`：真实赛后报告每个 stage 的失败重试次数，默认 4
+- `WH_REVIEW_RETRY_BACKOFF_DELAYS_SECONDS`：真实赛后报告重试退避秒数数组，默认 `[5, 15, 30, 60]`；超出数组长度时复用最后一个值。该退避只影响 review-report 生成等待时间，不写 EventLog、PlayerView、narrative、SSE、manifest、replay hash 或 resimulate。
 - 真实赛后复盘 provider 调用默认开启 thinking 语义；当 `WH_REVIEW_MODEL` 为 `gpt*`（含默认 `gpt-5.5`）时，LiteLLM 请求必须传顶层 `reasoning_effort: "xhigh"`，作为复盘总结的最高思考档位。该参数只影响 review-report 生成质量/耗时，不进入 EventLog、PlayerView、narrative、SSE、manifest、replay hash 或 resimulate。
 - `WH_PACING_PROFILE`：`live | fast | off`，默认 `live`；CI / replay / resimulate 强制 `off`
 - `WH_PACING_PHASE_MS`：phase 切换基础停顿，默认 600
@@ -552,7 +554,7 @@ STEP-06 引入以下环境变量（通过 `pydantic-settings.BaseSettings` 读�
 - `GET /games/{id}/effects`：返回从完整 EventLog 派生的 spectator-only 特效行，支持 `?after=<seq>`；不得包含 raw response、provider 配置、prompt、模型名或玩家不可见事件原文。
 - `GET /games/{id}/reveal`：仅游戏结束后返回 `final_reveal.json`；未结束返回 `404 {code: "game_not_finished"}`
 - `GET /games/{id}/review-report`：返回已生成的赛后 AI 复盘报告；未生成返回 `404 {code: "report_not_generated"}`
-- `POST /games/{id}/review-report`：仅游戏结束后生成或返回有效缓存的赛后 AI 复盘报告。报告 prompt 只能使用 spectator-safe events、narrative、role reveal 与 `seat_presentation` 及其纯函数 dossier 派生物，不得读取 `raw_responses.jsonl`、provider 配置、API key、prompt 原文或未授权私有事件；真实 provider 配置存在时必须调用真实 review provider 的两阶段 pipeline，未配置时允许生成 `offline_mock` 离线复盘；真实 provider 的 global stage 失败时返回 `offline_mock` 报告，per-seat stage 单座位失败时仅该座位 mock 兜底；生成报告不改变 EventLog、replay hash 或历史列表。
+- `POST /games/{id}/review-report`：仅游戏结束后生成或返回有效缓存的赛后 AI 复盘报告。报告 prompt 只能使用 spectator-safe events、narrative、role reveal 与 `seat_presentation` 及其纯函数 dossier 派生物，不得读取 `raw_responses.jsonl`、provider 配置、API key、prompt 原文或未授权私有事件；真实 provider 配置存在时必须调用真实 review provider 的两阶段 pipeline，未配置时允许生成 `offline_mock` 离线复盘；真实 provider 的 global stage 在网络失败、超时、rate limit、JSON 解析失败或 schema 校验失败时按 review retry 配置重试，全部耗尽后才返回 `offline_mock` 报告；per-seat stage 每个座位独立按相同配置重试，单座位耗尽后仅该座位 mock 兜底，其余座位继续保留真实输出并保持 `generation_mode=real_ai`；生成报告不改变 EventLog、replay hash 或历史列表。
 - `POST /games/{id}/ack`：前端音频或现场 transient effect 渲染完成后解除 pacing 等待；effect ack event 名称为 `spectator_effect_rendered:<seq>`；ack 不进事件日志、不影响 replay hash
 - `POST /games/{id}/speech`：提交公开发言文本，仍走 Referee `validate_action`
 - `POST /games/{id}/wolf_chat`：提交狼聊文本，仍走 Referee `validate_action`

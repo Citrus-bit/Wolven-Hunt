@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -70,16 +71,24 @@ async def run_pipeline(
         provider = rr._review_provider(settings)
 
     try:
-        global_part = await run_global_stage(
-            provider=provider,
-            game_id=game_id,
-            events=events,
-            narrative_rows=narrative_rows,
-            reveal=reveal,
-            seat_presentation=seat_presentation,
+        global_part = await _run_review_stage_with_retries(
+            lambda: run_global_stage(
+                provider=provider,
+                game_id=game_id,
+                events=events,
+                narrative_rows=narrative_rows,
+                reveal=reveal,
+                seat_presentation=seat_presentation,
+            ),
+            settings=settings,
+            stage="global",
+            seat=None,
         )
     except Exception as exc:
-        logger.warning("review global stage failed, using full mock fallback: %r", exc)
+        logger.warning(
+            "review global stage exhausted retries, using full mock fallback: %s",
+            exc.__class__.__name__,
+        )
         return rr.build_mock_review_report(
             game_id=game_id,
             reveal=reveal,
@@ -99,12 +108,17 @@ async def run_pipeline(
     )
     per_seat_results = await asyncio.gather(
         *(
-            run_per_seat_stage(
-                provider=provider,
-                game_id=game_id,
-                dossier=dossier,
-                global_summary=global_part["summary"],
-                global_decisions=global_part["key_decisions"],
+            _run_review_stage_with_retries(
+                lambda dossier=dossier: run_per_seat_stage(
+                    provider=provider,
+                    game_id=game_id,
+                    dossier=dossier,
+                    global_summary=global_part["summary"],
+                    global_decisions=global_part["key_decisions"],
+                ),
+                settings=settings,
+                stage="per_seat",
+                seat=dossier.seat,
             )
             for dossier in dossiers
         ),
@@ -122,6 +136,42 @@ async def run_pipeline(
         events=events,
         seat_agent_kinds=seat_agent_kinds,
     )
+
+
+async def _run_review_stage_with_retries(
+    operation: Callable[[], Awaitable[dict[str, Any]]],
+    *,
+    settings: Settings,
+    stage: str,
+    seat: int | None,
+) -> dict[str, Any]:
+    max_retries = settings.review_max_retries
+    for attempt in range(max_retries + 1):
+        try:
+            return await operation()
+        except Exception as exc:
+            if attempt >= max_retries:
+                raise
+            delay = _review_retry_delay(settings, attempt)
+            logger.warning(
+                "review %s stage failed on attempt %d/%d for seat=%s; retrying in %.1fs: %s",
+                stage,
+                attempt + 1,
+                max_retries + 1,
+                "-" if seat is None else seat,
+                delay,
+                exc.__class__.__name__,
+            )
+            if delay > 0:
+                await asyncio.sleep(delay)
+    raise AssertionError("unreachable review retry loop")
+
+
+def _review_retry_delay(settings: Settings, attempt: int) -> float:
+    delays = settings.review_retry_backoff_delays_seconds
+    if not delays:
+        return 0.0
+    return delays[min(attempt, len(delays) - 1)]
 
 
 async def run_global_stage(
@@ -175,7 +225,11 @@ async def run_per_seat_stage(
         prompt=prompt,
         rng=DeterministicRNG(f"review-report:{game_id}:seat:{dossier.seat}"),
     )
-    return _safe_json_load(response.content, stage="per_seat", seat=dossier.seat)
+    result = _safe_json_load(response.content, stage="per_seat", seat=dossier.seat)
+    rr.ReviewReportPlayerModel.model_validate(
+        _player_row_from_result(dossier=dossier, result=result)
+    )
+    return result
 
 
 def assemble_report(
@@ -206,7 +260,11 @@ def assemble_report(
     personal_counterfactuals: list[dict[str, Any]] = []
     for dossier, result in zip(dossiers, per_seat_results, strict=True):
         if isinstance(result, BaseException):
-            logger.warning("review per-seat stage failed for seat=%d: %r", dossier.seat, result)
+            logger.warning(
+                "review per-seat stage exhausted retries for seat=%d, using mock row: %s",
+                dossier.seat,
+                result.__class__.__name__,
+            )
             player_row = mock_players_by_seat[dossier.seat]
             players.append(player_row)
             leaderboard_seed.append(_mock_leaderboard_seed(dossier=dossier, player_row=player_row))

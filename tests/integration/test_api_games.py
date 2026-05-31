@@ -710,18 +710,25 @@ def test_review_report_real_provider_global_failure_uses_offline_mock_fallback(
 ) -> None:
     import wolven_hunt.storage.review_report as review_report_module
 
+    providers: list[FailingReviewProvider] = []
+
     class FailingReviewProvider:
         def __init__(self, **kwargs: object) -> None:
             del kwargs
+            self.calls = 0
+            providers.append(self)
 
         async def acomplete(self, *, seat, phase, prompt, rng):
             del seat, phase, prompt, rng
+            self.calls += 1
             raise RuntimeError("provider failed with review-secret")
 
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
     monkeypatch.setenv("WH_REVIEW_PROVIDER", "litellm")
     monkeypatch.setenv("WH_REVIEW_API_KEY", "review-secret")
+    monkeypatch.setenv("WH_REVIEW_MAX_RETRIES", "2")
+    monkeypatch.setenv("WH_REVIEW_RETRY_BACKOFF_DELAYS_SECONDS", "[]")
     monkeypatch.setattr(review_report_module, "LiteLLMProvider", FailingReviewProvider)
     get_settings.cache_clear()
     get_registry.cache_clear()
@@ -745,6 +752,7 @@ def test_review_report_real_provider_global_failure_uses_offline_mock_fallback(
 
         assert response.status_code == 200
         assert response.json()["generation_mode"] == "offline_mock"
+        assert providers and providers[0].calls == 3
         report_path = tmp_path / game_id / "review_report.json"
         assert report_path.exists()
         assert "review-secret" not in report_path.read_text(encoding="utf-8")

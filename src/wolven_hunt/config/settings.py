@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,11 +18,13 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(default=4, ge=0)
     llm_budget_per_game: int = Field(default=100_000, ge=0)
     llm_provider_map: str = ""
-    review_provider: Literal["mock", "litellm"] = "mock"
+    review_provider: Literal["mock", "litellm"] = "litellm"
     review_api_key: str = ""
     review_base_url: str = "https://yunwu.ai/v1"
     review_model: str = "gpt-5.5"
-    review_timeout_seconds: float = Field(default=60.0, gt=0)
+    review_timeout_seconds: float = Field(default=180.0, gt=0)
+    review_max_retries: int = Field(default=4, ge=0)
+    review_retry_backoff_delays_seconds: tuple[float, ...] = (5.0, 15.0, 30.0, 60.0)
     evolution_enabled: bool = False
     evolution_window_size: int = Field(default=5, ge=1)
     evolution_min_margin: float = 2.0
@@ -45,6 +47,13 @@ class Settings(BaseSettings):
         return tuple(
             origin.strip() for origin in self.api_cors_origins.split(",") if origin.strip()
         )
+
+    @field_validator("review_retry_backoff_delays_seconds")
+    @classmethod
+    def validate_review_retry_backoff_delays(cls, value: tuple[float, ...]) -> tuple[float, ...]:
+        if any(delay < 0 for delay in value):
+            raise ValueError("WH_REVIEW_RETRY_BACKOFF_DELAYS_SECONDS must be non-negative")
+        return value
 
     def require_real_llm_credentials(self) -> None:
         if self.llm_provider == "litellm" and not self.llm_api_key:

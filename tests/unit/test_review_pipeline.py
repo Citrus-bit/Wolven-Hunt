@@ -194,5 +194,184 @@ def test_pipeline_assembles_full_report_from_two_stages() -> None:
     assert "真人玩家" in human_payload["agent_note"]
 
 
+def test_global_stage_retries_before_real_report_success() -> None:
+    settings = Settings(
+        review_provider="litellm",
+        review_api_key="x",
+        review_max_retries=2,
+        review_retry_backoff_delays_seconds=(),
+    )
+    provider = _FlakyReviewProvider(fail_global_attempts=1)
+
+    report = review_pipeline.run_pipeline_sync(
+        **_sample_pipeline_kwargs(),
+        settings=settings,
+        provider=provider,
+    )
+
+    assert report["generation_mode"] == "real_ai"
+    assert provider.global_attempts == 2
+
+
+def test_per_seat_stage_retries_before_mock_row_fallback() -> None:
+    settings = Settings(
+        review_provider="litellm",
+        review_api_key="x",
+        review_max_retries=2,
+        review_retry_backoff_delays_seconds=(),
+    )
+    provider = _FlakyReviewProvider(fail_per_seat_attempts={2: 1})
+
+    report = review_pipeline.run_pipeline_sync(
+        **_sample_pipeline_kwargs(),
+        settings=settings,
+        provider=provider,
+    )
+
+    assert report["generation_mode"] == "real_ai"
+    assert provider.per_seat_attempts[2] == 2
+    seat_2 = next(player for player in report["players"] if player["seat"] == 2)
+    assert "具体引语2" in seat_2["evaluation"]
+
+
+def test_per_seat_schema_failure_retries_before_success() -> None:
+    settings = Settings(
+        review_provider="litellm",
+        review_api_key="x",
+        review_max_retries=2,
+        review_retry_backoff_delays_seconds=(),
+    )
+    provider = _InvalidFirstPerSeatProvider(invalid_seat=2)
+
+    report = review_pipeline.run_pipeline_sync(
+        **_sample_pipeline_kwargs(),
+        settings=settings,
+        provider=provider,
+    )
+
+    assert report["generation_mode"] == "real_ai"
+    assert provider.per_seat_attempts[2] == 2
+    seat_2 = next(player for player in report["players"] if player["seat"] == 2)
+    assert "具体引语2" in seat_2["evaluation"]
+
+
+def test_global_stage_exhaustion_uses_offline_report_after_retries() -> None:
+    settings = Settings(
+        review_provider="litellm",
+        review_api_key="x",
+        review_max_retries=2,
+        review_retry_backoff_delays_seconds=(),
+    )
+    provider = _FlakyReviewProvider(fail_global_attempts=3)
+
+    report = review_pipeline.run_pipeline_sync(
+        **_sample_pipeline_kwargs(),
+        settings=settings,
+        provider=provider,
+    )
+
+    assert report["generation_mode"] == "offline_mock"
+    assert provider.global_attempts == 3
+
+
+class _FlakyReviewProvider(_StubProvider):
+    def __init__(
+        self,
+        *,
+        fail_global_attempts: int = 0,
+        fail_per_seat_attempts: dict[int, int] | None = None,
+    ) -> None:
+        super().__init__()
+        self.fail_global_attempts = fail_global_attempts
+        self.fail_per_seat_attempts = dict(fail_per_seat_attempts or {})
+        self.global_attempts = 0
+        self.per_seat_attempts: dict[int, int] = {}
+
+    async def acomplete(self, *, seat: Any, phase: str, prompt: str, rng: Any) -> ProviderResponse:
+        if phase == "REVIEW_GLOBAL":
+            self.global_attempts += 1
+            if self.global_attempts <= self.fail_global_attempts:
+                raise RuntimeError("temporary global review failure")
+        if phase == "REVIEW_PER_SEAT":
+            seat_number = int(seat.number)
+            attempt = self.per_seat_attempts.get(seat_number, 0) + 1
+            self.per_seat_attempts[seat_number] = attempt
+            if attempt <= self.fail_per_seat_attempts.get(seat_number, 0):
+                raise RuntimeError("temporary per-seat review failure")
+        return await super().acomplete(seat=seat, phase=phase, prompt=prompt, rng=rng)
+
+
+class _InvalidFirstPerSeatProvider(_StubProvider):
+    def __init__(self, *, invalid_seat: int) -> None:
+        super().__init__()
+        self.invalid_seat = invalid_seat
+        self.per_seat_attempts: dict[int, int] = {}
+
+    async def acomplete(self, *, seat: Any, phase: str, prompt: str, rng: Any) -> ProviderResponse:
+        if phase == "REVIEW_PER_SEAT":
+            seat_number = int(seat.number)
+            attempt = self.per_seat_attempts.get(seat_number, 0) + 1
+            self.per_seat_attempts[seat_number] = attempt
+            if seat_number == self.invalid_seat and attempt == 1:
+                return ProviderResponse(
+                    content=json.dumps({"scores": []}, ensure_ascii=False),
+                    model="stub",
+                )
+        return await super().acomplete(seat=seat, phase=phase, prompt=prompt, rng=rng)
+
+
+def _sample_pipeline_kwargs() -> dict[str, Any]:
+    return {
+        "game_id": "game-retry",
+        "events": (
+            {
+                "seq": 2,
+                "day": 1,
+                "phase": "DAY_SPEECH",
+                "type": "speech",
+                "actor": 1,
+                "payload": {"text": "我没事"},
+            },
+            {
+                "seq": 3,
+                "day": 1,
+                "phase": "DAY_SPEECH",
+                "type": "speech",
+                "actor": 2,
+                "payload": {"text": "我投1号"},
+            },
+            {
+                "seq": 4,
+                "day": 1,
+                "phase": "DAY_VOTE",
+                "type": "vote_cast",
+                "actor": 2,
+                "payload": {"target": 1},
+            },
+            {
+                "seq": 5,
+                "day": 1,
+                "phase": "DAY_EXILE",
+                "type": "exile",
+                "actor": None,
+                "payload": {"seat": 1},
+            },
+        ),
+        "narrative_rows": (),
+        "reveal": {
+            "winner": "good",
+            "seats": [
+                {"seat": 1, "role": "wolf", "alive": False},
+                {"seat": 2, "role": "villager", "alive": True},
+            ],
+        },
+        "seat_presentation": {
+            1: {"nickname": "A", "icon_path": ""},
+            2: {"nickname": "B", "icon_path": ""},
+        },
+        "seat_agent_kinds": {2: "human"},
+    }
+
+
 def _payload_from_prompt(prompt: str) -> dict[str, Any]:
     return json.loads(prompt[prompt.rindex("\n\n{") + 2 :])
