@@ -12,11 +12,21 @@ export type SeatDisplay = {
   iconPath: string;
 };
 
+export const HUMAN_SEAT_PRESENTATION: SeatPresentation = {
+  nickname: '你自己',
+  icon_path: '/assets/lobby/human_player.png',
+};
+
 export function buildSeatPresentation(
   assignments: (number | null)[],
+  opts: { humanSeatIndex?: number | null } = {},
 ): SeatPresentationMap {
   const presentation: SeatPresentationMap = {};
   assignments.forEach((slotIndex, seatIndex) => {
+    if (opts.humanSeatIndex === seatIndex) {
+      presentation[seatIndex + 1] = HUMAN_SEAT_PRESENTATION;
+      return;
+    }
     if (slotIndex === null) {
       return;
     }

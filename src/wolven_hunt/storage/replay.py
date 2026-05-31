@@ -61,7 +61,7 @@ def replay_resimulate(
     from wolven_hunt.agents.llm_agent import LLMAgent
     from wolven_hunt.config.loader import load_game_config
     from wolven_hunt.core.rng import DeterministicRNG
-    from wolven_hunt.core.seat import Seat
+    from wolven_hunt.core.seat import Role, Seat
     from wolven_hunt.llm.gateway import LLMGateway
     from wolven_hunt.llm.prompts import PromptRenderer
     from wolven_hunt.llm.provider import ReplayLLMProvider
@@ -94,7 +94,13 @@ def replay_resimulate(
             if seat_number in llm_seats
             else DeterministicMockAgent(seat)
         )
-    state, new_log = run_game(config=config, seed=seed, agents=agents)
+    forced_seat_roles = _forced_seat_roles_from_manifest(manifest, Role)
+    state, new_log = run_game(
+        config=config,
+        seed=seed,
+        agents=agents,
+        forced_seat_roles=forced_seat_roles,
+    )
     if any(event.type.value == "role_reveal" for event in events):
         from wolven_hunt.referee.reveal import build_role_reveal
 
@@ -186,6 +192,24 @@ def _prompt_version_from_manifest(manifest: dict[str, object]) -> str:
     if isinstance(value, str) and value:
         return value
     return "v5"
+
+
+def _forced_seat_roles_from_manifest(
+    manifest: dict[str, object],
+    role_type: type[Any],
+) -> dict[int, Any]:
+    raw = manifest.get("forced_seat_roles")
+    if not isinstance(raw, dict):
+        return {}
+    forced: dict[int, Any] = {}
+    for seat_key, role_value in raw.items():
+        if not isinstance(role_value, str):
+            continue
+        seat = _optional_int_value(seat_key)
+        if seat is None:
+            continue
+        forced[seat] = role_type(role_value)
+    return forced
 
 
 def _optional_int_value(value: object) -> int | None:

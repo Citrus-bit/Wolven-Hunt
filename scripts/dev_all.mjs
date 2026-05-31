@@ -21,7 +21,7 @@ const webCommand = {
   args: ['run', 'dev'],
 };
 const commands = [
-  ...((await existingApiIsHealthy()) ? [] : [apiCommand]),
+  ...((await existingApiIsCompatible()) ? [] : [apiCommand]),
   webCommand,
 ];
 
@@ -62,7 +62,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   });
 }
 
-async function existingApiIsHealthy() {
+async function existingApiIsCompatible() {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 500);
@@ -75,7 +75,31 @@ async function existingApiIsHealthy() {
       return false;
     }
     const data = await response.json().catch(() => null);
-    return data?.ok === true;
+    if (data?.ok !== true) {
+      return false;
+    }
+    return await existingApiSupportsHumanGames();
+  } catch {
+    return false;
+  }
+}
+
+async function existingApiSupportsHumanGames() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 500);
+    const response = await fetch('http://127.0.0.1:7002/openapi.json', {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!response.ok) {
+      return false;
+    }
+    const data = await response.json().catch(() => null);
+    const requestProps = data?.components?.schemas?.CreateGameRequest?.properties;
+    const responseProps = data?.components?.schemas?.CreateGameResponse?.properties;
+    return Boolean(requestProps?.human_seat && responseProps?.player_token);
   } catch {
     return false;
   }

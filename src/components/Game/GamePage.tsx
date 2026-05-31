@@ -21,10 +21,15 @@ import {
   getNarrative,
   pauseGame,
   subscribeGameEvents,
+  subscribeSeatEvents,
+  submitSeatAction,
   type GameEvent,
   type GameTimings,
+  type HumanRole,
   type NarrativeRow,
+  type SeatActionRequest,
   type SpectatorEffect,
+  type TurnRequest,
 } from '../../lib/gameApi';
 import { preloadGameEffectAssets } from '../../lib/effectAssets';
 import { gameAudio, useGameAudioControls } from '../../lib/gameAudio';
@@ -67,6 +72,7 @@ import { StageIndicator } from './StageIndicator';
 import { toNarrative } from '../../lib/narrative';
 import { deriveDaySpeechProgress } from '../../lib/speechProgress';
 import {
+  HUMAN_SEAT_PRESENTATION,
   type SeatPresentationMap,
 } from '../../lib/seatPresentation';
 import { useGameAudioPacing } from '../../hooks/useGameAudioPacing';
@@ -81,6 +87,14 @@ const leftSeats = [0, 1, 2, 3, 4];
 const rightSeats = [5, 6, 7, 8, 9];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
 const EMPTY_ASSIGNMENTS = Array.from({ length: SEAT_COUNT }, () => null);
+const HUMAN_ROLE_LABELS: Record<HumanRole | SeatRole, string> = {
+  random: '随机',
+  villager: '平民',
+  witch: '女巫',
+  seer: '预言家',
+  guard: '守卫',
+  wolf: '狼人',
+};
 
 type GamePageProps = {
   onExitGame: () => void;
@@ -123,6 +137,18 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const [assignments, setAssignments] = useState<(number | null)[]>(() =>
     restoredLiveSession?.assignments ?? EMPTY_ASSIGNMENTS,
   );
+  const [humanSeatIndex, setHumanSeatIndex] = useState<number | null>(() =>
+    restoredLiveSession?.humanSeat ? restoredLiveSession.humanSeat - 1 : null,
+  );
+  const [humanRole, setHumanRole] = useState<HumanRole>(
+    restoredLiveSession?.humanRole ?? 'random',
+  );
+  const [humanContext, setHumanContext] = useState<{ seat: number; token: string } | null>(
+    () =>
+      restoredLiveSession?.humanSeat && restoredLiveSession.playerToken
+        ? { seat: restoredLiveSession.humanSeat, token: restoredLiveSession.playerToken }
+        : null,
+  );
   const [seatPresentation, setSeatPresentation] = useState<SeatPresentationMap>(
     () => restoredLiveSession?.seatPresentation ?? {},
   );
@@ -158,6 +184,11 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   const [streamStatus, setStreamStatus] = useState<
     'idle' | 'connecting' | 'open' | 'error' | 'failed'
   >('idle');
+  const [turn, setTurn] = useState<TurnRequest | null>(null);
+  const [turnError, setTurnError] = useState<string | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState<number | null>(null);
+  const [submittingTurn, setSubmittingTurn] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [launchState, setLaunchState] = useState<LaunchState>(
     restoredLiveSession?.launchState ?? 'idle',
@@ -210,23 +241,28 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     streamCursor: streamCursorRef.current,
     effectSeq: effectSeqRef.current,
     recentEffects,
+    humanSeat: humanContext?.seat ?? null,
+    playerToken: humanContext?.token ?? null,
+    humanRole,
   });
 
   const allSeatsAssigned = assignments.every(
-    (assignment) => assignment !== null,
+    (assignment, seatIndex) => assignment !== null || humanSeatIndex === seatIndex,
   );
   const allTestsPassed =
     allSeatsAssigned &&
     assignments.every(
-      (slotIndex) =>
-        slotIndex !== null && testResults[slotIndex]?.status === 'pass',
+      (slotIndex, seatIndex) =>
+        humanSeatIndex === seatIndex ||
+        (slotIndex !== null && testResults[slotIndex]?.status === 'pass'),
     );
   const allTestsCompleted =
     allSeatsAssigned &&
     assignments.every(
-      (slotIndex) =>
-        slotIndex !== null &&
-        ['pass', 'fail'].includes(testResults[slotIndex]?.status ?? ''),
+      (slotIndex, seatIndex) =>
+        humanSeatIndex === seatIndex ||
+        (slotIndex !== null &&
+          ['pass', 'fail'].includes(testResults[slotIndex]?.status ?? '')),
     );
   const bgSrc =
     stage.phase === 'day' ? '/assets/game/day_bg.png' : '/assets/game/night_bg.png';
@@ -258,12 +294,22 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     nowMs: effectClockMs,
     seenAtByKey: effectSeenAtRef.current,
   });
+  const selfRoleInfo = deriveSelfRoleInfo(events);
+  const turnSecondsLeft = turn
+    ? Math.max(0, Math.ceil(turn.deadline_ts - nowMs / 1000))
+    : null;
+  const turnExpired = turnSecondsLeft !== null && turnSecondsLeft <= 0;
+  const textTurnKind = turn && isTextTurn(turn.kind) ? turn.kind : null;
+  const inputMaxChars = Number(turn?.constraints.max_chars) || 300;
   const deadSeats = publicEliminatedSeats(events, spectatorEffects);
   const seatRoles = deriveSeatRoles(events);
   const failedModelSummaries =
     !liveShellActive && allTestsCompleted
       ? assignments
-          .filter((slotIndex): slotIndex is number => slotIndex !== null)
+          .filter(
+            (slotIndex, seatIndex): slotIndex is number =>
+              humanSeatIndex !== seatIndex && slotIndex !== null,
+          )
           .filter((slotIndex) => testResults[slotIndex]?.status === 'fail')
           .map((slotIndex) => {
             const nickname = MODEL_SLOTS[slotIndex]?.nickname ?? `模型 ${slotIndex + 1}`;
@@ -276,6 +322,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     !liveShellActive && allTestsCompleted
       ? assignments
           .map((slotIndex, seatIndex): ModelTestTimingRow | null => {
+            if (humanSeatIndex === seatIndex) {
+              return null;
+            }
             if (slotIndex === null) {
               return null;
             }
@@ -316,6 +365,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       streamCursor: number;
       effectSeq: number;
       recentEffects: RecentSpectatorEffect[];
+      humanSeat: number | null;
+      playerToken: string | null;
+      humanRole: HumanRole;
     }> = {},
   ) => {
     const next = { ...liveSessionSnapshotRef.current, ...overrides };
@@ -338,6 +390,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       streamCursor: next.streamCursor,
       effectSeq: next.effectSeq,
       recentEffects: next.recentEffects,
+      humanSeat: next.humanSeat,
+      playerToken: next.playerToken,
+      humanRole: next.humanRole,
     });
   };
 
@@ -393,6 +448,8 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
 
   const { startGameWithAssignments, startPausedGameWhenReady } = useGameLaunchFlow({
     assignments,
+    humanSeatIndex,
+    humanRole,
     isStartingGame,
     gameStarted,
     stage,
@@ -406,6 +463,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     unlockAudio: gameAudioControls.unlock,
     setPickerSeat,
     setSeatPresentation,
+    setHumanContext,
     setLaunchState,
     updateLaunchState,
     setGameId,
@@ -420,6 +478,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   useEffect(() => {
     return () => gameAudio.stopAll();
   }, []);
+
+  useEffect(() => {
+    if (!turn) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => setNowMs(Date.now()), 500);
+    return () => window.clearInterval(timer);
+  }, [turn]);
 
   useEffect(() => {
     if (!liveShellActive) {
@@ -450,8 +516,19 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       streamCursor: streamCursorRef.current,
       effectSeq: effectSeqRef.current,
       recentEffects,
+      humanSeat: humanContext?.seat ?? null,
+      playerToken: humanContext?.token ?? null,
+      humanRole,
     };
-  }, [assignments, gameId, launchState, recentEffects, seatPresentation]);
+  }, [
+    assignments,
+    gameId,
+    humanContext,
+    humanRole,
+    launchState,
+    recentEffects,
+    seatPresentation,
+  ]);
 
   useEffect(() => {
     terminalRef.current = finished;
@@ -463,6 +540,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       ...liveSessionSnapshotRef.current,
       recentEffects: [],
     };
+    setTurn(null);
     markSpectatorEffectsFinishedRef.current();
   }, [finished, gameId]);
 
@@ -555,88 +633,86 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     };
 
     const connect = (lastSeq: number, attempt: number) => {
-      source = subscribeGameEvents(
-        gameId,
-        () => {
+      const onOpen = () => {
+        if (closed || liveSessionAbandonedRef.current) {
+          return;
+        }
+        setStreamStatus('open');
+        setReconnectAttempts(0);
+      };
+      const onEvent = (event: GameEvent, streamCursor: number | null) => {
+        if (closed || liveSessionAbandonedRef.current) {
+          return;
+        }
+        setStreamStatus('open');
+        setReconnectAttempts(0);
+        if (streamCursor !== null) {
+          updateStreamCursor(streamCursor);
+        }
+        audioDayRef.current = Math.max(audioDayRef.current, event.day);
+        if (isTerminalGameEvent(event)) {
+          terminalRef.current = true;
+          markSpectatorEffectsFinishedRef.current();
+        }
+        if (event.type === 'game_start') {
+          updateLaunchStateRef.current((current) =>
+            current === 'connecting_stream' || current === 'starting_backend'
+              ? 'running'
+              : current,
+          );
+        } else if (event.type === 'phase_enter') {
+          setCurrentPhase(String(event.payload.phase ?? event.phase));
+          const phase = String(event.payload.phase ?? event.phase);
+          updateLaunchStateRef.current((current) => launchStateAfterPhase(current, phase));
+        } else if (event.phase !== 'GAME_START') {
+          updateLaunchStateRef.current((current) =>
+            launchStateAfterPhase(current, event.phase),
+          );
+        }
+        setEvents((prev) => {
+          if (prev.some((existing) => existing.seq === event.seq)) {
+            return prev;
+          }
+          const next = [...prev, event];
+          eventsRef.current = next;
+          return next;
+        });
+        const row = toNarrative(event);
+        if (row) {
+          narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
+          appendNarrativeRow(setNarrativeRows, row);
+        }
+        enqueueAudioTriggerRef.current(event);
+      };
+      const onError = () => {
+        source?.close();
+        if (closed || liveSessionAbandonedRef.current) {
+          return;
+        }
+        if (terminalRef.current) {
+          setStreamStatus('open');
+          return;
+        }
+        void getGame(gameId).then((summary) => {
           if (closed || liveSessionAbandonedRef.current) {
             return;
           }
-          setStreamStatus('open');
-          setReconnectAttempts(0);
-        },
-        handleStreamReady,
-        (event, streamCursor) => {
-          if (closed || liveSessionAbandonedRef.current) {
-            return;
-          }
-          setStreamStatus('open');
-          setReconnectAttempts(0);
-          if (streamCursor !== null) {
-            updateStreamCursor(streamCursor);
-          }
-          audioDayRef.current = Math.max(audioDayRef.current, event.day);
-          if (isTerminalGameEvent(event)) {
+          setCurrentPhase(summary.phase);
+          setTimings(summary.timings);
+          if (summary.status === 'finished') {
             terminalRef.current = true;
+            liveSessionSnapshotRef.current = {
+              ...liveSessionSnapshotRef.current,
+              recentEffects: [],
+            };
             markSpectatorEffectsFinishedRef.current();
+            clearLiveGameSession(gameId);
           }
-          if (event.type === 'game_start') {
-            updateLaunchStateRef.current((current) =>
-              current === 'connecting_stream' || current === 'starting_backend'
-                ? 'running'
-                : current,
-            );
-          } else if (event.type === 'phase_enter') {
-            setCurrentPhase(String(event.payload.phase ?? event.phase));
-            const phase = String(event.payload.phase ?? event.phase);
-            updateLaunchStateRef.current((current) => launchStateAfterPhase(current, phase));
-          } else if (event.phase !== 'GAME_START') {
-            updateLaunchStateRef.current((current) =>
-              launchStateAfterPhase(current, event.phase),
-            );
+          if (summary.status === 'failed') {
+            setStreamStatus('failed');
           }
-          setEvents((prev) => {
-            if (prev.some((existing) => existing.seq === event.seq)) {
-              return prev;
-            }
-            const next = [...prev, event];
-            eventsRef.current = next;
-            return next;
-          });
-          const row = toNarrative(event);
-          if (row) {
-            narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
-            appendNarrativeRow(setNarrativeRows, row);
-          }
-          enqueueAudioTriggerRef.current(event);
-        },
-        () => {
-          source?.close();
-          if (closed || liveSessionAbandonedRef.current) {
-            return;
-          }
-          if (terminalRef.current) {
-            setStreamStatus('open');
-            return;
-          }
-          void getGame(gameId).then((summary) => {
-            if (closed || liveSessionAbandonedRef.current) {
-              return;
-            }
-            setCurrentPhase(summary.phase);
-            setTimings(summary.timings);
-            if (summary.status === 'finished') {
-              terminalRef.current = true;
-              liveSessionSnapshotRef.current = {
-                ...liveSessionSnapshotRef.current,
-                recentEffects: [],
-              };
-              markSpectatorEffectsFinishedRef.current();
-              clearLiveGameSession(gameId);
-            }
-            if (summary.status === 'failed') {
-              setStreamStatus('failed');
-            }
-          }).catch(() => undefined);
+        }).catch(() => undefined);
+        if (!humanContext) {
           void getNarrative(gameId, narrativeSeqRef.current)
             .then((rows) => rows.forEach((row) => {
               if (closed || liveSessionAbandonedRef.current) {
@@ -654,44 +730,77 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
               ingestHistoricalEffectsRef.current(effects, terminalRef.current);
             })
             .catch(() => undefined);
-          if (closed || liveSessionAbandonedRef.current) {
-            return;
-          }
-          const nextAttempt = attempt + 1;
-          setReconnectAttempts(nextAttempt);
-          if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
-            setStreamStatus('error');
-            updateLaunchStateRef.current((current) =>
-              current === 'connecting_stream' || current === 'starting_backend'
-                ? 'failed'
-                : current,
-            );
-            return;
-          }
-          setStreamStatus('connecting');
-          reconnectTimer = window.setTimeout(() => {
-            connect(streamCursorRef.current || lastSeq, nextAttempt);
-          }, RECONNECT_DELAYS_MS[nextAttempt - 1]);
-        },
-        (row, streamCursor) => {
-          if (closed || liveSessionAbandonedRef.current) {
-            return;
-          }
-          if (streamCursor !== null) {
-            updateStreamCursor(streamCursor);
-          }
-          narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
-          appendNarrativeRow(setNarrativeRows, row);
-        },
-        (effect, streamCursor) => {
-          if (closed || liveSessionAbandonedRef.current) {
-            return;
-          }
-          if (streamCursor !== null) {
-            updateStreamCursor(streamCursor);
-          }
-          ingestLiveEffectsRef.current([effect]);
-        },
+        }
+        if (closed || liveSessionAbandonedRef.current) {
+          return;
+        }
+        const nextAttempt = attempt + 1;
+        setReconnectAttempts(nextAttempt);
+        if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
+          setStreamStatus('error');
+          updateLaunchStateRef.current((current) =>
+            current === 'connecting_stream' || current === 'starting_backend'
+              ? 'failed'
+              : current,
+          );
+          return;
+        }
+        setStreamStatus('connecting');
+        reconnectTimer = window.setTimeout(() => {
+          connect(streamCursorRef.current || lastSeq, nextAttempt);
+        }, RECONNECT_DELAYS_MS[nextAttempt - 1]);
+      };
+      const onNarrative = (row: NarrativeRow, streamCursor: number | null) => {
+        if (closed || liveSessionAbandonedRef.current) {
+          return;
+        }
+        if (streamCursor !== null) {
+          updateStreamCursor(streamCursor);
+        }
+        narrativeSeqRef.current = Math.max(narrativeSeqRef.current, row.seq);
+        appendNarrativeRow(setNarrativeRows, row);
+      };
+      const onEffect = (effect: SpectatorEffect, streamCursor: number | null) => {
+        if (closed || liveSessionAbandonedRef.current) {
+          return;
+        }
+        if (streamCursor !== null) {
+          updateStreamCursor(streamCursor);
+        }
+        ingestLiveEffectsRef.current([effect]);
+      };
+      if (humanContext) {
+        source = subscribeSeatEvents(
+          gameId,
+          humanContext.seat,
+          humanContext.token,
+          onOpen,
+          handleStreamReady,
+          onEvent,
+          onError,
+          (nextTurn) => {
+            setTurn(nextTurn);
+            setSelectedTarget(null);
+            setTurnError(null);
+          },
+          () => {
+            setTurn(null);
+            setSelectedTarget(null);
+          },
+          onNarrative,
+          onEffect,
+          lastSeq,
+        );
+        return;
+      }
+      source = subscribeGameEvents(
+        gameId,
+        onOpen,
+        handleStreamReady,
+        onEvent,
+        onError,
+        onNarrative,
+        onEffect,
         lastSeq,
       );
     };
@@ -704,7 +813,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         window.clearTimeout(reconnectTimer);
       }
     };
-  }, [gameId, isReplay]);
+  }, [gameId, humanContext, isReplay]);
 
   useEffect(() => {
     if (!gameId || isReplay) {
@@ -752,6 +861,15 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   }, [bgPhase, events, stage.dayNumber, stage.phase]);
 
   const handleClickSeat = (seatIndex: number) => {
+    if (liveShellActive && humanContext && isTargetTurn(turn)) {
+      const seatNumber = seatIndex + 1;
+      if (turn?.valid_targets?.includes(seatNumber)) {
+        setSelectedTarget(seatNumber);
+        setTurnError(null);
+      }
+      return;
+    }
+
     if (isTesting || liveShellActive) {
       return;
     }
@@ -783,6 +901,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       next[pickerSeat] = slotIndex;
       return next;
     });
+    if (humanSeatIndex === pickerSeat) {
+      setHumanSeatIndex(null);
+    }
     setTestResults((prev) => {
       const next = { ...prev };
       delete next[slotIndex];
@@ -793,6 +914,31 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
 
       return next;
     });
+    setTestMessage(null);
+    setAllowStartWithWarnings(false);
+    setPickerSeat(null);
+  };
+
+  const handlePickHuman = () => {
+    if (pickerSeat === null || liveShellActive) {
+      return;
+    }
+    const previousSlot = assignments[pickerSeat];
+    setAssignments((prev) => {
+      const next = [...prev];
+      next[pickerSeat] = null;
+      return next;
+    });
+    setTestResults((prev) => {
+      if (previousSlot === null) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[previousSlot];
+      return next;
+    });
+    setHumanSeatIndex(pickerSeat);
+    setHumanRole('random');
     setTestMessage(null);
     setAllowStartWithWarnings(false);
     setPickerSeat(null);
@@ -831,6 +977,8 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     }
 
     setPickerSeat(null);
+    setHumanSeatIndex(null);
+    setHumanRole('random');
     setAssignments(shuffledModelSlots());
     setTestResults({});
     setTestMessage(null);
@@ -857,11 +1005,12 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
 
     setPickerSeat(null);
     setIsTesting(true);
-    setTestMessage(`正在测试 0/${SEAT_COUNT}`);
 
     const assignedSlots = assignments.filter(
-      (slotIndex): slotIndex is number => slotIndex !== null,
+      (slotIndex, seatIndex): slotIndex is number =>
+        humanSeatIndex !== seatIndex && slotIndex !== null,
     );
+    setTestMessage(`正在测试 0/${assignedSlots.length}`);
 
     const initial: Record<number, ModelTestResult> = {};
     assignedSlots.forEach((slotIndex) => {
@@ -1004,6 +1153,58 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     gameAudioControls.toggleMuted();
   };
 
+  const submitHumanAction = async (action: SeatActionRequest) => {
+    if (!gameId || !humanContext || !turn || submittingTurn || turnExpired) {
+      return;
+    }
+    setSubmittingTurn(true);
+    setTurnError(null);
+    try {
+      await submitSeatAction(gameId, humanContext.seat, humanContext.token, action);
+      setTurn(null);
+      setSelectedTarget(null);
+    } catch (caught) {
+      setTurnError(caught instanceof Error ? caught.message : '提交失败');
+    } finally {
+      setSubmittingTurn(false);
+    }
+  };
+
+  const handleSubmitHumanText = (text: string) => {
+    if (!turn || !isTextTurn(turn.kind)) {
+      return;
+    }
+    void submitHumanAction({ kind: turn.kind, text });
+  };
+
+  const handleConfirmTarget = () => {
+    if (!turn || selectedTarget === null) {
+      setTurnError('请选择目标');
+      return;
+    }
+    if (turn.kind === 'guard' || turn.kind === 'seer' || turn.kind === 'wolf_vote') {
+      void submitHumanAction({ kind: turn.kind, target: selectedTarget });
+      return;
+    }
+    if (turn.kind === 'vote' || turn.kind === 'pk_vote') {
+      void submitHumanAction({ kind: turn.kind, target: selectedTarget });
+    }
+  };
+
+  const handleAbstain = () => {
+    if (!turn || (turn.kind !== 'vote' && turn.kind !== 'pk_vote')) {
+      return;
+    }
+    void submitHumanAction({ kind: turn.kind, target: null });
+  };
+
+  const handleWitchAction = (action: 'save' | 'poison' | 'skip', target: number | null) => {
+    if (!turn || turn.kind !== 'witch') {
+      return;
+    }
+    void submitHumanAction({ kind: 'witch', action, target });
+  };
+
   return (
     <main
       className={['game-page', finished ? 'game-page--final-freeze' : ''].join(' ')}
@@ -1044,13 +1245,30 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
           startupMessage={startupMessageForLaunchState(launchState)}
         />
       )}
+      {humanContext && liveShellActive && (
+        <div className="human-perspective-chip">
+          <strong>
+            你是 {humanContext.seat}号
+            {selfRoleInfo.role ? ` · ${HUMAN_ROLE_LABELS[selfRoleInfo.role]}` : ''}
+          </strong>
+          {selfRoleInfo.teammates.length > 0 && (
+            <span>狼队友：{selfRoleInfo.teammates.join('、')}号</span>
+          )}
+        </div>
+      )}
       <GameChat
         events={events}
         narrativeRows={narrativeRows}
         assignments={assignments}
+        seatPresentation={seatPresentation}
         streamStatus={streamStatus}
         autoScrollEnabled={autoScrollEnabled}
         liveTypingEnabled={!isReplay}
+        inputKind={textTurnKind}
+        inputEnabled={Boolean(humanContext && textTurnKind && !turnExpired && !submittingTurn)}
+        inputMaxChars={inputMaxChars}
+        secondsLeft={turnSecondsLeft}
+        onSubmitText={handleSubmitHumanText}
       />
       <GameEffectsLayer
         effects={spectatorEffects}
@@ -1062,6 +1280,49 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         terminal={finished}
         onEffectRendered={handleRenderedSpectatorEffect}
       />
+      {humanContext && turn && !textTurnKind && (
+        <div className="human-turn-panel" aria-live="polite">
+          <div className="human-turn-panel__main">
+            <strong>{turnTitle(turn)}</strong>
+            <span>{turnSecondsLeft ?? 0}s</span>
+          </div>
+          {selectedTarget !== null && turn.kind !== 'witch' && (
+            <span className="human-turn-panel__target">
+              已选 {selectedTarget}号
+            </span>
+          )}
+          <div className="human-turn-panel__actions">
+            {turn.kind === 'witch' ? (
+              <button
+                type="button"
+                onClick={() => handleWitchAction('skip', null)}
+                disabled={turnExpired || submittingTurn}
+              >
+                不用药
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConfirmTarget}
+                disabled={selectedTarget === null || turnExpired || submittingTurn}
+              >
+                确认
+              </button>
+            )}
+            {(turn.kind === 'vote' || turn.kind === 'pk_vote') &&
+              turn.constraints.can_abstain === true && (
+                <button
+                  type="button"
+                  onClick={handleAbstain}
+                  disabled={turnExpired || submittingTurn}
+                >
+                  弃票
+                </button>
+              )}
+          </div>
+          {turnError && <p className="human-turn-panel__error">{turnError}</p>}
+        </div>
+      )}
       {!liveShellActive && !isReplay && (
         <div className="game-quick-assign-helper">
           <button
@@ -1078,6 +1339,15 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         <div className="game-seats-col game-seats-col--left">
           {leftSeats.map((seatIndex) => {
             const assignment = assignments[seatIndex];
+            const seatNumber = seatIndex + 1;
+            const isHumanSeat = humanSeatIndex === seatIndex;
+            const targetable = Boolean(
+              humanContext &&
+                isTargetTurn(turn) &&
+                !turnExpired &&
+                turn?.valid_targets?.includes(seatNumber),
+            );
+            const selected = selectedTarget === seatNumber;
 
             return (
               <GameSeat
@@ -1085,22 +1355,42 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 seatIndex={seatIndex}
                 side="left"
                 assignment={assignment}
-                presentation={seatPresentation[seatIndex + 1] ?? null}
-                role={seatRoles[seatIndex + 1] ?? null}
+                presentation={
+                  isHumanSeat
+                    ? HUMAN_SEAT_PRESENTATION
+                    : seatPresentation[seatNumber] ?? null
+                }
+                role={seatRoles[seatNumber] ?? null}
                 testStatus={
-                  assignment !== null
+                  assignment !== null && !isHumanSeat
                     ? testResults[assignment]?.status
                     : undefined
                 }
                 showTestBadge={!liveShellActive}
                 thinkingEnabled={
                   assignment !== null &&
+                  !isHumanSeat &&
                   readModelConfig(assignment)?.thinkingEnabled === true
                 }
-                speaking={currentSpeakerSeat === seatIndex + 1}
-                dead={deadSeats.has(seatIndex + 1)}
-                effects={seatEffects[seatIndex + 1]}
+                speaking={currentSpeakerSeat === seatNumber}
+                dead={deadSeats.has(seatNumber)}
+                effects={seatEffects[seatNumber]}
                 disabled={liveShellActive}
+                isHuman={isHumanSeat}
+                humanRole={humanRole}
+                pickRoleEnabled={!liveShellActive}
+                targetable={targetable}
+                selectedAsTarget={selected}
+                witchSplit={witchSplitProps({
+                  turn,
+                  seatNumber,
+                  selected,
+                  turnExpired,
+                  submittingTurn,
+                  onSave: () => handleWitchAction('save', seatNumber),
+                  onPoison: () => handleWitchAction('poison', seatNumber),
+                })}
+                onPickHumanRole={setHumanRole}
                 onClickSeat={handleClickSeat}
               />
             );
@@ -1109,6 +1399,15 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         <div className="game-seats-col game-seats-col--right">
           {rightSeats.map((seatIndex) => {
             const assignment = assignments[seatIndex];
+            const seatNumber = seatIndex + 1;
+            const isHumanSeat = humanSeatIndex === seatIndex;
+            const targetable = Boolean(
+              humanContext &&
+                isTargetTurn(turn) &&
+                !turnExpired &&
+                turn?.valid_targets?.includes(seatNumber),
+            );
+            const selected = selectedTarget === seatNumber;
 
             return (
               <GameSeat
@@ -1116,22 +1415,42 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 seatIndex={seatIndex}
                 side="right"
                 assignment={assignment}
-                presentation={seatPresentation[seatIndex + 1] ?? null}
-                role={seatRoles[seatIndex + 1] ?? null}
+                presentation={
+                  isHumanSeat
+                    ? HUMAN_SEAT_PRESENTATION
+                    : seatPresentation[seatNumber] ?? null
+                }
+                role={seatRoles[seatNumber] ?? null}
                 testStatus={
-                  assignment !== null
+                  assignment !== null && !isHumanSeat
                     ? testResults[assignment]?.status
                     : undefined
                 }
                 showTestBadge={!liveShellActive}
                 thinkingEnabled={
                   assignment !== null &&
+                  !isHumanSeat &&
                   readModelConfig(assignment)?.thinkingEnabled === true
                 }
-                speaking={currentSpeakerSeat === seatIndex + 1}
-                dead={deadSeats.has(seatIndex + 1)}
-                effects={seatEffects[seatIndex + 1]}
+                speaking={currentSpeakerSeat === seatNumber}
+                dead={deadSeats.has(seatNumber)}
+                effects={seatEffects[seatNumber]}
                 disabled={liveShellActive}
+                isHuman={isHumanSeat}
+                humanRole={humanRole}
+                pickRoleEnabled={!liveShellActive}
+                targetable={targetable}
+                selectedAsTarget={selected}
+                witchSplit={witchSplitProps({
+                  turn,
+                  seatNumber,
+                  selected,
+                  turnExpired,
+                  submittingTurn,
+                  onSave: () => handleWitchAction('save', seatNumber),
+                  onPoison: () => handleWitchAction('poison', seatNumber),
+                })}
+                onPickHumanRole={setHumanRole}
                 onClickSeat={handleClickSeat}
               />
             );
@@ -1157,9 +1476,14 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         open={pickerSeat !== null}
         onClose={() => setPickerSeat(null)}
         currentAssignment={pickerSeat !== null ? assignments[pickerSeat] : null}
-        usedSlots={assignments.filter((slot): slot is number => slot !== null)}
+        currentIsHuman={pickerSeat !== null && humanSeatIndex === pickerSeat}
+        usedSlots={assignments.filter(
+          (slot, seatIndex): slot is number =>
+            humanSeatIndex !== seatIndex && slot !== null,
+        )}
         onPick={handlePickModel}
         onSwap={handleSwapModel}
+        onPickHuman={handlePickHuman}
       />
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
       <FinalFreezeChrome
@@ -1200,6 +1524,87 @@ function appendNarrativeRow(
 
 function isTerminalGameEvent(event: GameEvent) {
   return event.type === 'game_end' || event.type === 'role_reveal';
+}
+
+function isTextTurn(
+  kind: TurnRequest['kind'],
+): kind is Extract<TurnRequest['kind'], 'speech' | 'wolf_chat' | 'last_words'> {
+  return kind === 'speech' || kind === 'wolf_chat' || kind === 'last_words';
+}
+
+function isTargetTurn(turn: TurnRequest | null) {
+  return Boolean(
+    turn &&
+      (turn.kind === 'guard' ||
+        turn.kind === 'seer' ||
+        turn.kind === 'wolf_vote' ||
+        turn.kind === 'vote' ||
+        turn.kind === 'pk_vote' ||
+        turn.kind === 'witch'),
+  );
+}
+
+function turnTitle(turn: TurnRequest) {
+  const titles: Record<TurnRequest['kind'], string> = {
+    guard: '请选择守护目标',
+    wolf_chat: '狼人夜聊',
+    wolf_vote: '请选择袭击目标',
+    seer: '请选择查验目标',
+    witch: '请选择用药',
+    speech: '轮到你发言',
+    vote: '请选择投票目标',
+    pk_vote: 'PK 重投',
+    last_words: '请发表遗言',
+  };
+  return titles[turn.kind];
+}
+
+function deriveSelfRoleInfo(events: GameEvent[]) {
+  const start = events.find((event) => event.type === 'game_start');
+  const role = typeof start?.payload.self_role === 'string'
+    ? start.payload.self_role
+    : null;
+  const teammates = Array.isArray(start?.payload.teammates)
+    ? start.payload.teammates
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    : [];
+  return {
+    role: isSeatRole(role) ? role : null,
+    teammates,
+  };
+}
+
+function witchSplitProps({
+  turn,
+  seatNumber,
+  selected,
+  turnExpired,
+  submittingTurn,
+  onSave,
+  onPoison,
+}: {
+  turn: TurnRequest | null;
+  seatNumber: number;
+  selected: boolean;
+  turnExpired: boolean;
+  submittingTurn: boolean;
+  onSave: () => void;
+  onPoison: () => void;
+}) {
+  if (!turn || turn.kind !== 'witch' || !selected || turnExpired || submittingTurn) {
+    return undefined;
+  }
+  const wolfKillTarget = Number(turn.constraints.wolf_kill_target);
+  const antidoteAvailable = turn.constraints.antidote_available === true;
+  const poisonAvailable = turn.constraints.poison_available === true;
+  return {
+    active: true,
+    canSave: antidoteAvailable && wolfKillTarget === seatNumber,
+    canPoison: poisonAvailable && seatNumber !== turn.seat,
+    onSave,
+    onPoison,
+  };
 }
 
 function useLatestRef<T>(value: T) {

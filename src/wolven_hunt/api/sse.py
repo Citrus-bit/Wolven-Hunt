@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from fastapi import HTTPException
 from starlette.responses import StreamingResponse
 
+from wolven_hunt.core.seat import Seat
 from wolven_hunt.orchestration.runtime import GameSession
 
 HEARTBEAT_SECONDS = 30.0
@@ -33,6 +34,61 @@ def sse_response(session: GameSession, *, last_event_id: str | None) -> Streamin
                             include_id=index == len(projections) - 1,
                         )
                     cursor = event_seq
+                continue
+            if session.is_terminal():
+                yield "event: heartbeat\ndata: {}\n\n"
+                break
+            try:
+                await session.wait_for_event(timeout_seconds=HEARTBEAT_SECONDS)
+            except TimeoutError:
+                yield "event: heartbeat\ndata: {}\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+def sse_response_for_seat(
+    session: GameSession,
+    *,
+    seat: Seat,
+    last_event_id: str | None,
+) -> StreamingResponse:
+    start_after = _parse_last_event_id(last_event_id) or 0
+    if session.is_terminal() and start_after > session.latest_event_seq():
+        raise HTTPException(status_code=410, detail={"code": "event_cursor_gone"})
+
+    async def stream() -> AsyncIterator[str]:
+        cursor = start_after
+        turn_sent_key: tuple[int, str] | None = None
+        yield "event: stream_ready\ndata: {}\n\n"
+        active = session.active_turn()
+        if active is not None and active.seat == seat.number:
+            turn_sent_key = (active.seat, active.kind)
+            yield _format_event("turn_request", cursor, active.to_dict(), include_id=False)
+        while True:
+            events = session.raw_events_after(cursor)
+            if events:
+                for raw_event in events:
+                    event_seq = raw_event.seq
+                    projections = _seat_projections_for_seq(session, event_seq, seat=seat)
+                    for index, (event_name, payload) in enumerate(projections):
+                        yield _format_event(
+                            event_name,
+                            event_seq,
+                            payload,
+                            include_id=index == len(projections) - 1,
+                        )
+                    cursor = event_seq
+                continue
+            active = session.active_turn()
+            active_key = None if active is None else (active.seat, active.kind)
+            if active is not None and active.seat == seat.number and active_key != turn_sent_key:
+                turn_sent_key = active_key
+                yield _format_event("turn_request", cursor, active.to_dict(), include_id=False)
+                continue
+            cleared = session.consume_turn_cleared(seat=seat)
+            if cleared is not None and turn_sent_key is not None:
+                turn_sent_key = None
+                yield _format_event("turn_cleared", cursor, cleared, include_id=False)
                 continue
             if session.is_terminal():
                 yield "event: heartbeat\ndata: {}\n\n"
@@ -75,6 +131,25 @@ def _projections_for_seq(session: GameSession, seq: int) -> tuple[tuple[str, obj
     if narrative is not None:
         projections.append(("narrative_row", narrative))
     projections.extend(("spectator_effect", effect) for effect in session.effect_rows_for_seq(seq))
+    return tuple(projections)
+
+
+def _seat_projections_for_seq(
+    session: GameSession,
+    seq: int,
+    *,
+    seat: Seat,
+) -> tuple[tuple[str, object], ...]:
+    projections: list[tuple[str, object]] = []
+    event = session.player_event_for_seq(seq, seat=seat)
+    if event is not None:
+        projections.append(("game_event", event))
+        narrative = _narrative_for_seq(session, seq)
+        if narrative is not None:
+            projections.append(("narrative_row", narrative))
+        projections.extend(
+            ("spectator_effect", effect) for effect in session.effect_rows_for_seq(seq)
+        )
     return tuple(projections)
 
 

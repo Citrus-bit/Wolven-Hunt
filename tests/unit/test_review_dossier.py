@@ -56,6 +56,21 @@ def test_build_dossiers_extracts_only_own_speeches() -> None:
     assert seat5.role_duty_label == "狼队协同"
 
 
+def test_build_dossiers_marks_human_agent_type_from_manifest_kinds() -> None:
+    dossiers = rd.build_dossiers(
+        events=_events(),
+        narrative_rows=(),
+        reveal=_reveal(),
+        seat_presentation={},
+        key_decisions=(),
+        seat_agent_kinds={2: "human", 5: "mock"},
+    )
+
+    by_seat = {dossier.seat: dossier for dossier in dossiers}
+    assert by_seat[2].agent_type == "human"
+    assert by_seat[5].agent_type == "mock"
+
+
 def test_dossier_ranking_reflects_speech_chars_and_received_votes() -> None:
     events = (
         {

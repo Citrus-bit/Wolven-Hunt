@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import json
 import tempfile
 from dataclasses import replace
 from pathlib import Path
@@ -31,6 +32,18 @@ def record_finished_game(
     window_size: int,
 ) -> EvolutionState:
     state = load_state(runs_dir)
+    manifest = _read_manifest_dict(runs_dir / game_id / "manifest.json")
+    if manifest.get("human_seat") is not None:
+        append_ledger(
+            runs_dir,
+            {
+                "event": "game_ignored",
+                "game_id": game_id,
+                "reason": "human_player",
+                "human_seat": manifest["human_seat"],
+            },
+        )
+        return state
     if prompt_version != state.active_version:
         append_ledger(
             runs_dir,
@@ -78,6 +91,14 @@ def maybe_step_after_game(
     if _window_ready(state, settings.evolution_window_size):
         return step(config_path=config_path, settings=settings, dry_run=False)
     return None
+
+
+def _read_manifest_dict(path: Path) -> dict[str, object]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def step(

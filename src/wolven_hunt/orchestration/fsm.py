@@ -69,6 +69,7 @@ def run_game(
     config: GameConfig,
     seed: str,
     agents: AgentMap,
+    forced_seat_roles: dict[int, Role] | None = None,
     max_days: int = 20,
     event_sink: Callable[[Event], None] | None = None,
     event_log: EventLog | None = None,
@@ -77,7 +78,11 @@ def run_game(
 ) -> tuple[GameState, EventLog]:
     rng = DeterministicRNG(seed)
     event_log = event_log if event_log is not None else EventLog(seed=seed, on_append=event_sink)
-    state, start_events = build_initial_state(config, seed)
+    state, start_events = build_initial_state(
+        config,
+        seed,
+        forced_seat_roles=forced_seat_roles,
+    )
     event_log.append_all(start_events)
     _sync_runtime(state, state_sink, control_hook)
 

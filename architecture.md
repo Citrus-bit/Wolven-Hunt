@@ -20,6 +20,8 @@
 
 STEP-07 同时允许默认关闭的 Prompt Evolution 子系统。该子系统只通过配置开关启用，基于已结束对局的 `review_report.json` 生成新提示词整包快照；不得修改事件 schema、胜负判定、Referee 权限边界、普通 PlayerView、spectator 投影或 replay/resimulate 语义。
 
+STEP-07 允许单真人玩家模式：一局最多 1 个真人座位，其余座位由 AI 托管。真人只能访问自己座位的 PlayerView，座位 SSE 和动作提交必须通过绑定 seat 的 `player_token` 鉴权。真人回合的 `turn_request` / `turn_cleared` 只是 SSE 投影，不进入 EventLog，不影响 replay hash、胜负判定或 resimulate 事件 schema。
+
 ## 2. Rule Contract
 
 `GameConfig = RolePack + RuleSet + ModelRoster + PromptPack + random_seed`
@@ -34,6 +36,14 @@ STEP-07 同时允许默认关闭的 Prompt Evolution 子系统。该子系统只
 这些 metadata 用于 replay 校验。进入 PlayerView 前必须由 Referee 脱敏。
 
 每局 manifest 必须记录启动时实际使用的 `prompt_pack_version`。Prompt pack 版本使用整包不可变快照：旧版本文件不得就地覆盖或删除，新增版本必须包含 `system` 与所有角色 action prompt 文件。自动进化只能改写目标角色的 `speech`、`vote` 或 `night_action` 文件；`system` 与 `last_words` 不参与自动进化。
+
+含真人局的 manifest 还必须记录：
+
+- `human_seat`
+- `seat_agent_kinds`
+- `forced_seat_roles`
+
+真人建局可选择指定座位或随机座位，并可将真人角色指定为 `villager`、`witch`、`seer`、`guard`、`wolf` 或 `random`。非 `random` 时，发牌先按 seed 完成 deterministic shuffle，再把真人座位当前角色与目标角色所在座位做 swap；该机制不得改变角色计数。`forced_seat_roles` 必须随 manifest 持久化，`replay_resimulate` 重跑发牌时必须读回并透传；真人具体动作在 resimulate 中不保证复现，但 deterministic replay 从 EventLog 可还原。
 
 座位统一使用 1-based 编号，默认固定为 1 到 10 号。`GAME_START` 使用 `random_seed` 派生的 deterministic RNG 洗牌分配角色。玩家只知道自己的角色；狼人额外知道全部狼队同伴身份；STEP-07 起 spectator 是观众上帝视角，可看到全部座位身份、狼人夜聊和 spectator-only 观赛特效，但仍不得看到 raw response、provider 配置、守卫/预言家私有结果、女巫私有结果或狼队投刀事件原文。
 
@@ -249,6 +259,8 @@ Prompt Evolution 的 raw response 若保存，只能写入私有 `runs/_evolutio
 - `selected`
 - `reason`
 
+`turn_request` / `turn_cleared` 不是 EventLog 事件。它们只通过真人座位 SSE 下发，`turn_request` payload 固定包含 `seat`、`kind`、`deadline_ts`、`timeout_seconds`、`valid_targets`、`constraints`、`phase`、`day`。合法目标与约束必须由后端根据 Referee PlayerView 和 RuleSet 计算，前端只能渲染，不得自行判定行动合法性。
+
 ## 10. Visibility
 
 可见性由 Referee 统一处理。
@@ -258,6 +270,19 @@ Prompt Evolution 的 raw response 若保存，只能写入私有 `runs/_evolutio
 - 私有事件：仅 actor 或白名单 seat 可见。
 - `llm_call`、raw response 存储引用默认不进入任何 PlayerView。完整 `role_assignment` 只允许进入 spectator 上帝视角和存储/调试工具，不进入普通玩家 PlayerView。
 - 狼人白天 prompt 额外执行上下文隔离：`DAY_SPEECH`、`DAY_VOTE`、`DAY_VOTE_PK`、`DAY_LAST_WORDS` 中，wolf seat 的 prompt payload `visible_events` 必须剔除 `wolf_chat_message`、`wolf_kill_vote`、`wolf_kill_decided`、`wolf_tie_random`，且不得注入 `wolf_private_context`。`NIGHT_WOLF_CHAT` / `NIGHT_WOLF_VOTE` 中，wolf seat 可通过独立 `wolf_private_context` 字段接收这些狼队私有事件，同类事件不得重复出现在 `visible_events`。
+- 真人座位流必须使用 `build_view(..., seat=Seat(n))`，不能复用 spectator 上帝视角。同 seq `narrative_row` 与 `spectator_effect` 投影必须按来源事件复用该座位可见性。真人死亡后继续连接同一座位流，只接收该座位可见的后续公开信息；整局结束后才可通过 reveal/复盘看到全局翻牌。
+
+## 10. Human Player API Contract
+
+`POST /games` 可接受 `human_seat`、`human_seat_random`、`human_role`。`human_seat` 与 `human_seat_random=true` 互斥；纯 AI 局不签发 token。有真人时响应返回 `player_token` 与 `human_seat`，并为该座注入昵称 `你自己` 和 `/assets/lobby/human_player.png`，除非调用方已显式提供该座展示信息。
+
+`GET /games/{game_id}/seat/{seat}/stream` 是座位过滤 SSE，必须校验 query token 或 Authorization bearer token。流中可以包含按座位过滤的 `game_event`、同 seq narrative/effect 投影，以及当前 active turn 的 `turn_request` / `turn_cleared`。
+
+`POST /games/{game_id}/seat/{seat}/action` 是真人统一动作提交端点，支持 `guard`、`wolf_chat`、`wolf_vote`、`seer`、`witch`、`speech`、`vote`、`pk_vote`、`last_words`。服务端必须先验证 token 与 active turn 的 seat/kind，再构造 Action，执行 `validate_action`；文本类还必须执行 `validate_text_consistency`。合法动作进入 pending 队列，非法返回 422 且 active turn 保持可提交。
+
+真人超时由 `HumanInputAgent` 处理：设置 turn 后阻塞等待 pending action，超时则清除 turn 并调用 base Agent 接管当前回合。超时本身不产生 EventLog 特殊事件。
+
+含真人的完成局必须在 Prompt Evolution 的 `record_finished_game` 阶段写入 `game_ignored(reason="human_player")` 并直接返回，不进入 baseline 或 challenger 窗口；复盘生成不受影响，且 per-seat dossier 可使用 manifest `seat_agent_kinds` 标记 `agent_type`，用于让真人座位的复盘措辞体现真人玩家身份。
 
 PlayerView 中的 `game_start` 必须脱敏：
 

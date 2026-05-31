@@ -163,6 +163,7 @@ def generate_review_report(
     narrative_rows: tuple[dict[str, object], ...],
     reveal: dict[str, object],
     seat_presentation: dict[int, dict[str, str]],
+    seat_agent_kinds: dict[int, str] | None = None,
     settings: Settings,
 ) -> dict[str, Any]:
     if settings.review_provider != "litellm":
@@ -170,6 +171,7 @@ def generate_review_report(
             game_id=game_id,
             reveal=reveal,
             seat_presentation=seat_presentation,
+            seat_agent_kinds=seat_agent_kinds,
             narrative_rows=narrative_rows,
             events=events,
         )
@@ -182,6 +184,7 @@ def generate_review_report(
         narrative_rows=narrative_rows,
         reveal=reveal,
         seat_presentation=seat_presentation,
+        seat_agent_kinds=seat_agent_kinds,
         settings=settings,
     )
 
@@ -191,6 +194,7 @@ def build_mock_review_report(
     game_id: str,
     reveal: dict[str, object],
     seat_presentation: dict[int, dict[str, str]],
+    seat_agent_kinds: dict[int, str] | None = None,
     narrative_rows: tuple[dict[str, object], ...],
     events: tuple[dict[str, object], ...] = (),
 ) -> dict[str, Any]:
@@ -204,6 +208,10 @@ def build_mock_review_report(
             winner=winner,
             stats=stats.get(_int_value(seat.get("seat"), default=index + 1), {}),
             seat_presentation=seat_presentation,
+            agent_type=_agent_type_for_seat(
+                _int_value(seat.get("seat"), default=index + 1),
+                seat_agent_kinds,
+            ),
         )
         for index, seat in enumerate(seats)
     )
@@ -215,7 +223,13 @@ def build_mock_review_report(
             "role": player["role"],
             "camp": player["camp"],
             "overall_score": player["overall_score"],
-            "reason": _leaderboard_reason(player),
+            "reason": _leaderboard_reason(
+                player,
+                agent_type=_agent_type_for_seat(
+                    _int_value(player.get("seat")),
+                    seat_agent_kinds,
+                ),
+            ),
         }
         for index, player in enumerate(
             sorted(players, key=lambda item: _int_value(item.get("overall_score")), reverse=True)
@@ -423,6 +437,7 @@ def _mock_player_row(
     winner: str,
     stats: dict[str, object],
     seat_presentation: dict[int, dict[str, str]],
+    agent_type: str = "llm",
 ) -> dict[str, object]:
     seat_number = _int_value(seat.get("seat"), default=index + 1)
     role = str(seat.get("role") or Role.VILLAGER.value)
@@ -464,6 +479,7 @@ def _mock_player_row(
             evidence=evidence,
             stats=stats,
             alive=alive,
+            agent_type=agent_type,
         ),
         "evidence": evidence,
         "strengths": _player_strengths(
@@ -526,7 +542,7 @@ def _role_duty_bonus(*, role: str, stats: dict[str, object], winner_bonus: int) 
     return winner_bonus + 8
 
 
-def _leaderboard_reason(player: dict[str, object]) -> str:
+def _leaderboard_reason(player: dict[str, object], *, agent_type: str = "llm") -> str:
     seat = _int_value(player.get("seat"))
     role = ROLE_LABELS.get(str(player.get("role") or ""), str(player.get("role") or "玩家"))
     score = _int_value(player.get("overall_score"))
@@ -542,8 +558,9 @@ def _leaderboard_reason(player: dict[str, object]) -> str:
     mistake_text = (
         str(mistakes[0]) if isinstance(mistakes, tuple | list) and mistakes else "短板不明显"
     )
+    prefix = "真人玩家" if agent_type == "human" else f"{seat}号"
     return (
-        f"{seat}号本局以{role}身份拿到综合 {score} 分，排名主要来自{evidence_text}"
+        f"{prefix}本局以{role}身份拿到综合 {score} 分，排名主要来自{evidence_text}"
         f"；亮点是{strength_text}；短板是{mistake_text}"
     )
 
@@ -557,6 +574,7 @@ def _player_evaluation(
     evidence: tuple[str, ...],
     stats: dict[str, object],
     alive: bool,
+    agent_type: str = "llm",
 ) -> str:
     role_label = ROLE_LABELS.get(role, role)
     camp_label = "狼人阵营" if camp == "wolf" else "好人阵营"
@@ -564,8 +582,13 @@ def _player_evaluation(
         evidence[0] if evidence else f"终局时{seat_number}号{'仍然存活' if alive else '已经出局'}"
     )
     second = _evaluation_focus(role=role, stats=stats, alive=alive)
+    subject = (
+        f"你作为真人玩家（{role_label}）"
+        if agent_type == "human"
+        else f"{seat_number}号作为{role_label}"
+    )
     return (
-        f"{seat_number}号作为{role_label}，综合分 {overall}。"
+        f"{subject}，综合分 {overall}。"
         f"{first}；{second}。"
         f"这名玩家对{camp_label}的价值主要来自这些可见节点，而不是模板化职责描述。"
     )
@@ -986,6 +1009,15 @@ def _int_value(value: object, *, default: int = 0) -> int:
         except ValueError:
             return default
     return default
+
+
+def _agent_type_for_seat(seat: int, seat_agent_kinds: dict[int, str] | None) -> str:
+    if not seat_agent_kinds:
+        return "llm"
+    value = str(seat_agent_kinds.get(seat, "llm"))
+    if value in {"human", "mock"}:
+        return value
+    return "llm"
 
 
 def _payload_from_prompt(prompt: str) -> dict[str, object]:

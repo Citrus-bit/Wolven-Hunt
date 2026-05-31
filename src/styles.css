@@ -826,7 +826,10 @@ button {
 .game-seat-circle:focus-visible,
 .model-picker-close:focus-visible,
 .model-picker-card-main:focus-visible,
-.model-picker-swap:focus-visible {
+.model-picker-swap:focus-visible,
+.game-seat-role-picker-button:focus-visible,
+.game-seat-role-option:focus-visible,
+.game-seat-witch-half:focus-visible {
   outline: 2px solid #ffd166;
   outline-offset: 3px;
 }
@@ -942,6 +945,206 @@ button {
 
 .game-seat-role--guard {
   background: rgba(88, 74, 150, 0.92);
+}
+
+.game-seat--human .game-seat-circle {
+  border-style: solid;
+  border-color: rgba(255, 211, 106, 0.9);
+}
+
+.game-seat--targetable .game-seat-circle {
+  border-style: solid;
+  border-color: rgba(255, 238, 184, 0.94);
+  box-shadow:
+    0 0 0 5px rgba(255, 221, 120, 0.16),
+    0 0 24px rgba(255, 198, 66, 0.32);
+}
+
+.game-seat--selected-target .game-seat-circle {
+  transform: scale(1.06);
+  box-shadow:
+    0 0 0 7px rgba(119, 205, 255, 0.2),
+    0 0 28px rgba(119, 205, 255, 0.46);
+}
+
+.game-seat-role-picker {
+  position: absolute;
+  top: calc(50% - var(--seat-circle-size) / 2 + 2px);
+  left: calc(50% + var(--seat-circle-size) / 2 + 4px);
+  z-index: 14;
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.game-seat--right .game-seat-role-picker {
+  right: calc(50% + var(--seat-circle-size) / 2 + 4px);
+  left: auto;
+}
+
+.game-seat-role-picker-button {
+  position: relative;
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 24px;
+  padding: 2px 6px;
+  color: #22180b;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  background: #ffd98a;
+  border: 1px solid rgba(255, 247, 223, 0.84);
+  border-radius: 999px;
+  box-shadow:
+    0 4px 10px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+  touch-action: manipulation;
+}
+
+.game-seat-role-picker-button::before {
+  position: absolute;
+  inset: -6px;
+  content: "";
+}
+
+.game-seat-role-picker-button:hover {
+  background: #ffe4a3;
+  transform: translateY(-1px);
+}
+
+.game-seat-role-picker-button:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.game-seat-role-picker-caret {
+  width: 0;
+  height: 0;
+  border-top: 4px solid #5b3a12;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+}
+
+.game-seat-role-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 15;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(52px, 1fr));
+  gap: 4px;
+  width: 120px;
+  padding: 6px;
+  background: rgba(23, 17, 13, 0.9);
+  border: 1px solid rgba(255, 225, 164, 0.52);
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(8px);
+  animation: game-seat-role-menu-in 120ms ease-out;
+  transform-origin: top left;
+}
+
+.game-seat--right .game-seat-role-menu {
+  right: 0;
+  left: auto;
+  transform-origin: top right;
+}
+
+.game-seat-role-option {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 6px;
+  color: rgba(255, 247, 223, 0.92);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  cursor: pointer;
+  transition:
+    background 100ms ease,
+    border-color 100ms ease,
+    transform 100ms ease;
+}
+
+.game-seat-role-option:hover {
+  background: rgba(255, 217, 138, 0.18);
+  border-color: rgba(255, 217, 138, 0.36);
+}
+
+.game-seat-role-option:active {
+  transform: scale(0.96);
+}
+
+.game-seat-role-option--selected {
+  color: #2b1a04;
+  background: #ffd98a;
+  border-color: rgba(255, 247, 223, 0.76);
+}
+
+.game-seat-witch-split {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: var(--seat-circle-size);
+  height: var(--seat-circle-size);
+  overflow: hidden;
+  border: 2px solid rgba(255, 247, 223, 0.76);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.46);
+}
+
+.game-seat-witch-half {
+  min-width: 0;
+  padding: 0;
+  color: #fff;
+  font-size: clamp(12px, 1vw, 14px);
+  font-weight: 900;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.82);
+  border: 0;
+  cursor: pointer;
+}
+
+.game-seat-witch-half--save {
+  background: rgba(48, 153, 92, 0.92);
+}
+
+.game-seat-witch-half--poison {
+  background: rgba(175, 43, 54, 0.94);
+}
+
+.game-seat-witch-half:disabled {
+  color: rgba(255, 255, 255, 0.58);
+  cursor: not-allowed;
+  background: rgba(80, 80, 80, 0.82);
+}
+
+@keyframes game-seat-role-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .model-picker-backdrop {
@@ -1605,9 +1808,11 @@ button {
 .game-chat-input {
   width: 100%;
   min-width: 0;
+  min-height: 42px;
   padding: 6px 10px;
   color: #fff;
   font-size: 13px;
+  resize: none;
   background: rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
@@ -1644,6 +1849,81 @@ button {
   font-size: 12px;
   font-weight: 500;
   opacity: 0.84;
+}
+
+.human-perspective-chip {
+  position: absolute;
+  top: clamp(154px, 16vh, 190px);
+  left: 50%;
+  z-index: 8;
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  max-width: min(520px, calc(100vw - 40px));
+  padding: 8px 12px;
+  color: #fff7df;
+  background: rgba(14, 10, 10, 0.62);
+  border: 1px solid rgba(255, 224, 160, 0.34);
+  border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.26);
+  transform: translateX(-50%);
+}
+
+.human-perspective-chip strong,
+.human-perspective-chip span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.human-turn-panel {
+  position: absolute;
+  right: clamp(118px, 25vw, 220px);
+  bottom: max(28px, calc(env(safe-area-inset-bottom) + 20px));
+  left: clamp(118px, 25vw, 220px);
+  z-index: 11;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  color: #fff7df;
+  background: rgba(15, 11, 10, 0.82);
+  border: 1px solid rgba(255, 224, 160, 0.36);
+  border-radius: 8px;
+  pointer-events: auto;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+}
+
+.human-turn-panel__main,
+.human-turn-panel__actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.human-turn-panel__target {
+  color: rgba(255, 247, 223, 0.86);
+}
+
+.human-turn-panel__actions button {
+  min-height: 32px;
+  padding: 6px 12px;
+  color: #241805;
+  font-weight: 800;
+  background: linear-gradient(180deg, #fff1b8 0%, #ffd86d 100%);
+  border: 1px solid rgba(255, 245, 199, 0.72);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.human-turn-panel__actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.human-turn-panel__error {
+  margin: 0;
+  color: #ffb7a4;
 }
 
 .game-stream-status--open {

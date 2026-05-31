@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict
 
 from wolven_hunt.core.seat import ROLE_TO_CAMP, Role
 
+AgentType = Literal["llm", "human", "mock"]
+
 
 class SeatSpeech(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -101,6 +103,7 @@ class PerSeatDossier(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     seat: int
+    agent_type: AgentType = "llm"
     nickname: str
     role: str
     camp: str
@@ -135,6 +138,7 @@ def build_dossiers(
     reveal: dict[str, Any],
     seat_presentation: dict[int, dict[str, str]],
     key_decisions: tuple[dict[str, Any], ...],
+    seat_agent_kinds: dict[int, str] | None = None,
 ) -> tuple[PerSeatDossier, ...]:
     del narrative_rows
     seats_meta = {
@@ -291,6 +295,7 @@ def build_dossiers(
         dossiers.append(
             PerSeatDossier(
                 seat=seat,
+                agent_type=_agent_type_for_seat(seat, seat_agent_kinds),
                 nickname=nickname,
                 role=role,
                 camp=camp,
@@ -324,6 +329,17 @@ def build_dossiers(
             )
         )
     return tuple(dossiers)
+
+
+def _agent_type_for_seat(seat: int, seat_agent_kinds: dict[int, str] | None) -> AgentType:
+    if not seat_agent_kinds:
+        return "llm"
+    value = str(seat_agent_kinds.get(seat, "llm"))
+    if value == "human":
+        return "human"
+    if value == "mock":
+        return "mock"
+    return "llm"
 
 
 def _payload(event: dict[str, Any]) -> dict[str, Any]:

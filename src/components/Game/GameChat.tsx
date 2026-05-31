@@ -6,9 +6,12 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Minus, Plus } from 'lucide-react';
-import type { GameEvent, NarrativeRow } from '../../lib/gameApi';
-import { MODEL_SLOTS } from '../../lib/modelConfigs';
+import { Minus, Plus, Send } from 'lucide-react';
+import type { GameEvent, NarrativeRow, TurnRequest } from '../../lib/gameApi';
+import {
+  resolveSeatDisplay,
+  type SeatPresentationMap,
+} from '../../lib/seatPresentation';
 import {
   TYPEWRITER_DURATION_MS,
   typewriterVisibleText,
@@ -19,18 +22,30 @@ type GameChatProps = {
   events: GameEvent[];
   narrativeRows: NarrativeRow[];
   assignments: (number | null)[];
+  seatPresentation?: SeatPresentationMap;
   streamStatus: 'idle' | 'connecting' | 'open' | 'error' | 'failed';
   autoScrollEnabled: boolean;
   liveTypingEnabled: boolean;
+  inputKind?: Extract<TurnRequest['kind'], 'speech' | 'wolf_chat' | 'last_words'> | null;
+  inputEnabled?: boolean;
+  inputMaxChars?: number;
+  secondsLeft?: number | null;
+  onSubmitText?: (text: string) => void;
 };
 
 export function GameChat({
   events,
   narrativeRows,
   assignments,
+  seatPresentation = {},
   streamStatus,
   autoScrollEnabled,
   liveTypingEnabled,
+  inputKind = null,
+  inputEnabled = false,
+  inputMaxChars = 300,
+  secondsLeft = null,
+  onSubmitText,
 }: GameChatProps) {
   const generalBodyRef = useRef<HTMLDivElement | null>(null);
   const wolfBodyRef = useRef<HTMLDivElement | null>(null);
@@ -83,6 +98,7 @@ export function GameChat({
                 key={`${row.seq}-${row.kind}`}
                 row={row}
                 assignments={assignments}
+                seatPresentation={seatPresentation}
                 liveTypingEnabled={liveTypingEnabled}
                 onTypingFrame={scrollGeneralToBottom}
               />
@@ -93,6 +109,15 @@ export function GameChat({
           <VoteHistogram
             counts={voteCounts.counts}
             abstainCount={voteCounts.abstainCount}
+          />
+        )}
+        {inputKind && inputKind !== 'wolf_chat' && (
+          <ChatInput
+            kind={inputKind}
+            enabled={inputEnabled}
+            maxChars={inputMaxChars}
+            secondsLeft={secondsLeft}
+            onSubmitText={onSubmitText}
           />
         )}
       </section>
@@ -124,6 +149,7 @@ export function GameChat({
                 <WolfChatLine
                   event={event}
                   assignments={assignments}
+                  seatPresentation={seatPresentation}
                   liveTypingEnabled={liveTypingEnabled}
                   onTypingFrame={scrollWolfToBottom}
                 />
@@ -131,8 +157,78 @@ export function GameChat({
             ))
           )}
         </div>
+        {inputKind === 'wolf_chat' && (
+          <ChatInput
+            kind={inputKind}
+            enabled={inputEnabled}
+            maxChars={inputMaxChars}
+            secondsLeft={secondsLeft}
+            onSubmitText={onSubmitText}
+          />
+        )}
       </section>
     </div>
+  );
+}
+
+function ChatInput({
+  kind,
+  enabled,
+  maxChars,
+  secondsLeft,
+  onSubmitText,
+}: {
+  kind: Extract<TurnRequest['kind'], 'speech' | 'wolf_chat' | 'last_words'>;
+  enabled: boolean;
+  maxChars: number;
+  secondsLeft: number | null;
+  onSubmitText?: (text: string) => void;
+}) {
+  const [text, setText] = useState('');
+
+  useEffect(() => {
+    setText('');
+  }, [kind]);
+
+  const submit = () => {
+    const trimmed = text.trim();
+    if (!enabled || !trimmed) {
+      return;
+    }
+    onSubmitText?.(trimmed);
+    setText('');
+  };
+
+  return (
+    <footer className="game-chat-footer">
+      <label className="game-chat-seat">
+        <span>{TEXT_TURN_LABELS[kind]}</span>
+        <span>{secondsLeft === null ? '' : `${secondsLeft}s`}</span>
+      </label>
+      <textarea
+        className="game-chat-input"
+        value={text}
+        maxLength={maxChars}
+        disabled={!enabled}
+        rows={2}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            submit();
+          }
+        }}
+      />
+      <button
+        type="button"
+        className="game-chat-submit"
+        disabled={!enabled || text.trim().length === 0}
+        onClick={submit}
+        aria-label="提交文本"
+      >
+        <Send size={16} strokeWidth={2.5} aria-hidden="true" />
+      </button>
+    </footer>
   );
 }
 
@@ -175,6 +271,15 @@ export function gameChatClassName(generalExpanded: boolean) {
     : 'game-chat';
 }
 
+const TEXT_TURN_LABELS: Record<
+  Extract<TurnRequest['kind'], 'speech' | 'wolf_chat' | 'last_words'>,
+  string
+> = {
+  speech: '发言',
+  wolf_chat: '狼聊',
+  last_words: '遗言',
+};
+
 function streamStatusLabel(streamStatus: GameChatProps['streamStatus']) {
   if (streamStatus === 'open') {
     return '已连接';
@@ -194,23 +299,25 @@ function streamStatusLabel(streamStatus: GameChatProps['streamStatus']) {
 function NarrativeLine({
   row,
   assignments,
+  seatPresentation,
   liveTypingEnabled,
   onTypingFrame,
 }: {
   row: NarrativeRow;
   assignments: (number | null)[];
+  seatPresentation: SeatPresentationMap;
   liveTypingEnabled: boolean;
   onTypingFrame: () => void;
 }) {
-  const slotIndex = row.actor === null ? null : assignments[row.actor - 1];
-  const slot = slotIndex === null ? null : MODEL_SLOTS[slotIndex];
+  const display =
+    row.actor === null ? null : resolveSeatDisplay(row.actor, assignments, seatPresentation);
 
-  if (row.kind === 'speech' && slot) {
+  if (row.kind === 'speech' && display) {
     return (
       <article className="game-narrative-line game-narrative-line--speech">
-        <img src={slot.iconPath} alt="" className="game-narrative-avatar" />
+        <img src={display.iconPath} alt="" className="game-narrative-avatar" />
         <div>
-          <strong>{slot.nickname}</strong>
+          <strong>{display.nickname}</strong>
           <p>
             <TypewriterText
               text={row.text}
@@ -234,23 +341,25 @@ function NarrativeLine({
 function WolfChatLine({
   event,
   assignments,
+  seatPresentation,
   liveTypingEnabled,
   onTypingFrame,
 }: {
   event: GameEvent;
   assignments: (number | null)[];
+  seatPresentation: SeatPresentationMap;
   liveTypingEnabled: boolean;
   onTypingFrame: () => void;
 }) {
-  const slotIndex = event.actor === null ? null : assignments[event.actor - 1];
-  const slot = slotIndex === null ? null : MODEL_SLOTS[slotIndex];
+  const display =
+    event.actor === null ? null : resolveSeatDisplay(event.actor, assignments, seatPresentation);
   const actorLabel = event.actor === null ? '狼人' : `${event.actor}号`;
 
   return (
     <article className="game-narrative-line game-narrative-line--wolf">
-      {slot && <img src={slot.iconPath} alt="" className="game-narrative-avatar" />}
+      {display && <img src={display.iconPath} alt="" className="game-narrative-avatar" />}
       <div>
-        <strong>{slot ? `${actorLabel} ${slot.nickname}` : actorLabel}</strong>
+        <strong>{display ? `${actorLabel} ${display.nickname}` : actorLabel}</strong>
         <p>
           <TypewriterText
             text={String(event.payload.text ?? '')}

@@ -12,7 +12,10 @@ type LobbyHomeProps = {
   onEnterReplay: (gameId: string) => void;
 };
 
-export function LobbyHome({ onEnterGame, onEnterReplay }: LobbyHomeProps) {
+export function LobbyHome({
+  onEnterGame,
+  onEnterReplay,
+}: LobbyHomeProps) {
   const { ensureUnlock } = useLobbyAudio();
   const [activeModal, setActiveModal] = useState<LobbyAction | null>(null);
 

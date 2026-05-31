@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     pacing_speech_ms: int = Field(default=400, ge=0)
     pacing_night_ms: int = Field(default=1000, ge=0)
     pacing_ack_timeout_ms: int = Field(default=15_000, ge=0)
+    human_turn_timeout_seconds: float = Field(default=90.0, gt=0)
     runs_dir: Path = Path("runs")
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=7002, ge=1, le=65535)

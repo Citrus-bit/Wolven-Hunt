@@ -2,14 +2,17 @@ import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeftRight, X } from 'lucide-react';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
+import { HUMAN_SEAT_PRESENTATION } from '../../lib/seatPresentation';
 
 type ModelPickerProps = {
   open: boolean;
   onClose: () => void;
   currentAssignment: number | null;
+  currentIsHuman?: boolean;
   usedSlots: number[];
   onPick: (slotIndex: number) => void;
   onSwap: (slotIndex: number) => void;
+  onPickHuman: () => void;
 };
 
 const focusableSelector = [
@@ -25,9 +28,11 @@ export function ModelPicker({
   open,
   onClose,
   currentAssignment,
+  currentIsHuman = false,
   usedSlots,
   onPick,
   onSwap,
+  onPickHuman,
 }: ModelPickerProps) {
   const titleId = useId();
   const lastFocusedRef = useRef<HTMLElement | null>(null);
@@ -163,6 +168,28 @@ export function ModelPicker({
               </div>
             );
           })}
+          <div
+            className={`model-picker-card model-picker-card--human ${
+              currentIsHuman ? 'model-picker-card--current' : ''
+            }`}
+            role="listitem"
+          >
+            <button
+              type="button"
+              className="model-picker-card-main"
+              aria-label={currentIsHuman ? '当前已选择你自己' : '选择你自己'}
+              onClick={onPickHuman}
+            >
+              <img
+                src={HUMAN_SEAT_PRESENTATION.icon_path}
+                alt=""
+                className="model-picker-avatar"
+              />
+              <span className="model-picker-nickname">
+                {HUMAN_SEAT_PRESENTATION.nickname}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     </div>,

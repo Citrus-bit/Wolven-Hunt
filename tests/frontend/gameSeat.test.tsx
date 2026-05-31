@@ -65,4 +65,48 @@ describe('GameSeat', () => {
     expect(html).toContain('game-seat-thinking-badge');
     expect(html).toContain('思考模式开启，响应更慢');
   });
+
+  it('renders the human role picker on a selected human setup seat', () => {
+    const html = renderToStaticMarkup(
+      <GameSeat
+        seatIndex={1}
+        side="left"
+        assignment={null}
+        isHuman={true}
+        pickRoleEnabled={true}
+        humanRole="witch"
+        presentation={{ nickname: '你自己', icon_path: '/assets/lobby/human_player.png' }}
+        onClickSeat={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('game-seat-role-picker');
+    expect(html).toContain('选择你的角色，当前女巫');
+    expect(html).toContain('game-seat-role-picker-button');
+    expect(html).toContain('你自己');
+  });
+
+  it('renders the witch split action overlay with disabled halves', () => {
+    const html = renderToStaticMarkup(
+      <GameSeat
+        seatIndex={2}
+        side="left"
+        assignment={0}
+        selectedAsTarget={true}
+        witchSplit={{
+          active: true,
+          canSave: false,
+          canPoison: true,
+          onSave: () => undefined,
+          onPoison: () => undefined,
+        }}
+        onClickSeat={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('game-seat-witch-split');
+    expect(html).toContain('game-seat-witch-half--save');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('game-seat-witch-half--poison');
+  });
 });

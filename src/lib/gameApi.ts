@@ -24,6 +24,8 @@ export type AgentSpec =
 
 export type CreateGameResponse = {
   game_id: string;
+  player_token: string | null;
+  human_seat: number | null;
 };
 
 export type GameListItem = {
@@ -75,6 +77,34 @@ export type SpectatorEffect = {
   duration_ms: number;
   meta: Record<string, unknown>;
 };
+
+export type HumanRole = 'villager' | 'witch' | 'seer' | 'guard' | 'wolf' | 'random';
+
+export type TurnRequest = {
+  seat: number;
+  kind:
+    | 'guard'
+    | 'wolf_chat'
+    | 'wolf_vote'
+    | 'seer'
+    | 'witch'
+    | 'speech'
+    | 'vote'
+    | 'pk_vote'
+    | 'last_words';
+  deadline_ts: number;
+  timeout_seconds: number;
+  valid_targets: number[] | null;
+  constraints: Record<string, unknown>;
+  phase: string;
+  day: number;
+};
+
+export type SeatActionRequest =
+  | { kind: 'speech' | 'wolf_chat' | 'last_words'; text: string }
+  | { kind: 'guard' | 'seer' | 'wolf_vote'; target: number }
+  | { kind: 'vote' | 'pk_vote'; target: number | null }
+  | { kind: 'witch'; action: 'save' | 'poison' | 'skip'; target: number | null };
 
 export type RoleReveal = {
   winner: string;
@@ -172,6 +202,9 @@ export async function createGame(opts: {
   startPaused?: boolean;
   seatPresentation?: SeatPresentationMap;
   evolutionEnabled?: boolean;
+  humanSeat?: number;
+  humanSeatRandom?: boolean;
+  humanRole?: HumanRole;
 } = {}): Promise<CreateGameResponse> {
   const res = await fetch(`${API_BASE}/games`, {
     method: 'POST',
@@ -184,6 +217,9 @@ export async function createGame(opts: {
       start_paused: opts.startPaused ?? false,
       seat_presentation: opts.seatPresentation ?? {},
       evolution_enabled: opts.evolutionEnabled ?? false,
+      human_seat: opts.humanSeat,
+      human_seat_random: opts.humanSeatRandom ?? false,
+      human_role: opts.humanRole ?? 'random',
     }),
   });
   return parseJsonResponse<CreateGameResponse>(res);
@@ -285,6 +321,23 @@ export async function submitWolfChat(
   return postTextAction(gameId, 'wolf_chat', seat, text);
 }
 
+export async function submitSeatAction(
+  gameId: string,
+  seat: number,
+  playerToken: string,
+  action: SeatActionRequest,
+) {
+  const res = await fetch(
+    `${API_BASE}/games/${gameId}/seat/${seat}/action?player_token=${encodeURIComponent(playerToken)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(action),
+    },
+  );
+  return parseJsonResponse<{ ok: boolean }>(res);
+}
+
 export function subscribeGameEvents(
   gameId: string,
   onOpen: () => void,
@@ -326,6 +379,66 @@ export function subscribeGameEvents(
       JSON.parse(eventMessage.data) as SpectatorEffect,
       parseEventSourceCursor(eventMessage.lastEventId),
     );
+  });
+  source.onerror = onError;
+  return source;
+}
+
+export function subscribeSeatEvents(
+  gameId: string,
+  seat: number,
+  playerToken: string,
+  onOpen: () => void,
+  onReady: () => void,
+  onEvent: (event: GameEvent, streamCursor: number | null) => void,
+  onError: () => void,
+  onTurnRequest: (turn: TurnRequest) => void,
+  onTurnCleared: () => void,
+  onNarrative?: (row: NarrativeRow, streamCursor: number | null) => void,
+  onEffect?: (effect: SpectatorEffect, streamCursor: number | null) => void,
+  lastEventId?: number,
+) {
+  const params = new URLSearchParams({ player_token: playerToken });
+  if (lastEventId && lastEventId > 0) {
+    params.set('last_event_id', String(lastEventId));
+  }
+  const source = new EventSource(
+    `${API_BASE}/games/${gameId}/seat/${seat}/stream?${params.toString()}`,
+  );
+  source.onopen = () => {
+    onOpen();
+    onReady();
+  };
+  source.addEventListener('stream_ready', () => {
+    onReady();
+  });
+  source.addEventListener('game_event', (message) => {
+    const eventMessage = message as MessageEvent<string>;
+    onEvent(
+      JSON.parse(eventMessage.data) as GameEvent,
+      parseEventSourceCursor(eventMessage.lastEventId),
+    );
+  });
+  source.addEventListener('narrative_row', (message) => {
+    const eventMessage = message as MessageEvent<string>;
+    onNarrative?.(
+      JSON.parse(eventMessage.data) as NarrativeRow,
+      parseEventSourceCursor(eventMessage.lastEventId),
+    );
+  });
+  source.addEventListener('spectator_effect', (message) => {
+    const eventMessage = message as MessageEvent<string>;
+    onEffect?.(
+      JSON.parse(eventMessage.data) as SpectatorEffect,
+      parseEventSourceCursor(eventMessage.lastEventId),
+    );
+  });
+  source.addEventListener('turn_request', (message) => {
+    const eventMessage = message as MessageEvent<string>;
+    onTurnRequest(JSON.parse(eventMessage.data) as TurnRequest);
+  });
+  source.addEventListener('turn_cleared', () => {
+    onTurnCleared();
   });
   source.onerror = onError;
   return source;

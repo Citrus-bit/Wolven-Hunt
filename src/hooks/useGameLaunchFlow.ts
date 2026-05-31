@@ -6,6 +6,7 @@ import {
   createGame,
   pauseGame,
   runGame,
+  type HumanRole,
   type GameTimings,
 } from '../lib/gameApi';
 import { buildAgentSpecs } from '../lib/agentSpecs';
@@ -25,10 +26,15 @@ type LiveSessionSnapshotDraft = {
   streamCursor: number;
   effectSeq: number;
   recentEffects: [];
+  humanSeat?: number | null;
+  playerToken?: string | null;
+  humanRole?: HumanRole;
 };
 
 type UseGameLaunchFlowParams = {
   assignments: (number | null)[];
+  humanSeatIndex: number | null;
+  humanRole: HumanRole;
   isStartingGame: boolean;
   gameStarted: boolean;
   stage: GameStage;
@@ -50,6 +56,7 @@ type UseGameLaunchFlowParams = {
   unlockAudio: () => unknown;
   setPickerSeat: (seat: number | null) => void;
   setSeatPresentation: (presentation: SeatPresentationMap) => void;
+  setHumanContext: (context: { seat: number; token: string } | null) => void;
   setLaunchState: (state: LaunchState) => void;
   updateLaunchState: (
     next: LaunchState | ((current: LaunchState) => LaunchState),
@@ -64,6 +71,8 @@ type UseGameLaunchFlowParams = {
 
 export function useGameLaunchFlow({
   assignments,
+  humanSeatIndex,
+  humanRole,
   isStartingGame,
   gameStarted,
   stage,
@@ -77,6 +86,7 @@ export function useGameLaunchFlow({
   unlockAudio,
   setPickerSeat,
   setSeatPresentation,
+  setHumanContext,
   setLaunchState,
   updateLaunchState,
   setGameId,
@@ -91,9 +101,11 @@ export function useGameLaunchFlow({
       return;
     }
     setPickerSeat(null);
+    setHumanContext(null);
     updateLaunchState('connecting_service');
     setTestMessage('正在连接本地服务');
-    const presentation = buildSeatPresentation(assignments);
+    const isHumanGame = humanSeatIndex !== null;
+    const presentation = buildSeatPresentation(assignments, { humanSeatIndex });
     setSeatPresentation(presentation);
     transitionToStage({ dayNumber: stage.dayNumber, phase: 'night' });
     try {
@@ -109,7 +121,7 @@ export function useGameLaunchFlow({
       }
       updateLaunchState('creating');
       setTestMessage('正在创建对局并接入模型');
-      const agents = buildAgentSpecs(assignments);
+      const agents = buildAgentSpecs(assignments, undefined, { humanSeatIndex });
       liveSessionSnapshotRef.current = {
         gameId: null,
         assignments,
@@ -118,14 +130,22 @@ export function useGameLaunchFlow({
         streamCursor: 0,
         effectSeq: 0,
         recentEffects: [],
+        humanSeat: isHumanGame ? humanSeatIndex + 1 : null,
+        playerToken: null,
+        humanRole,
       };
       const created = await createGame({
         agents,
         pacing: 'live',
         startPaused: true,
         seatPresentation: presentation,
-        evolutionEnabled: readPromptEvolutionEnabled(),
+        evolutionEnabled: isHumanGame ? false : readPromptEvolutionEnabled(),
+        humanSeat: isHumanGame ? humanSeatIndex + 1 : undefined,
+        humanRole: isHumanGame ? humanRole : undefined,
       });
+      if (isHumanGame && (!created.human_seat || !created.player_token)) {
+        throw new Error('后端未返回真人座位 token');
+      }
       if (liveSessionAbandonedRef.current) {
         clearLiveGameSession(created.game_id);
         void pauseGame(created.game_id).catch(() => undefined);
@@ -134,6 +154,11 @@ export function useGameLaunchFlow({
       streamCursorRef.current = 0;
       effectSeqRef.current = 0;
       pendingRunGameIdRef.current = created.game_id;
+      const nextHumanContext =
+        isHumanGame && created.human_seat && created.player_token
+          ? { seat: created.human_seat, token: created.player_token }
+          : null;
+      setHumanContext(nextHumanContext);
       const createdSnapshot = {
         gameId: created.game_id,
         assignments,
@@ -142,6 +167,9 @@ export function useGameLaunchFlow({
         streamCursor: 0,
         effectSeq: 0,
         recentEffects: [],
+        humanSeat: nextHumanContext?.seat ?? null,
+        playerToken: nextHumanContext?.token ?? null,
+        humanRole,
       };
       liveSessionSnapshotRef.current = createdSnapshot;
       writeLiveGameSession(createdSnapshot);
@@ -158,12 +186,15 @@ export function useGameLaunchFlow({
     assignments,
     effectSeqRef,
     gameStarted,
+    humanRole,
+    humanSeatIndex,
     isStartingGame,
     liveShellMountedRef,
     liveSessionAbandonedRef,
     liveSessionSnapshotRef,
     pendingRunGameIdRef,
     setGameId,
+    setHumanContext,
     setLaunchState,
     setPickerSeat,
     setSeatPresentation,

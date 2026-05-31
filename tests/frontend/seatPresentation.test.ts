@@ -22,6 +22,15 @@ describe('seatPresentation', () => {
     expect(JSON.stringify(presentation)).not.toContain('modelName');
   });
 
+  it('uses the human presentation for the selected human seat', () => {
+    const presentation = buildSeatPresentation([9, null, 0], { humanSeatIndex: 1 });
+
+    expect(presentation[2]).toEqual({
+      nickname: '你自己',
+      icon_path: '/assets/lobby/human_player.png',
+    });
+  });
+
   it('prefers live assignments and falls back to replay presentation', () => {
     expect(
       resolveSeatDisplay(2, [null, null], {

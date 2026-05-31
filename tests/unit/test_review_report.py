@@ -170,6 +170,24 @@ def test_mock_review_report_uses_distinct_player_wording() -> None:
     assert "技能" not in json.dumps(report, ensure_ascii=False)
 
 
+def test_mock_review_report_marks_human_player_wording() -> None:
+    report = review_report.build_mock_review_report(
+        game_id="game-human-review",
+        reveal={
+            "winner": "good",
+            "seats": [{"seat": 2, "role": "villager", "alive": True}],
+            "highlights": [],
+        },
+        seat_presentation={2: {"nickname": "你自己", "icon_path": "/assets/lobby/human_player.png"}},
+        seat_agent_kinds={2: "human"},
+        narrative_rows=(),
+        events=(),
+    )
+
+    assert "真人玩家" in report["players"][0]["evaluation"]
+    assert "真人玩家" in report["leaderboard"][0]["reason"]
+
+
 def test_generate_review_report_routes_litellm_to_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.unit.test_review_pipeline import _StubProvider
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from wolven_hunt.config.settings import Settings
 from wolven_hunt.core.rng import DeterministicRNG
@@ -154,4 +155,4 @@ def _candidate_text_from_response(response: ProviderResponse) -> str:
     data = json.loads(response.content)
     if not isinstance(data, dict) or not isinstance(data.get("prompt"), str):
         raise ValueError("prompt evolution response must contain string field 'prompt'")
-    return data["prompt"]
+    return cast(str, data["prompt"])

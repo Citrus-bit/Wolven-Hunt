@@ -53,6 +53,47 @@ def test_dry_run_does_not_write_snapshot_or_state(tmp_path: Path, game_config) -
     assert load_state(settings.runs_dir).active_version == "v5"
 
 
+def test_record_finished_game_ignores_human_player_runs(tmp_path: Path) -> None:
+    settings = Settings(runs_dir=tmp_path / "runs", evolution_enabled=True)
+    game_id = "human-game"
+    run_root = settings.runs_dir / game_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "ended_at": "2026-01-01T00:00:00+00:00",
+                "prompt_pack_version": "v5",
+                "human_seat": 4,
+                "seat_presentation": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = record_finished_game(
+        runs_dir=settings.runs_dir,
+        game_id=game_id,
+        prompt_version="v5",
+        window_size=5,
+    )
+
+    assert state.baseline_game_ids == ()
+    assert state.challenger_game_ids == ()
+    ledger_path = settings.runs_dir / "_evolution" / "ledger.jsonl"
+    ledger_rows = [
+        json.loads(line)
+        for line in ledger_path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert ledger_rows[-1] | {"timestamp": "<ignored>"} == {
+        "timestamp": "<ignored>",
+        "event": "game_ignored",
+        "game_id": game_id,
+        "reason": "human_player",
+        "human_seat": 4,
+    }
+
+
 def _write_config_with_prompt_root(tmp_path: Path, prompt_root: Path) -> Path:
     configs_root = tmp_path / "configs"
     shutil.copytree(ROOT / "configs/games", configs_root / "games")

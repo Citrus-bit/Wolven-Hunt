@@ -30,12 +30,24 @@ from wolven_hunt.core.state import GameState, PlayerState
 from wolven_hunt.core.win import check_winner
 
 
-def build_initial_state(config: GameConfig, seed: str) -> tuple[GameState, tuple[Event, ...]]:
+def build_initial_state(
+    config: GameConfig,
+    seed: str,
+    *,
+    forced_seat_roles: dict[int, Role] | None = None,
+) -> tuple[GameState, tuple[Event, ...]]:
     rng = DeterministicRNG(seed)
     role_names: list[Role] = []
     for role_name, role_def in sorted(config.role_pack.roles.items()):
         role_names.extend([Role(role_name)] * role_def.count)
     rng.stream("role_assignment").shuffle(role_names)
+    normalized_forced_roles = _normalize_forced_seat_roles(config, forced_seat_roles)
+    for seat_number, forced_role in normalized_forced_roles.items():
+        index = seat_number - 1
+        if role_names[index] == forced_role:
+            continue
+        swap_index = role_names.index(forced_role)
+        role_names[index], role_names[swap_index] = role_names[swap_index], role_names[index]
     players = tuple(
         PlayerState(seat=Seat(index + 1), role=role) for index, role in enumerate(role_names)
     )
@@ -58,6 +70,11 @@ def build_initial_state(config: GameConfig, seed: str) -> tuple[GameState, tuple
         "selected": {str(player.seat.number): player.role.value for player in players},
         "reason": "deterministic_role_shuffle",
     }
+    if normalized_forced_roles:
+        payload["forced_seat_roles"] = {
+            str(seat_number): role.value
+            for seat_number, role in sorted(normalized_forced_roles.items())
+        }
     return state, (
         draft_event(
             game_id=game_id,
@@ -69,6 +86,22 @@ def build_initial_state(config: GameConfig, seed: str) -> tuple[GameState, tuple
             payload=payload,
         ),
     )
+
+
+def _normalize_forced_seat_roles(
+    config: GameConfig,
+    forced_seat_roles: dict[int, Role] | None,
+) -> dict[int, Role]:
+    if not forced_seat_roles:
+        return {}
+    normalized: dict[int, Role] = {}
+    for seat_number, role in forced_seat_roles.items():
+        if seat_number < config.seat_range.start or seat_number > config.seat_range.end:
+            raise ValueError(f"forced seat {seat_number} is outside configured seat range")
+        if role.value not in config.role_pack.roles:
+            raise ValueError(f"forced role {role.value} is not in this role pack")
+        normalized[int(seat_number)] = Role(role)
+    return dict(sorted(normalized.items()))
 
 
 def phase_enter(state: GameState, phase: str) -> tuple[GameState, tuple[Event, ...]]:

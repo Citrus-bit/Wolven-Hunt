@@ -37,6 +37,7 @@ def run_pipeline_sync(
     narrative_rows: tuple[dict[str, object], ...],
     reveal: dict[str, object],
     seat_presentation: dict[int, dict[str, str]],
+    seat_agent_kinds: dict[int, str] | None = None,
     settings: Settings,
     provider: Any = None,
 ) -> dict[str, Any]:
@@ -47,6 +48,7 @@ def run_pipeline_sync(
             narrative_rows=narrative_rows,
             reveal=reveal,
             seat_presentation=seat_presentation,
+            seat_agent_kinds=seat_agent_kinds,
             settings=settings,
             provider=provider,
         )
@@ -60,6 +62,7 @@ async def run_pipeline(
     narrative_rows: tuple[dict[str, object], ...],
     reveal: dict[str, object],
     seat_presentation: dict[int, dict[str, str]],
+    seat_agent_kinds: dict[int, str] | None = None,
     settings: Settings,
     provider: Any = None,
 ) -> dict[str, Any]:
@@ -81,6 +84,7 @@ async def run_pipeline(
             game_id=game_id,
             reveal=reveal,
             seat_presentation=seat_presentation,
+            seat_agent_kinds=seat_agent_kinds,
             narrative_rows=narrative_rows,
             events=events,
         )
@@ -91,6 +95,7 @@ async def run_pipeline(
         reveal=reveal,
         seat_presentation=seat_presentation,
         key_decisions=tuple(global_part["key_decisions"]),
+        seat_agent_kinds=seat_agent_kinds,
     )
     per_seat_results = await asyncio.gather(
         *(
@@ -115,6 +120,7 @@ async def run_pipeline(
         seat_presentation=seat_presentation,
         narrative_rows=narrative_rows,
         events=events,
+        seat_agent_kinds=seat_agent_kinds,
     )
 
 
@@ -160,6 +166,7 @@ async def run_per_seat_stage(
         "global_summary": global_summary,
         "global_key_decisions": list(global_decisions),
         "dossier": json.loads(dossier.model_dump_json()),
+        "agent_note": _agent_note(dossier),
     }
     prompt = f"{template}\n\n{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
     response: ProviderResponse = await provider.acomplete(
@@ -182,6 +189,7 @@ def assemble_report(
     seat_presentation: dict[int, dict[str, str]],
     narrative_rows: tuple[dict[str, object], ...],
     events: tuple[dict[str, object], ...],
+    seat_agent_kinds: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     mock_full = rr.build_mock_review_report(
         game_id=game_id,
@@ -189,6 +197,7 @@ def assemble_report(
         seat_presentation=seat_presentation,
         narrative_rows=narrative_rows,
         events=events,
+        seat_agent_kinds=seat_agent_kinds,
     )
     mock_players_by_seat = {int(player["seat"]): player for player in mock_full["players"]}
 
@@ -394,8 +403,16 @@ def _mock_leaderboard_seed(
         "role": dossier.role,
         "camp": dossier.camp,
         "overall_score": int(player_row["overall_score"]),
-        "reason": rr._leaderboard_reason(player_row),
+        "reason": rr._leaderboard_reason(player_row, agent_type=dossier.agent_type),
     }
+
+
+def _agent_note(dossier: rd.PerSeatDossier) -> str:
+    if dossier.agent_type == "human":
+        return "该座位是真人玩家。复盘措辞应直接面向真人玩家, 避免把该座位称为模型。"
+    if dossier.agent_type == "mock":
+        return "该座位由 mock agent 托管。"
+    return "该座位由 LLM agent 托管。"
 
 
 def _merge_counterfactuals(

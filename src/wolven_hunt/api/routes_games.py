@@ -20,13 +20,26 @@ from wolven_hunt.api.schemas import (
     ReplayRequest,
     ReviewReportResponse,
     RoleRevealResponse,
+    SeatActionRequest,
     SpectatorEffect,
     TextActionRequest,
 )
-from wolven_hunt.api.sse import sse_response
+from wolven_hunt.api.sse import sse_response, sse_response_for_seat
+from wolven_hunt.core.actions import (
+    Action,
+    GuardProtect,
+    LastWords,
+    PkVote,
+    SeerCheck,
+    Speech,
+    Vote,
+    WitchAction,
+    WolfChatMessage,
+    WolfKillVote,
+)
 from wolven_hunt.core.events import Event
 from wolven_hunt.core.rng import DeterministicRNG
-from wolven_hunt.core.seat import Seat
+from wolven_hunt.core.seat import Role, Seat
 from wolven_hunt.llm.provider import LiteLLMProvider, MockLLMProvider
 from wolven_hunt.llm.thinking import thinking_extra_body, thinking_reasoning_effort
 from wolven_hunt.orchestration.runtime import GameRegistry, GameSession
@@ -50,19 +63,35 @@ async def create_game(
     request: CreateGameRequest,
     registry: GameRegistry = REGISTRY_DEP,
 ) -> CreateGameResponse:
-    session = await registry.create_game(
-        config_path=Path(request.config_path),
-        seed=request.seed,
-        agent_specs=request.agents,
-        pacing=request.pacing,
-        start_paused=request.start_paused,
-        seat_presentation={
-            seat: presentation.model_dump(mode="json")
-            for seat, presentation in request.seat_presentation.items()
-        },
-        evolution_enabled=request.evolution_enabled,
+    try:
+        session = await registry.create_game(
+            config_path=Path(request.config_path),
+            seed=request.seed,
+            agent_specs=request.agents,
+            pacing=request.pacing,
+            start_paused=request.start_paused,
+            seat_presentation={
+                seat: presentation.model_dump(mode="json")
+                for seat, presentation in request.seat_presentation.items()
+            },
+            evolution_enabled=request.evolution_enabled,
+            human_seat=request.human_seat,
+            human_seat_random=request.human_seat_random,
+            human_role=None if request.human_role == "random" else Role(request.human_role),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_create_game", "message": str(exc)},
+        ) from exc
+    token = None
+    if session.human_seat is not None:
+        token = session.player_tokens.get(session.human_seat)
+    return CreateGameResponse(
+        game_id=session.game_id,
+        player_token=token,
+        human_seat=session.human_seat,
     )
-    return CreateGameResponse(game_id=session.game_id)
 
 
 @router.get("/games", response_model=tuple[GameListItem, ...])
@@ -223,6 +252,7 @@ def generate_review_report_route(
             narrative_rows=session.narrative_rows(),
             reveal=reveal,
             seat_presentation=session.seat_presentation,
+            seat_agent_kinds=session.seat_agent_kinds,
             registry=registry,
         )
         session.store.write_review_report(report)
@@ -252,6 +282,7 @@ def generate_review_report_route(
         narrative_rows=_narrative_rows_from_disk(root, raw_events),
         reveal=reveal,
         seat_presentation=_manifest_seat_presentation(manifest),
+        seat_agent_kinds=_manifest_seat_agent_kinds(manifest),
         registry=registry,
     )
     from wolven_hunt.storage.disk import atomic_write_json
@@ -269,6 +300,26 @@ def stream_events(
 ) -> StreamingResponse:
     return sse_response(
         _require_session(registry, game_id),
+        last_event_id=last_event_id or last_event_id_query,
+    )
+
+
+@router.get("/games/{game_id}/seat/{seat}/stream")
+def stream_seat_events(
+    game_id: str,
+    seat: int,
+    player_token: str = Query(default=""),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    last_event_id_query: str | None = LAST_EVENT_ID_QUERY,
+    last_event_id: str | None = LAST_EVENT_ID_HEADER,
+    registry: GameRegistry = REGISTRY_DEP,
+) -> StreamingResponse:
+    seat_obj = Seat(seat)
+    session = _require_session(registry, game_id)
+    _require_player_token(session, seat_obj, player_token, authorization)
+    return sse_response_for_seat(
+        session,
+        seat=seat_obj,
         last_event_id=last_event_id or last_event_id_query,
     )
 
@@ -339,6 +390,30 @@ def submit_wolf_chat(
 ) -> dict[str, object]:
     rejection = registry.submit_wolf_chat(
         game_id=game_id, seat=Seat(request.seat), text=request.text
+    )
+    if rejection is not None:
+        _raise_reject(rejection.rule_id, rejection.message)
+    return {"ok": True}
+
+
+@router.post("/games/{game_id}/seat/{seat}/action")
+def submit_seat_action(
+    game_id: str,
+    seat: int,
+    request: SeatActionRequest,
+    player_token: str = Query(default=""),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    registry: GameRegistry = REGISTRY_DEP,
+) -> dict[str, object]:
+    seat_obj = Seat(seat)
+    session = _require_session(registry, game_id)
+    _require_player_token(session, seat_obj, player_token, authorization)
+    action = _action_from_request(seat_obj, request)
+    rejection = registry.submit_action(
+        game_id=game_id,
+        seat=seat_obj,
+        kind=request.kind,
+        action=action,
     )
     if rejection is not None:
         _raise_reject(rejection.rule_id, rejection.message)
@@ -416,6 +491,72 @@ def _require_session(registry: GameRegistry, game_id: str) -> GameSession:
             status_code=404,
             detail={"code": "game_not_found", "message": game_id},
         ) from exc
+
+
+def _require_player_token(
+    session: GameSession,
+    seat: Seat,
+    query_token: str,
+    authorization: str | None,
+) -> None:
+    token = query_token
+    if not token and authorization:
+        prefix = "Bearer "
+        token = authorization[len(prefix) :] if authorization.startswith(prefix) else authorization
+    if not token or not session.validate_player_token(seat=seat, token=token):
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "player_token_invalid", "message": "invalid player token"},
+        )
+
+
+def _action_from_request(seat: Seat, request: SeatActionRequest) -> Action:
+    if request.kind == "speech":
+        return Speech(actor=seat, text=_required_text(request))
+    if request.kind == "wolf_chat":
+        return WolfChatMessage(actor=seat, text=_required_text(request))
+    if request.kind == "last_words":
+        return LastWords(actor=seat, text=_required_text(request))
+    if request.kind == "guard":
+        return GuardProtect(actor=seat, target=Seat(_required_target(request)))
+    if request.kind == "seer":
+        return SeerCheck(actor=seat, target=Seat(_required_target(request)))
+    if request.kind == "wolf_vote":
+        return WolfKillVote(actor=seat, target=Seat(_required_target(request)))
+    if request.kind == "vote":
+        return Vote(actor=seat, target=None if request.target is None else Seat(request.target))
+    if request.kind == "pk_vote":
+        return PkVote(actor=seat, target=None if request.target is None else Seat(request.target))
+    if request.kind == "witch":
+        if request.action is None:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "invalid_action", "message": "witch action is required"},
+            )
+        return WitchAction(
+            actor=seat,
+            action=request.action,
+            target=None if request.target is None else Seat(request.target),
+        )
+    raise HTTPException(status_code=422, detail={"code": "invalid_action", "message": request.kind})
+
+
+def _required_text(request: SeatActionRequest) -> str:
+    if request.text is None:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_action", "message": "text is required"},
+        )
+    return request.text
+
+
+def _required_target(request: SeatActionRequest) -> int:
+    if request.target is None:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_action", "message": "target is required"},
+        )
+    return request.target
 
 
 def _summary(session: GameSession) -> GameSummaryResponse:
@@ -547,6 +688,7 @@ def _generate_review_report_or_raise(
     narrative_rows: tuple[dict[str, object], ...],
     reveal: dict[str, object],
     seat_presentation: dict[int, dict[str, str]],
+    seat_agent_kinds: dict[int, str] | None = None,
     registry: GameRegistry,
 ) -> dict[str, object]:
     try:
@@ -556,6 +698,7 @@ def _generate_review_report_or_raise(
             narrative_rows=narrative_rows,
             reveal=reveal,
             seat_presentation=seat_presentation,
+            seat_agent_kinds=seat_agent_kinds,
             settings=registry.settings,
         )
     except Exception as exc:
@@ -653,6 +796,22 @@ def _manifest_seat_presentation(data: dict[str, object]) -> dict[int, dict[str, 
         ):
             presentation[seat] = {"nickname": nickname, "icon_path": icon_path}
     return presentation
+
+
+def _manifest_seat_agent_kinds(data: dict[str, object]) -> dict[int, str]:
+    raw = data.get("seat_agent_kinds")
+    if not isinstance(raw, dict):
+        return {}
+    kinds: dict[int, str] = {}
+    for seat_key, value in raw.items():
+        try:
+            seat = int(seat_key)
+        except (TypeError, ValueError):
+            continue
+        kind = str(value)
+        if kind in {"human", "llm", "mock"}:
+            kinds[seat] = kind
+    return kinds
 
 
 def _manifest_value(path: Path, key: str) -> str | None:

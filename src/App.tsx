@@ -9,7 +9,9 @@ type TransitionPhase = 'idle' | 'fade-out' | 'fade-in';
 
 export default function App() {
   const [restoredLiveSession] = useState(() => readLiveGameSession());
-  const [page, setPage] = useState<Page>(restoredLiveSession ? 'game' : 'lobby');
+  const [page, setPage] = useState<Page>(
+    restoredLiveSession ? 'game' : 'lobby',
+  );
   const [phase, setPhase] = useState<TransitionPhase>('idle');
   const [replayGameId, setReplayGameId] = useState<string | null>(null);
   const targetPageRef = useRef<Page | null>(null);

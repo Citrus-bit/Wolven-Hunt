@@ -6,7 +6,11 @@ type StartModalProps = {
   onEnterGame: () => void;
 };
 
-export function StartModal({ open, onClose, onEnterGame }: StartModalProps) {
+export function StartModal({
+  open,
+  onClose,
+  onEnterGame,
+}: StartModalProps) {
   const enterGame = () => {
     onClose();
     onEnterGame();
@@ -36,7 +40,7 @@ export function StartModal({ open, onClose, onEnterGame }: StartModalProps) {
         className="lobby-modal-cta"
         onClick={enterGame}
       >
-        进入游戏
+        开始游戏
       </button>
     </LobbyModal>
   );

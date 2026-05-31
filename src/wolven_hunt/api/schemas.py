@@ -45,10 +45,15 @@ class CreateGameRequest(BaseModel):
     start_paused: bool = False
     seat_presentation: dict[int, SeatPresentation] = Field(default_factory=dict)
     evolution_enabled: bool | None = None
+    human_seat: int | None = Field(default=None, ge=1)
+    human_seat_random: bool = False
+    human_role: Literal["villager", "witch", "seer", "guard", "wolf", "random"] = "random"
 
 
 class CreateGameResponse(BaseModel):
     game_id: str
+    player_token: str | None = None
+    human_seat: int | None = None
 
 
 class GameListItem(BaseModel):
@@ -78,6 +83,25 @@ class ReplayRequest(BaseModel):
 class TextActionRequest(BaseModel):
     seat: int = Field(ge=1)
     text: str = Field(max_length=300)
+
+
+class SeatActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal[
+        "guard",
+        "wolf_chat",
+        "wolf_vote",
+        "seer",
+        "witch",
+        "speech",
+        "vote",
+        "pk_vote",
+        "last_words",
+    ]
+    text: str | None = Field(default=None, max_length=300)
+    target: int | None = Field(default=None, ge=1)
+    action: Literal["save", "poison", "skip"] | None = None
 
 
 class AckRequest(BaseModel):

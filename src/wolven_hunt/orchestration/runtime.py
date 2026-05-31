@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 import threading
 from collections import deque
 from collections.abc import Mapping
@@ -11,12 +12,14 @@ from time import monotonic
 from typing import cast
 
 from wolven_hunt.agents.deterministic_mock import DeterministicMockAgent
+from wolven_hunt.agents.human_input import HumanInputAgent
 from wolven_hunt.agents.interface import PlayerInterface
 from wolven_hunt.agents.llm_agent import LLMAgent
 from wolven_hunt.config.loader import ensure_prompt_version, load_game_config
 from wolven_hunt.config.schema import GameConfig
 from wolven_hunt.config.settings import Settings
 from wolven_hunt.core.actions import (
+    Action,
     GuardProtect,
     LastWords,
     PkVote,
@@ -30,7 +33,7 @@ from wolven_hunt.core.actions import (
 from wolven_hunt.core.events import Event
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.rule_engine import build_initial_state
-from wolven_hunt.core.seat import Seat
+from wolven_hunt.core.seat import Role, Seat
 from wolven_hunt.core.state import GameState
 from wolven_hunt.evolution.engine import maybe_step_after_game
 from wolven_hunt.evolution.state import active_prompt_version
@@ -57,7 +60,6 @@ from wolven_hunt.storage.spectator_effects import event_to_spectator_effects
 MANUAL_ACTION_WAIT_SECONDS = 0.05
 
 
-TextAction = Speech | WolfChatMessage
 AgentSpecValue = object
 SeatPresentationValue = Mapping[int, Mapping[str, str]]
 
@@ -82,17 +84,17 @@ class RuntimeControl:
         self._resume.wait()
 
 
-class PendingTextActions:
+class PendingActions:
     def __init__(self) -> None:
         self._condition = threading.Condition()
-        self._actions: dict[tuple[str, int], deque[TextAction]] = {}
+        self._actions: dict[tuple[str, int], deque[Action]] = {}
 
-    def submit(self, kind: str, action: TextAction) -> None:
+    def submit(self, kind: str, action: Action) -> None:
         with self._condition:
             self._actions.setdefault((kind, action.actor.number), deque()).append(action)
             self._condition.notify_all()
 
-    def pop(self, kind: str, seat: Seat, *, timeout_seconds: float) -> TextAction | None:
+    def pop(self, kind: str, seat: Seat, *, timeout_seconds: float) -> Action | None:
         deadline = monotonic() + timeout_seconds
         key = (kind, seat.number)
         with self._condition:
@@ -112,7 +114,7 @@ class PendingActionAgent:
         *,
         seat: Seat,
         base: PlayerInterface,
-        pending: PendingTextActions,
+        pending: PendingActions,
         timeout_seconds: float = MANUAL_ACTION_WAIT_SECONDS,
     ) -> None:
         self._seat = seat
@@ -176,6 +178,65 @@ class PendingActionAgent:
             setter(error_type, message)
 
 
+@dataclass(frozen=True, slots=True)
+class TurnRequest:
+    seat: int
+    kind: str
+    deadline_ts: float
+    timeout_seconds: float
+    valid_targets: tuple[int, ...] | None
+    constraints: dict[str, object]
+    phase: str
+    day: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "seat": self.seat,
+            "kind": self.kind,
+            "deadline_ts": self.deadline_ts,
+            "timeout_seconds": self.timeout_seconds,
+            "valid_targets": None
+            if self.valid_targets is None
+            else list(self.valid_targets),
+            "constraints": self.constraints,
+            "phase": self.phase,
+            "day": self.day,
+        }
+
+
+class SessionTurnHooks:
+    def __init__(self, session: GameSession) -> None:
+        self._session = session
+
+    def set_turn_request(
+        self,
+        *,
+        seat: Seat,
+        kind: str,
+        deadline_ts: float,
+        timeout_seconds: float,
+        valid_targets: tuple[int, ...] | None,
+        constraints: dict[str, object],
+        phase: str,
+        day: int,
+    ) -> None:
+        self._session.set_turn_request(
+            TurnRequest(
+                seat=seat.number,
+                kind=kind,
+                deadline_ts=deadline_ts,
+                timeout_seconds=timeout_seconds,
+                valid_targets=valid_targets,
+                constraints=constraints,
+                phase=phase,
+                day=day,
+            )
+        )
+
+    def clear_turn_request(self, *, seat: Seat, kind: str) -> None:
+        self._session.clear_turn_request(seat=seat, kind=kind)
+
+
 @dataclass(slots=True)
 class GameSession:
     game_id: str
@@ -188,16 +249,22 @@ class GameSession:
     loop: asyncio.AbstractEventLoop
     condition: asyncio.Condition
     control: RuntimeControl
-    pending: PendingTextActions
+    pending: PendingActions
     pacing: PacingController
     started_at: str
     seat_presentation: dict[int, dict[str, str]]
     agents: dict[int, PlayerInterface]
     prompt_version: str
     evolution_enabled: bool
+    human_seat: int | None = None
+    player_tokens: dict[int, str] = field(default_factory=dict)
+    seat_agent_kinds: dict[int, str] = field(default_factory=dict)
+    forced_seat_roles: dict[int, Role] = field(default_factory=dict)
     task: asyncio.Task[None] | None = None
     error: str | None = None
     final_reveal: dict[str, object] | None = None
+    turn_request: TurnRequest | None = None
+    turn_cleared: dict[str, object] | None = None
     _lock: threading.RLock = field(default_factory=threading.RLock)
     _stream_events: list[Event] = field(default_factory=list)
     _narrative_rows: list[dict[str, object]] = field(default_factory=list)
@@ -234,6 +301,40 @@ class GameSession:
     def ack(self, *, phase: str, event: str, client_event_id: str = "") -> None:
         self.pacing.ack(phase=phase, event=event, client_event_id=client_event_id)
 
+    def set_turn_request(self, turn_request: TurnRequest) -> None:
+        with self._lock:
+            self.turn_request = turn_request
+            self.turn_cleared = None
+        self.notify_event_loop()
+
+    def clear_turn_request(self, *, seat: Seat, kind: str) -> None:
+        with self._lock:
+            if (
+                self.turn_request is None
+                or self.turn_request.seat != seat.number
+                or self.turn_request.kind != kind
+            ):
+                return
+            self.turn_request = None
+            self.turn_cleared = {"seat": seat.number}
+        self.notify_event_loop()
+
+    def active_turn(self) -> TurnRequest | None:
+        with self._lock:
+            return self.turn_request
+
+    def consume_turn_cleared(self, *, seat: Seat) -> dict[str, object] | None:
+        with self._lock:
+            if self.turn_cleared is None or self.turn_cleared.get("seat") != seat.number:
+                return None
+            return dict(self.turn_cleared)
+
+    def validate_player_token(self, *, seat: Seat, token: str) -> bool:
+        expected = self.player_tokens.get(seat.number)
+        if expected is None:
+            return False
+        return secrets.compare_digest(expected, token)
+
     def notify_event_loop(self) -> None:
         if self.loop.is_closed():
             return
@@ -266,6 +367,28 @@ class GameSession:
 
     def spectator_events_after(self, seq: int) -> tuple[dict[str, object], ...]:
         return tuple(event for event in self.spectator_events() if _event_seq(event) > seq)
+
+    def player_events_after(self, seq: int, *, seat: Seat) -> tuple[dict[str, object], ...]:
+        with self._lock:
+            state = self.state
+            events = self.event_log.events
+        view = build_view(
+            state,
+            events,
+            rule_set=self.config.rule_set,
+            seat=seat,
+        )
+        return tuple(
+            event.model_dump(mode="json")
+            for event in view.visible_events
+            if event.seq > seq
+        )
+
+    def player_event_for_seq(self, seq: int, *, seat: Seat) -> dict[str, object] | None:
+        for event in self.player_events_after(seq - 1, seat=seat):
+            if _event_seq(event) == seq:
+                return event
+        return None
 
     def raw_events_after(self, seq: int) -> tuple[Event, ...]:
         with self._lock:
@@ -318,8 +441,22 @@ class GameRegistry:
         start_paused: bool = False,
         seat_presentation: SeatPresentationValue | None = None,
         evolution_enabled: bool | None = None,
+        human_seat: int | None = None,
+        human_seat_random: bool = False,
+        human_role: Role | None = None,
     ) -> GameSession:
         config = load_game_config(config_path)
+        selected_human_seat = _select_human_seat(
+            config=config,
+            seed=seed,
+            human_seat=human_seat,
+            human_seat_random=human_seat_random,
+        )
+        forced_seat_roles = (
+            {selected_human_seat: human_role}
+            if selected_human_seat is not None and human_role is not None
+            else {}
+        )
         game_evolution_enabled = (
             self.settings.evolution_enabled
             if evolution_enabled is None
@@ -330,11 +467,31 @@ class GameRegistry:
             enabled=game_evolution_enabled,
         )
         ensure_prompt_version(config.prompt_pack_root, prompt_version)
-        initial_state, _ = build_initial_state(config, seed)
+        initial_state, _ = build_initial_state(
+            config,
+            seed,
+            forced_seat_roles=forced_seat_roles,
+        )
         game_id = str(initial_state.game_id)
         store = GameRunStore(runs_dir=self.settings.runs_dir, game_id=game_id)
         started_at = _now()
         normalized_presentation = _normalize_seat_presentation(seat_presentation)
+        if selected_human_seat is not None and selected_human_seat not in normalized_presentation:
+            normalized_presentation[selected_human_seat] = {
+                "nickname": "你自己",
+                "icon_path": "/assets/lobby/human_player.png",
+            }
+        player_tokens = (
+            {selected_human_seat: secrets.token_urlsafe(32)}
+            if selected_human_seat is not None
+            else {}
+        )
+        seat_agent_kinds = _seat_agent_kinds(
+            config=config,
+            specs=agent_specs,
+            human_seat=selected_human_seat,
+            default_to_provider=bool(agent_specs) or bool(self.settings.llm_provider_map),
+        )
         store.write_manifest(
             _manifest_payload(
                 config_hash=config.config_hash,
@@ -345,6 +502,9 @@ class GameRegistry:
                 winner=None,
                 seat_presentation=normalized_presentation,
                 prompt_version=prompt_version,
+                human_seat=selected_human_seat,
+                seat_agent_kinds=seat_agent_kinds,
+                forced_seat_roles=forced_seat_roles,
             )
         )
         session_ref: dict[str, GameSession] = {}
@@ -352,7 +512,7 @@ class GameRegistry:
         def on_append(event: Event) -> None:
             session_ref["session"].publish_event(event)
 
-        pending = PendingTextActions()
+        pending = PendingActions()
         agents = self._build_agents(
             config=config,
             seed=seed,
@@ -360,6 +520,7 @@ class GameRegistry:
             store=store,
             pending=pending,
             prompt_version=prompt_version,
+            human_seat=selected_human_seat,
         )
         session = GameSession(
             game_id=game_id,
@@ -379,7 +540,20 @@ class GameRegistry:
             agents=agents,
             prompt_version=prompt_version,
             evolution_enabled=game_evolution_enabled,
+            human_seat=selected_human_seat,
+            player_tokens=player_tokens,
+            seat_agent_kinds=seat_agent_kinds,
+            forced_seat_roles=forced_seat_roles,
         )
+        if selected_human_seat is not None:
+            agents[selected_human_seat] = HumanInputAgent(
+                seat=Seat(selected_human_seat),
+                base=agents[selected_human_seat],
+                pending=pending,
+                session_hooks=SessionTurnHooks(session),
+                timeout_seconds=self.settings.human_turn_timeout_seconds,
+            )
+            session.agents = agents
         session_ref["session"] = session
         with self._lock:
             self._sessions[game_id] = session
@@ -470,6 +644,37 @@ class GameRegistry:
         session.pending.submit("wolf_chat", action)
         return None
 
+    def submit_action(
+        self,
+        *,
+        game_id: str,
+        seat: Seat,
+        kind: str,
+        action: Action,
+    ) -> Reject | None:
+        session = self.require(game_id)
+        if session.is_terminal():
+            return Reject("game.finished", "game has already finished")
+        turn = session.active_turn()
+        if turn is None:
+            return Reject("turn.missing", "no active human turn")
+        if turn.seat != seat.number or turn.kind != kind:
+            return Reject("turn.mismatch", "action does not match active human turn")
+        if action.actor != seat:
+            return Reject("turn.actor", "action actor must match authenticated seat")
+        rejection = validate_action(session.state, action, session.config.rule_set)
+        if rejection is None:
+            rejection = validate_text_consistency(
+                session.state,
+                action,
+                session.config.rule_set,
+                session.event_log.events,
+            )
+        if rejection is not None:
+            return rejection
+        session.pending.submit(kind, action)
+        return None
+
     async def _run_game_task(
         self, session: GameSession, agents: dict[int, PlayerInterface]
     ) -> None:
@@ -484,6 +689,7 @@ class GameRegistry:
                 config=session.config,
                 seed=session.seed,
                 agents=agents,
+                forced_seat_roles=session.forced_seat_roles,
                 event_log=session.event_log,
                 state_sink=session.set_state,
                 control_hook=session.control.wait_if_paused,
@@ -505,6 +711,9 @@ class GameRegistry:
                     winner=None if state.winner is None else state.winner.value,
                     seat_presentation=session.seat_presentation,
                     prompt_version=session.prompt_version,
+                    human_seat=session.human_seat,
+                    seat_agent_kinds=session.seat_agent_kinds,
+                    forced_seat_roles=session.forced_seat_roles,
                 )
             )
             maybe_step_after_game(
@@ -529,8 +738,9 @@ class GameRegistry:
         seed: str,
         specs: Mapping[int, AgentSpecValue],
         store: GameRunStore,
-        pending: PendingTextActions,
+        pending: PendingActions,
         prompt_version: str,
+        human_seat: int | None = None,
     ) -> dict[int, PlayerInterface]:
         agents: dict[int, PlayerInterface] = {}
         provider_map = load_provider_map(self.settings)
@@ -538,6 +748,7 @@ class GameRegistry:
         renderer = PromptRenderer(config.prompt_pack_root, version=prompt_version)
         llm_rng = DeterministicRNG(seed)
         use_default_provider = bool(specs) or bool(self.settings.llm_provider_map)
+        _ = human_seat
         for seat_number in range(config.seat_range.start, config.seat_range.end + 1):
             seat = Seat(seat_number)
             spec = specs.get(seat_number)
@@ -666,6 +877,49 @@ def _normalize_seat_presentation(
     return normalized
 
 
+def _select_human_seat(
+    *,
+    config: GameConfig,
+    seed: str,
+    human_seat: int | None,
+    human_seat_random: bool,
+) -> int | None:
+    if human_seat is not None and human_seat_random:
+        raise ValueError("human_seat and human_seat_random are mutually exclusive")
+    if human_seat is None and not human_seat_random:
+        return None
+    if human_seat is not None:
+        if human_seat < config.seat_range.start or human_seat > config.seat_range.end:
+            raise ValueError("human_seat is outside configured seat range")
+        return human_seat
+    seats = tuple(range(config.seat_range.start, config.seat_range.end + 1))
+    return DeterministicRNG(seed).choice("human_seat", seats)
+
+
+def _seat_agent_kinds(
+    *,
+    config: GameConfig,
+    specs: Mapping[int, AgentSpecValue],
+    human_seat: int | None,
+    default_to_provider: bool,
+) -> dict[int, str]:
+    kinds: dict[int, str] = {}
+    for seat_number in range(config.seat_range.start, config.seat_range.end + 1):
+        if human_seat == seat_number:
+            kinds[seat_number] = "human"
+            continue
+        spec = specs.get(seat_number)
+        if spec is None:
+            kinds[seat_number] = "llm" if default_to_provider else "mock"
+            continue
+        if isinstance(spec, str):
+            kinds[seat_number] = "llm" if spec.startswith("llm") else "mock"
+            continue
+        data = _mapping_from_spec(spec)
+        kinds[seat_number] = "llm" if str(data.get("kind", "mock")) == "llm" else "mock"
+    return kinds
+
+
 def _manifest_payload(
     *,
     config_hash: str,
@@ -676,6 +930,9 @@ def _manifest_payload(
     winner: str | None,
     seat_presentation: dict[int, dict[str, str]],
     prompt_version: str,
+    human_seat: int | None = None,
+    seat_agent_kinds: dict[int, str] | None = None,
+    forced_seat_roles: dict[int, Role] | None = None,
 ) -> dict[str, object]:
     return {
         "config_hash": config_hash,
@@ -686,6 +943,13 @@ def _manifest_payload(
         "ended_at": ended_at,
         "winner": winner,
         "seat_presentation": seat_presentation,
+        "human_seat": human_seat,
+        "seat_agent_kinds": {
+            str(seat): kind for seat, kind in sorted((seat_agent_kinds or {}).items())
+        },
+        "forced_seat_roles": {
+            str(seat): role.value for seat, role in sorted((forced_seat_roles or {}).items())
+        },
     }
 
 

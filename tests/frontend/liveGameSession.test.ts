@@ -52,7 +52,36 @@ describe('liveGameSession', () => {
           seenAtMs: 12000,
         },
       ],
+      humanSeat: null,
+      playerToken: null,
+      humanRole: 'random',
       savedAtMs: 12345,
+    });
+  });
+
+  it('round-trips human seat stream credentials in the live snapshot', () => {
+    storage = new MemoryStorage();
+
+    writeLiveGameSession({
+      gameId: 'game-human',
+      assignments: [0, 1, null, 3, 4, 5, 6, 7, 8, 9],
+      seatPresentation: {
+        3: { nickname: '你自己', icon_path: '/assets/lobby/human_player.png' },
+      },
+      launchState: 'running',
+      streamCursor: 12,
+      effectSeq: 12,
+      recentEffects: [],
+      humanSeat: 3,
+      playerToken: 'token-123',
+      humanRole: 'witch',
+    }, storage);
+
+    expect(readLiveGameSession(storage)).toMatchObject({
+      gameId: 'game-human',
+      humanSeat: 3,
+      playerToken: 'token-123',
+      humanRole: 'witch',
     });
   });
 
@@ -106,6 +135,9 @@ describe('liveGameSession', () => {
       streamCursor: 0,
       effectSeq: 0,
       recentEffects: [],
+      humanSeat: null,
+      playerToken: null,
+      humanRole: 'random',
       savedAtMs: 987,
     });
   });

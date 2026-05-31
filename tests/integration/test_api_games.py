@@ -177,6 +177,47 @@ def test_api_persists_spectator_safe_seat_presentation(monkeypatch, tmp_path) ->
     assert "mock/deterministic" not in manifest_text
 
 
+def test_api_creates_human_game_with_token_manifest_and_forced_role(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        created = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "api-human-forced-role",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+                "pacing": "off",
+                "start_paused": True,
+                "human_seat": 7,
+                "human_role": "seer",
+            },
+        )
+
+        assert created.status_code == 200
+        body = created.json()
+        game_id = body["game_id"]
+        assert body["human_seat"] == 7
+        assert body["player_token"]
+
+        forbidden = client.get(f"/games/{game_id}/seat/7/stream")
+        assert forbidden.status_code == 403
+
+        manifest = json.loads((tmp_path / game_id / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["human_seat"] == 7
+        assert manifest["forced_seat_roles"] == {"7": "seer"}
+        assert manifest["seat_agent_kinds"]["7"] == "human"
+        assert manifest["seat_presentation"]["7"] == {
+            "nickname": "你自己",
+            "icon_path": "/assets/lobby/human_player.png",
+        }
+
+
 def test_api_returns_narrative_for_offline_run(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     monkeypatch.setenv("WH_LLM_PROVIDER", "mock")

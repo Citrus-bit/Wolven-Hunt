@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from wolven_hunt.api.app import create_app
 from wolven_hunt.api.deps import get_registry, get_settings
+from wolven_hunt.api.sse import _seat_projections_for_seq
+from wolven_hunt.core.seat import Role
 
 CONFIG_PATH = "configs/games/classic_10.yaml"
 SEATS = range(1, 11)
@@ -64,6 +66,7 @@ def test_spectator_effects_are_private_event_projections_not_raw_event_leaks(
     monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
     monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
     monkeypatch.setenv("WH_PACING_PROFILE", "off")
+    monkeypatch.setenv("WH_HUMAN_TURN_TIMEOUT_SECONDS", "0.01")
     get_settings.cache_clear()
     get_registry.cache_clear()
     with TestClient(create_app()) as client:
@@ -95,6 +98,82 @@ def test_spectator_effects_are_private_event_projections_not_raw_event_leaks(
         assert {"guard_shield", "seer_vision", "wolf_attack"}.issubset(effect_kinds)
         assert all("payload" not in effect for effect in effects)
         assert all("raw_response" not in str(effect) for effect in effects)
+
+
+def test_seat_stream_filters_narrative_and_effect_projections_by_player_view(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_PACING_PROFILE", "off")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        game_id = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "seat-villager-filter",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+                "pacing": "off",
+            },
+        ).json()["game_id"]
+
+        effects = _wait_for_spectator_effect_kinds(
+            client,
+            game_id,
+            {"guard_shield", "seer_vision", "wolf_attack"},
+        )
+        session = get_registry().require(game_id)
+        villager = next(
+            player.seat for player in session.state.players if player.role is Role.VILLAGER
+        )
+        projected = [
+            projection
+            for effect in effects
+            for projection in _seat_projections_for_seq(session, int(effect["seq"]), seat=villager)
+        ]
+        projected_text = str(projected)
+
+        assert "guard_shield" not in projected_text
+        assert "seer_vision" not in projected_text
+        assert "wolf_attack" not in projected_text
+        assert "witch_potion" not in projected_text
+        assert "guard_protect" not in projected_text
+        assert "seer_check" not in projected_text
+        assert "wolf_kill_decided" not in projected_text
+        assert "witch_action" not in projected_text
+
+
+def test_wolf_seat_stream_can_see_own_camp_attack_effect(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("WH_RUNS_DIR", str(tmp_path))
+    monkeypatch.setenv("WH_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("WH_PACING_PROFILE", "off")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+    with TestClient(create_app()) as client:
+        game_id = client.post(
+            "/games",
+            json={
+                "config_path": CONFIG_PATH,
+                "seed": "seat-wolf-effect",
+                "agents": {str(seat): "llm:mock" for seat in SEATS},
+                "pacing": "off",
+            },
+        ).json()["game_id"]
+
+        effects = _wait_for_spectator_effect_kinds(client, game_id, {"wolf_attack"})
+        wolf_attack = next(effect for effect in effects if effect["kind"] == "wolf_attack")
+        session = get_registry().require(game_id)
+        wolf = session.state.wolf_seats()[0]
+        projected = _seat_projections_for_seq(session, int(wolf_attack["seq"]), seat=wolf)
+
+        assert any(name == "spectator_effect" for name, _payload in projected)
+        assert "wolf_attack" in str(projected)
 
 
 def _wait_for_spectator_god_view_events(

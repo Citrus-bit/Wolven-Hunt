@@ -1,5 +1,5 @@
 import type { LaunchState } from './gameLaunchState';
-import type { SpectatorEffect } from './gameApi';
+import type { HumanRole, SpectatorEffect } from './gameApi';
 import type { RecentSpectatorEffect } from './gameEffects';
 import type { SeatPresentationMap } from './seatPresentation';
 
@@ -15,6 +15,9 @@ export type LiveGameSessionSnapshot = {
   streamCursor: number;
   effectSeq: number;
   recentEffects: RecentSpectatorEffect[];
+  humanSeat?: number | null;
+  playerToken?: string | null;
+  humanRole?: HumanRole;
   savedAtMs: number;
 };
 
@@ -136,8 +139,16 @@ function parseLiveGameSession(raw: string): LiveGameSessionSnapshot | null {
     streamCursor: normalizeNonNegativeInt(value.streamCursor),
     effectSeq: normalizeNonNegativeInt(value.effectSeq),
     recentEffects: normalizeRecentEffects(value.recentEffects),
+    humanSeat: normalizeSeat(value.humanSeat),
+    playerToken: typeof value.playerToken === 'string' ? value.playerToken : null,
+    humanRole: isHumanRole(value.humanRole) ? value.humanRole : 'random',
     savedAtMs: Number(value.savedAtMs) || 0,
   };
+}
+
+function normalizeSeat(value: unknown) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 1 && number <= 10 ? number : null;
 }
 
 function normalizeNonNegativeInt(value: unknown) {
@@ -249,6 +260,17 @@ function isSpectatorEffectKind(value: unknown): value is SpectatorEffect['kind']
     value === 'seer_vision' ||
     value === 'witch_potion' ||
     value === 'death_reveal'
+  );
+}
+
+function isHumanRole(value: unknown): value is HumanRole {
+  return (
+    value === 'villager' ||
+    value === 'witch' ||
+    value === 'seer' ||
+    value === 'guard' ||
+    value === 'wolf' ||
+    value === 'random'
   );
 }
 

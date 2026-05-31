@@ -36,6 +36,18 @@ describe('buildAgentSpecs', () => {
       '第 2 号席位尚未分配模型',
     );
   });
+
+  it('uses a fallback model for a human seat without occupying an assignment', () => {
+    const agents = buildAgentSpecs([0, null], (slot) => modelConfig(slot), {
+      humanSeatIndex: 1,
+      humanFallbackSlot: 0,
+    });
+
+    expect(agents[2]).toMatchObject({
+      kind: 'llm',
+      model: 'model-0',
+    });
+  });
 });
 
 function modelConfig(slot: number): ModelTestRequest {

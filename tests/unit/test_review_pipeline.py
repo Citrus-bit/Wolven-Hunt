@@ -173,6 +173,7 @@ def test_pipeline_assembles_full_report_from_two_stages() -> None:
             1: {"nickname": "A", "icon_path": ""},
             2: {"nickname": "B", "icon_path": ""},
         },
+        seat_agent_kinds={2: "human"},
         settings=settings,
         provider=provider,
     )
@@ -185,6 +186,12 @@ def test_pipeline_assembles_full_report_from_two_stages() -> None:
     assert len(provider.calls) == 3
     assert all("leaderboard 理由" in item["reason"] for item in report["leaderboard"])
     assert all("actors_involved" not in item for item in report["key_decisions"])
+    human_prompt = next(
+        prompt for prompt in provider.calls if '"agent_type": "human"' in prompt
+    )
+    human_payload = _payload_from_prompt(human_prompt)
+    assert human_payload["dossier"]["agent_type"] == "human"
+    assert "真人玩家" in human_payload["agent_note"]
 
 
 def _payload_from_prompt(prompt: str) -> dict[str, Any]:
