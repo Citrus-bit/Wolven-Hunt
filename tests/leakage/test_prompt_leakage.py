@@ -8,8 +8,9 @@ from dataclasses import replace
 import pytest
 from tests.conftest import simulate
 
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 from wolven_hunt.config.schema import GameConfig
-from wolven_hunt.core.events import EventType
+from wolven_hunt.core.events import Event, EventType, draft_event, public_visibility
 from wolven_hunt.core.rule_engine import build_initial_state
 from wolven_hunt.core.seat import Role, Seat
 from wolven_hunt.llm.prompts import PromptRenderer
@@ -26,7 +27,6 @@ from wolven_hunt.llm.schemas import (
 from wolven_hunt.referee.view import build_view
 
 PROMPT_PAYLOAD_MARKER = "以下 JSON payload 是你本次决策唯一可用的结构化上下文:"
-DEFAULT_PROMPT_VERSION = "v5"
 
 PHASE_SCHEMAS = {
     "NIGHT_GUARD": GuardOutput,
@@ -143,7 +143,9 @@ def test_prompt_payload_uses_only_referee_filtered_view(
     payload = _extract_payload(prompt)
     visible_events_json = json.dumps(payload["visible_events"], ensure_ascii=False)
     speech_context = payload["speech_context"]
+    current_turn_context = payload["current_turn_context"]
     assert isinstance(speech_context, dict)
+    assert isinstance(current_turn_context, dict)
     assert set(speech_context) == {
         "current_seat",
         "already_spoken_seats",
@@ -151,7 +153,16 @@ def test_prompt_payload_uses_only_referee_filtered_view(
         "own_public_speeches",
         "prior_public_speeches",
     }
+    assert set(current_turn_context) == {
+        "reason",
+        "actor_seat",
+        "latest_own_speech",
+        "votes_on_me",
+        "own_vote",
+        "latest_vote_result",
+    }
     speech_context_json = json.dumps(speech_context, ensure_ascii=False)
+    current_turn_context_json = json.dumps(current_turn_context, ensure_ascii=False)
 
     assert payload["seat"] == seat.number
     assert payload["role"] == role.value
@@ -162,12 +173,16 @@ def test_prompt_payload_uses_only_referee_filtered_view(
     assert payload["rule_set_summary"]["wolf_can_follow_teammate_self_kill"] is True
     assert payload["rule_set_summary"]["wolf_can_no_kill"] is False
     assert speech_context["current_seat"] == seat.number
+    assert current_turn_context["actor_seat"] == seat.number
     assert "role_assignment" not in visible_events_json
     assert "role_assignment" not in speech_context_json
+    assert "role_assignment" not in current_turn_context_json
     assert '"selected"' not in visible_events_json
     assert '"selected"' not in speech_context_json
+    assert '"selected"' not in current_turn_context_json
     assert '"candidates"' not in visible_events_json
     assert '"candidates"' not in speech_context_json
+    assert '"candidates"' not in current_turn_context_json
 
     if role is not Role.WOLF:
         assert payload["teammates"] == []
@@ -179,29 +194,36 @@ def test_prompt_payload_uses_only_referee_filtered_view(
         for event_type in WOLF_PRIVATE_EVENT_TYPES:
             assert event_type not in visible_events_json
             assert event_type not in speech_context_json
+            assert event_type not in current_turn_context_json
     if role is not Role.SEER:
         for event_type in SEER_PRIVATE_EVENT_TYPES:
             assert event_type not in visible_events_json
             assert event_type not in speech_context_json
+            assert event_type not in current_turn_context_json
     if role is not Role.GUARD:
         for event_type in GUARD_PRIVATE_EVENT_TYPES:
             assert event_type not in visible_events_json
             assert event_type not in speech_context_json
+            assert event_type not in current_turn_context_json
     if role is not Role.GUARD or phase != "NIGHT_GUARD":
         for key in GUARD_PRIVATE_SUMMARY_KEYS:
             assert key not in payload["rule_set_summary"]
             assert key not in speech_context_json
+            assert key not in current_turn_context_json
     if role is not Role.WITCH:
         for event_type in WITCH_PRIVATE_EVENT_TYPES:
             assert event_type not in visible_events_json
             assert event_type not in speech_context_json
+            assert event_type not in current_turn_context_json
     if role is not Role.WITCH or phase != "NIGHT_WITCH":
         for key in WITCH_PRIVATE_SUMMARY_KEYS:
             assert key not in payload["rule_set_summary"]
             assert key not in speech_context_json
+            assert key not in current_turn_context_json
     for event_type in ALWAYS_HIDDEN_EVENT_TYPES:
         assert event_type not in visible_events_json
         assert event_type not in speech_context_json
+        assert event_type not in current_turn_context_json
 
 
 @pytest.mark.leakage
@@ -278,7 +300,7 @@ def test_wolf_night_prompt_declares_self_kill_rule(game_config: GameConfig) -> N
 
 
 @pytest.mark.leakage
-def test_prompt_v5_template_pack_is_complete(game_config: GameConfig) -> None:
+def test_prompt_v6_template_pack_is_complete(game_config: GameConfig) -> None:
     root = game_config.prompt_pack_root
     expected_paths = [root / f"system.{DEFAULT_PROMPT_VERSION}.md"]
     for role_name in ("guard", "seer", "villager", "witch", "wolf"):
@@ -291,8 +313,127 @@ def test_prompt_v5_template_pack_is_complete(game_config: GameConfig) -> None:
 
 
 @pytest.mark.leakage
+def test_no_archived_player_prompt_versions_or_retired_review_prompt_remain(
+    game_config: GameConfig,
+) -> None:
+    root = game_config.prompt_pack_root
+    archived_player_prompts = sorted(
+        str(path.relative_to(root))
+        for path in root.rglob("*.v*.md")
+        if path.name != f"system.{DEFAULT_PROMPT_VERSION}.md"
+        and not path.is_relative_to(root / "review")
+        and not path.name.endswith(f".{DEFAULT_PROMPT_VERSION}.md")
+    )
+
+    assert archived_player_prompts == []
+    assert not (root / "review" / "report.v1.md").exists()
+
+
+@pytest.mark.leakage
+def test_last_words_payload_includes_current_turn_context_for_exile(
+    game_config: GameConfig,
+) -> None:
+    state, _ = build_initial_state(game_config, "prompt-current-turn-context")
+    actor = Seat(3)
+    state = replace(state, day=1, phase="DAY_LAST_WORDS")
+    events = (
+        _public_event(
+            state,
+            seq=1,
+            event_type=EventType.SPEECH,
+            phase="DAY_SPEECH",
+            actor=3,
+            payload={"text": "我站边7号, 主推5号。"},
+        ),
+        _public_event(
+            state,
+            seq=2,
+            event_type=EventType.VOTE_CAST,
+            phase="DAY_VOTE",
+            actor=1,
+            payload={"target": 3},
+        ),
+        _public_event(
+            state,
+            seq=3,
+            event_type=EventType.VOTE_CAST,
+            phase="DAY_VOTE",
+            actor=3,
+            payload={"target": 5},
+        ),
+        _public_event(
+            state,
+            seq=4,
+            event_type=EventType.VOTE_CAST,
+            phase="DAY_VOTE",
+            actor=7,
+            payload={"target": 3},
+        ),
+        _public_event(
+            state,
+            seq=5,
+            event_type=EventType.VOTE_RESULT,
+            phase="DAY_VOTE",
+            actor=None,
+            payload={"counts": {"3": 2, "5": 1}, "tied": [3]},
+        ),
+        _public_event(
+            state,
+            seq=6,
+            event_type=EventType.EXILE,
+            phase="DAY_EXILE",
+            actor=None,
+            payload={"seat": 3},
+        ),
+    )
+    renderer = PromptRenderer(game_config.prompt_pack_root, version=DEFAULT_PROMPT_VERSION)
+
+    prompt = renderer.render(
+        view=build_view(state, events, rule_set=game_config.rule_set, seat=actor),
+        phase="DAY_LAST_WORDS",
+        schema_json=LastWordsOutput.model_json_schema(),
+    )
+    context = _extract_payload(prompt)["current_turn_context"]
+
+    assert context["reason"] == "exiled"
+    assert context["actor_seat"] == 3
+    assert context["latest_own_speech"]["text"] == "我站边7号, 主推5号。"
+    assert [row["actor"] for row in context["votes_on_me"]] == [1, 7]
+    assert context["own_vote"]["target"] == 5
+    assert context["latest_vote_result"]["payload"]["counts"] == {"3": 2, "5": 1}
+
+
+@pytest.mark.leakage
+@pytest.mark.parametrize("role", [Role.VILLAGER, Role.SEER, Role.WITCH, Role.GUARD])
+def test_good_last_words_prompts_v6_require_self_perspective_and_execution_line(
+    game_config: GameConfig,
+    role: Role,
+) -> None:
+    prompt, _ = _render_prompt(game_config, role=role, phase="DAY_LAST_WORDS")
+
+    assert "current_turn_context" in prompt
+    assert "禁止用第三人称评价自己" in prompt
+    assert "主推位" in prompt
+    assert "备选位" in prompt
+    assert "执行线" in prompt or "优先票出顺序" in prompt
+
+
+@pytest.mark.leakage
+def test_wolf_last_words_prompt_v6_requires_disguise_and_blame_shift(
+    game_config: GameConfig,
+) -> None:
+    prompt, _ = _render_prompt(game_config, role=Role.WOLF, phase="DAY_LAST_WORDS")
+
+    assert "current_turn_context" in prompt
+    assert "否认狼身份" in prompt
+    assert "解释票型压力" in prompt
+    assert "甩锅" in prompt
+    assert "保护仍在场的狼队成员" in prompt
+
+
+@pytest.mark.leakage
 @pytest.mark.parametrize("role", [Role.VILLAGER, Role.WOLF, Role.SEER, Role.WITCH, Role.GUARD])
-def test_day_speech_prompt_v5_contains_density_constraints(
+def test_day_speech_prompt_v6_contains_density_constraints(
     game_config: GameConfig,
     role: Role,
 ) -> None:
@@ -307,7 +448,7 @@ def test_day_speech_prompt_v5_contains_density_constraints(
 @pytest.mark.leakage
 @pytest.mark.parametrize("role", [Role.VILLAGER, Role.WOLF, Role.SEER, Role.WITCH, Role.GUARD])
 @pytest.mark.parametrize("phase", ["DAY_VOTE", "DAY_VOTE_PK"])
-def test_day_vote_prompt_v5_rejects_unspoken_seat_as_vote_reason(
+def test_day_vote_prompt_v6_rejects_unspoken_seat_as_vote_reason(
     game_config: GameConfig,
     role: Role,
     phase: str,
@@ -348,7 +489,7 @@ def test_wolf_day_prompt_payload_excludes_wolf_private_context(
 
 
 @pytest.mark.leakage
-def test_wolf_night_prompt_v5_contains_refined_attack_strategy(
+def test_wolf_night_prompt_v6_contains_refined_attack_strategy(
     game_config: GameConfig,
 ) -> None:
     prompt, _ = _render_prompt(game_config, role=Role.WOLF, phase="NIGHT_WOLF_VOTE")
@@ -371,7 +512,7 @@ def test_wolf_night_prompt_v5_contains_refined_attack_strategy(
 
 
 @pytest.mark.leakage
-def test_system_prompt_v5_contains_night_result_and_witch_fact_boundaries(
+def test_system_prompt_v6_contains_night_result_and_witch_fact_boundaries(
     game_config: GameConfig,
 ) -> None:
     prompt, _ = _render_prompt(game_config, role=Role.VILLAGER, phase="DAY_SPEECH")
@@ -384,7 +525,7 @@ def test_system_prompt_v5_contains_night_result_and_witch_fact_boundaries(
 
 
 @pytest.mark.leakage
-def test_vote_prompts_v5_warn_against_unjustified_self_vote(
+def test_vote_prompts_v6_warn_against_unjustified_self_vote(
     game_config: GameConfig,
 ) -> None:
     for role in (Role.WOLF, Role.SEER, Role.GUARD, Role.WITCH, Role.VILLAGER):
@@ -395,7 +536,7 @@ def test_vote_prompts_v5_warn_against_unjustified_self_vote(
 
 
 @pytest.mark.leakage
-def test_wolf_speech_prompt_v5_requires_public_strategy_consistency(
+def test_wolf_speech_prompt_v6_requires_public_strategy_consistency(
     game_config: GameConfig,
 ) -> None:
     prompt, _ = _render_prompt(game_config, role=Role.WOLF, phase="DAY_SPEECH")
@@ -406,7 +547,7 @@ def test_wolf_speech_prompt_v5_requires_public_strategy_consistency(
 
 
 @pytest.mark.leakage
-def test_witch_prompts_v5_warn_against_unproven_potion_claims(
+def test_witch_prompts_v6_warn_against_unproven_potion_claims(
     game_config: GameConfig,
 ) -> None:
     for phase in ("DAY_SPEECH", "DAY_VOTE", "DAY_LAST_WORDS"):
@@ -417,7 +558,7 @@ def test_witch_prompts_v5_warn_against_unproven_potion_claims(
 
 
 @pytest.mark.leakage
-def test_witch_night_prompt_v5_warns_against_blind_first_save(
+def test_witch_night_prompt_v6_warns_against_blind_first_save(
     game_config: GameConfig,
 ) -> None:
     prompt, _ = _render_prompt(game_config, role=Role.WITCH, phase="NIGHT_WITCH")
@@ -429,7 +570,7 @@ def test_witch_night_prompt_v5_warns_against_blind_first_save(
 
 
 @pytest.mark.leakage
-def test_guard_night_prompt_v5_warns_against_mechanical_seer_guard(
+def test_guard_night_prompt_v6_warns_against_mechanical_seer_guard(
     game_config: GameConfig,
 ) -> None:
     prompt, _ = _render_prompt(game_config, role=Role.GUARD, phase="NIGHT_GUARD")
@@ -551,6 +692,27 @@ def _render_prompt(
         ),
         seat,
     )
+
+
+def _public_event(
+    state,
+    *,
+    seq: int,
+    event_type: EventType,
+    phase: str,
+    actor: int | None,
+    payload: dict[str, object],
+) -> Event:
+    event = draft_event(
+        game_id=state.game_id,
+        phase=phase,
+        day=state.day,
+        event_type=event_type,
+        actor=actor,
+        visibility=public_visibility(),
+        payload=payload,
+    )
+    return event.model_copy(update={"seq": seq})
 
 
 def _extract_payload(prompt: str) -> dict[str, object]:

@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 from wolven_hunt.config.loader import ensure_prompt_version
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 
 from .axes import EvolutionAxis
 
@@ -21,7 +22,7 @@ def version_number(version: str) -> int:
     return int(match.group(1))
 
 
-def next_version_from_files(prompt_root: Path, minimum: int = 6) -> int:
+def next_version_from_files(prompt_root: Path, minimum: int = 7) -> int:
     highest = minimum - 1
     for path in prompt_root.rglob("*.v*.md"):
         stem = path.stem
@@ -42,7 +43,7 @@ def system_file(prompt_root: Path, version: str) -> Path:
 
 
 def seed_char_cap(prompt_root: Path, axis: EvolutionAxis, ratio: float) -> int:
-    seed_path = prompt_file(prompt_root, axis.role.value, axis.prompt_kind, "v5")
+    seed_path = prompt_file(prompt_root, axis.role.value, axis.prompt_kind, DEFAULT_PROMPT_VERSION)
     return math.ceil(len(seed_path.read_text(encoding="utf-8")) * ratio)
 
 
@@ -132,4 +133,3 @@ def _install_tmp_snapshot(*, tmp_root: Path, prompt_root: Path, target_version: 
                 prompt_file(tmp_root, role, kind, target_version).read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
-

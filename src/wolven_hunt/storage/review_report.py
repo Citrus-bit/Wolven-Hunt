@@ -3,7 +3,6 @@ from __future__ import annotations
 # ruff: noqa: RUF001
 import json
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -15,7 +14,6 @@ from wolven_hunt.llm.provider import LiteLLMProvider, MockLLMProvider, ProviderR
 from wolven_hunt.llm.thinking import thinking_extra_body, thinking_reasoning_effort
 
 REVIEW_REPORT_SCHEMA_VERSION: Literal["1.1"] = "1.1"
-REVIEW_PROMPT_TEMPLATE = Path("configs/prompts/zh/review/report.v1.md")
 
 ScoreKey = Literal[
     "speech",
@@ -260,111 +258,6 @@ def build_mock_review_report(
         ),
         counterfactuals=_mock_counterfactuals(winner=winner, key_decisions=key_decisions),
     ).model_dump(mode="json")
-
-
-def build_review_prompt(
-    *,
-    game_id: str,
-    events: tuple[dict[str, object], ...],
-    narrative_rows: tuple[dict[str, object], ...],
-    reveal: dict[str, object],
-    seat_presentation: dict[int, dict[str, str]],
-) -> str:
-    payload = {
-        "game_id": game_id,
-        "spectator_events": events,
-        "narrative_rows": narrative_rows,
-        "role_reveal": reveal,
-        "seat_presentation": {
-            str(seat): presentation for seat, presentation in sorted(seat_presentation.items())
-        },
-        "score_axes": [
-            {"key": "speech", "label": "发言质量"},
-            {"key": "reasoning", "label": "推理逻辑"},
-            {"key": "voting", "label": "票型执行"},
-            {"key": "camp_contribution", "label": "阵营贡献"},
-            {"key": "information_control", "label": "信息控制"},
-            {
-                "key": "role_duty",
-                "label_by_role": {
-                    "wolf": "狼队协同",
-                    "villager": "平民职责",
-                    "seer": "查验价值",
-                    "witch": "药水决策",
-                    "guard": "守护判断",
-                },
-            },
-        ],
-        "output_schema": {
-            "summary": {
-                "winner": "wolf|good",
-                "verdict": "中文胜负结论",
-                "turning_points": ["关键转折, 需要引用天数或公开事件"],
-                "overall_assessment": "总体评价, 概括胜负路径、阵营执行和主要信息缺口",
-            },
-            "leaderboard": [
-                {
-                    "rank": 1,
-                    "seat": 1,
-                    "nickname": "玩家昵称",
-                    "role": "wolf|villager|seer|witch|guard",
-                    "camp": "wolf|good",
-                    "overall_score": 0,
-                    "reason": "一段话概括该模型/玩家本局整体表现, 覆盖角色、公开证据、排名原因和短板",
-                }
-            ],
-            "players": [
-                {
-                    "seat": 1,
-                    "nickname": "玩家昵称",
-                    "role": "wolf|villager|seer|witch|guard",
-                    "camp": "wolf|good",
-                    "alive": True,
-                    "scores": [
-                        {"key": "speech", "label": "发言质量", "value": 0},
-                        {"key": "reasoning", "label": "推理逻辑", "value": 0},
-                        {"key": "voting", "label": "票型执行", "value": 0},
-                        {"key": "camp_contribution", "label": "阵营贡献", "value": 0},
-                        {"key": "information_control", "label": "信息控制", "value": 0},
-                        {"key": "role_duty", "label": "角色职责对应标签", "value": 0},
-                    ],
-                    "overall_score": 0,
-                    "evaluation": "不少于两句的具体评语",
-                    "evidence": ["公开证据, 引用第几天/seq/票型/发言"],
-                    "strengths": ["做得好的点"],
-                    "mistakes": ["可改进问题"],
-                    "suggestions": ["下一局建议"],
-                }
-            ],
-            "key_decisions": [
-                {
-                    "day": 1,
-                    "phase": "DAY_VOTE",
-                    "seq": 1,
-                    "title": "关键公开节点标题, 不只写 phase 名",
-                    "analysis": "发生了什么公开动作、谁推动或承受压力、暴露了什么阵营关系或信息缺口",
-                    "impact": "如何改变胜负路径、存活结构、票型、夜间目标空间或后续站边",
-                }
-            ],
-            "counterfactuals": [
-                {
-                    "premise": "如果某名玩家在某个公开节点改做某个选择",
-                    "likely_outcome": "可能如何改变票型、放逐对象、阵营暴露、夜间目标空间或胜负节奏",
-                    "lesson": "下一局可执行的复盘启发",
-                }
-            ],
-        },
-    }
-    return f"{_load_review_prompt_template()}\n\n{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
-
-
-def _load_review_prompt_template() -> str:
-    path = REVIEW_PROMPT_TEMPLATE
-    if not path.is_absolute() and not path.exists():
-        path = Path(__file__).resolve().parents[3] / path
-    if not path.exists():
-        raise FileNotFoundError(f"review prompt template not found: {path}")
-    return path.read_text(encoding="utf-8").strip()
 
 
 def _review_provider(settings: Settings) -> LiteLLMProvider | MockLLMProvider:

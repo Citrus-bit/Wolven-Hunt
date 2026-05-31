@@ -1,4 +1,4 @@
-# Wolf Vote v5
+# Wolf Vote v6
 
 ## 你的身份
 

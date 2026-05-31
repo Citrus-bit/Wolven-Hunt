@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 from wolven_hunt.storage.disk import atomic_write_json
 
 STATE_SCHEMA_VERSION = "1.0"
-SEED_VERSION = "v5"
+SEED_VERSION = DEFAULT_PROMPT_VERSION
 
 CycleStatus = Literal["collecting_baseline", "testing_challenger"]
 
@@ -22,7 +23,7 @@ class EvolutionState:
     target_axis: str | None = None
     baseline_game_ids: tuple[str, ...] = ()
     challenger_game_ids: tuple[str, ...] = ()
-    next_version: int = 6
+    next_version: int = 7
     rejected_versions: tuple[str, ...] = ()
 
     def to_json(self) -> dict[str, object]:
@@ -49,7 +50,7 @@ class EvolutionState:
             target_axis=_optional_str(data.get("target_axis")),
             baseline_game_ids=_str_tuple(data.get("baseline_game_ids")),
             challenger_game_ids=_str_tuple(data.get("challenger_game_ids")),
-            next_version=_int_value(data.get("next_version"), 6),
+            next_version=_int_value(data.get("next_version"), 7),
             rejected_versions=_str_tuple(data.get("rejected_versions")),
         )
 

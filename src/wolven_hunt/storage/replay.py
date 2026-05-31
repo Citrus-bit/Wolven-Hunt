@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 from wolven_hunt.core.events import Event
 from wolven_hunt.storage.jsonl import read_events_jsonl
 
@@ -191,7 +192,7 @@ def _prompt_version_from_manifest(manifest: dict[str, object]) -> str:
     value = manifest.get("prompt_pack_version")
     if isinstance(value, str) and value:
         return value
-    return "v5"
+    return DEFAULT_PROMPT_VERSION
 
 
 def _forced_seat_roles_from_manifest(

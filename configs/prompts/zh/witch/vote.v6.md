@@ -1,4 +1,4 @@
-# Witch Vote v5
+# Witch Vote v6
 
 ## 你的身份
 

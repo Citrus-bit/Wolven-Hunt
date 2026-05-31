@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 from wolven_hunt.core.seat import Role
 from wolven_hunt.evolution.axes import AXES, axis_from_key
 from wolven_hunt.evolution.gate import evaluate_gate
@@ -20,10 +21,10 @@ def test_axes_include_fourteen_targets_and_no_villager_role_duty() -> None:
     assert axis_from_key("seer.role_duty").prompt_kind == "night_action"
 
 
-def test_seed_char_cap_is_fixed_to_v5(game_config) -> None:
+def test_seed_char_cap_is_fixed_to_current_default_prompt_version(game_config) -> None:
     axis = axis_from_key("seer.role_duty")
     cap = seed_char_cap(game_config.prompt_pack_root, axis, 1.10)
-    source = game_config.prompt_pack_root / "seer" / "night_action.v5.md"
+    source = game_config.prompt_pack_root / "seer" / f"night_action.{DEFAULT_PROMPT_VERSION}.md"
     assert cap >= len(source.read_text(encoding="utf-8"))
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from wolven_hunt.core.events import DRAFT_TIMESTAMP, Event, EventType, public_visibility
 from wolven_hunt.core.ids import EventId, GameId
 from wolven_hunt.llm.context import (
+    build_current_turn_context,
     build_prompt_visible_events,
     build_speech_context,
     select_events_for_prompt,
@@ -121,6 +122,67 @@ def test_build_speech_context_keeps_recent_speeches() -> None:
     assert [row["actor"] for row in context["prior_public_speeches"]] == list(range(3, 15))
 
 
+def test_build_current_turn_context_derives_last_words_exile_context() -> None:
+    events = (
+        _speech_event(1, actor=3, text="我站边7号, 主推5号。"),
+        _visible_event(
+            2,
+            EventType.VOTE_CAST,
+            actor=1,
+            phase="DAY_VOTE",
+            payload={"target": 3},
+        ),
+        _visible_event(
+            3,
+            EventType.VOTE_CAST,
+            actor=3,
+            phase="DAY_VOTE",
+            payload={"target": 5},
+        ),
+        _visible_event(
+            4,
+            EventType.VOTE_CAST,
+            actor=7,
+            phase="DAY_VOTE",
+            payload={"target": 3},
+        ),
+        _visible_event(
+            5,
+            EventType.VOTE_RESULT,
+            actor=None,
+            phase="DAY_VOTE",
+            payload={"counts": {"3": 2, "5": 1}, "tied": [3]},
+        ),
+        _visible_event(
+            6,
+            EventType.EXILE,
+            actor=None,
+            phase="DAY_EXILE",
+            payload={"seat": 3},
+        ),
+    )
+
+    context = build_current_turn_context(events, current_seat=3, phase="DAY_LAST_WORDS")
+
+    assert context["reason"] == "exiled"
+    assert context["actor_seat"] == 3
+    assert context["latest_own_speech"] == {
+        "seq": 1,
+        "actor": 3,
+        "text": "我站边7号, 主推5号。",
+    }
+    assert [row["actor"] for row in context["votes_on_me"]] == [1, 7]
+    assert context["own_vote"] == {
+        "seq": 3,
+        "day": 1,
+        "phase": "DAY_VOTE",
+        "actor": 3,
+        "target": 5,
+        "abstain": False,
+    }
+    assert context["latest_vote_result"]["payload"]["counts"] == {"3": 2, "5": 1}
+
+
 def _event(seq: int, event_type: EventType) -> Event:
     return Event(
         event_id=EventId.deterministic("context", seq, event_type.value),
@@ -133,6 +195,28 @@ def _event(seq: int, event_type: EventType) -> Event:
         actor=None if event_type is EventType.GAME_START else ((seq % 8) + 1),
         visibility=public_visibility(),
         payload={"target": ((seq + 1) % 8) + 1} if event_type is not EventType.SPEECH else {},
+    )
+
+
+def _visible_event(
+    seq: int,
+    event_type: EventType,
+    *,
+    actor: int | None,
+    phase: str,
+    payload: dict[str, object],
+) -> Event:
+    return Event(
+        event_id=EventId.deterministic("context-visible", seq, event_type.value),
+        game_id=GameId.deterministic("context-visible"),
+        seq=seq,
+        phase=phase,
+        day=1,
+        timestamp=DRAFT_TIMESTAMP,
+        type=event_type,
+        actor=actor,
+        visibility=public_visibility(),
+        payload=payload,
     )
 
 

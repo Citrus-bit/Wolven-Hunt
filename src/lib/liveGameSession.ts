@@ -1,6 +1,10 @@
 import type { LaunchState } from './gameLaunchState';
 import type { HumanRole, SpectatorEffect } from './gameApi';
 import type { RecentSpectatorEffect } from './gameEffects';
+import {
+  normalizeHumanIdentityMarks,
+  type HumanIdentityMarks,
+} from './identityMarks';
 import type { SeatPresentationMap } from './seatPresentation';
 
 export const LIVE_GAME_SESSION_KEY = 'wolven_hunt.live_session';
@@ -18,6 +22,7 @@ export type LiveGameSessionSnapshot = {
   humanSeat?: number | null;
   playerToken?: string | null;
   humanRole?: HumanRole;
+  humanIdentityMarks?: HumanIdentityMarks;
   savedAtMs: number;
 };
 
@@ -142,6 +147,7 @@ function parseLiveGameSession(raw: string): LiveGameSessionSnapshot | null {
     humanSeat: normalizeSeat(value.humanSeat),
     playerToken: typeof value.playerToken === 'string' ? value.playerToken : null,
     humanRole: isHumanRole(value.humanRole) ? value.humanRole : 'random',
+    humanIdentityMarks: normalizeHumanIdentityMarks(value.humanIdentityMarks),
     savedAtMs: Number(value.savedAtMs) || 0,
   };
 }

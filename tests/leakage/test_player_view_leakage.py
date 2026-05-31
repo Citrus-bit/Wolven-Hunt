@@ -97,5 +97,37 @@ def test_last_guard_target_only_visible_to_guard_during_guard_phase(
     assert "last_guard_target" not in guard_day_view.rule_set_summary
 
 
+@pytest.mark.leakage
+def test_wolf_kill_target_only_visible_to_witch_during_witch_phase(
+    game_config: GameConfig,
+) -> None:
+    state, events = build_initial_state(game_config, "witch-wolf-kill-target-leakage")
+    witch = state.seats_by_role(Role.WITCH)[0]
+    non_witch = next(player.seat for player in state.players if player.seat != witch)
+    state = replace(state, phase="NIGHT_WITCH", night_wolf_target=Seat(2))
+
+    spectator = build_view(state, events, rule_set=game_config.rule_set, seat=None)
+    non_witch_view = build_view(state, events, rule_set=game_config.rule_set, seat=non_witch)
+    witch_view = build_view(state, events, rule_set=game_config.rule_set, seat=witch)
+    witch_day_view = build_view(
+        replace(state, phase="DAY_SPEECH"),
+        events,
+        rule_set=game_config.rule_set,
+        seat=witch,
+    )
+    private_keys = {
+        "wolf_kill_target",
+        "witch_antidote_available",
+        "witch_poison_available",
+    }
+
+    assert private_keys.isdisjoint(spectator.rule_set_summary)
+    assert private_keys.isdisjoint(non_witch_view.rule_set_summary)
+    assert witch_view.rule_set_summary["wolf_kill_target"] == 2
+    assert witch_view.rule_set_summary["witch_antidote_available"] is True
+    assert witch_view.rule_set_summary["witch_poison_available"] is True
+    assert private_keys.isdisjoint(witch_day_view.rule_set_summary)
+
+
 def _has_any(view: PlayerView, event_types: set[EventType]) -> bool:
     return any(event.type in event_types for event in view.visible_events)

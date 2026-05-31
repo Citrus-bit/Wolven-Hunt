@@ -218,6 +218,39 @@ def test_double_death_allows_uncertain_poison_language(
     assert rejection is None
 
 
+def test_last_words_rejects_third_person_self_critique(
+    game_config: GameConfig,
+    initial_state: GameState,
+) -> None:
+    state = replace(initial_state, day=2, phase="DAY_LAST_WORDS")
+
+    rejection = validate_text_consistency(
+        state,
+        LastWords(actor=Seat(3), text="我觉得3号发言太空，没有明确立场，明天先看5号。"),
+        game_config.rule_set,
+        (),
+    )
+
+    assert rejection is not None
+    assert rejection.rule_id == "text.last_words_self_reference"
+
+
+def test_last_words_allows_quoted_self_critique_response(
+    game_config: GameConfig,
+    initial_state: GameState,
+) -> None:
+    state = replace(initial_state, day=2, phase="DAY_LAST_WORDS")
+
+    rejection = validate_text_consistency(
+        state,
+        LastWords(actor=Seat(3), text="别人说我3号发言太空，但我的票型一直压5号，明天先出5号。"),
+        game_config.rule_set,
+        (),
+    )
+
+    assert rejection is None
+
+
 def _guard_events(
     state: GameState,
     guard: Seat,

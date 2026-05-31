@@ -1,4 +1,4 @@
-# Villager Vote v5
+# Villager Vote v6
 
 ## 你的身份
 

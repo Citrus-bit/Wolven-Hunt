@@ -4,6 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 from wolven_hunt.config.settings import Settings
 from wolven_hunt.evolution.engine import record_finished_game, step
 from wolven_hunt.evolution.state import load_state
@@ -18,19 +19,24 @@ def test_mock_window_generates_challenger_snapshot(tmp_path: Path, game_config) 
     settings = Settings(runs_dir=tmp_path / "runs", evolution_enabled=True)
     for index in range(5):
         game_id = f"game-{index}"
-        _write_review_run(settings.runs_dir / game_id, game_id, prompt_version="v5", seer_score=50)
+        _write_review_run(
+            settings.runs_dir / game_id,
+            game_id,
+            prompt_version=DEFAULT_PROMPT_VERSION,
+            seer_score=50,
+        )
         record_finished_game(
             runs_dir=settings.runs_dir,
             game_id=game_id,
-            prompt_version="v5",
+            prompt_version=DEFAULT_PROMPT_VERSION,
             window_size=5,
         )
     result = step(config_path=config_path, settings=settings, dry_run=False)
     state = load_state(settings.runs_dir)
     assert result["event"] == "challenger_generated"
-    assert state.active_version == "v6"
-    assert state.challenger_version == "v6"
-    assert (prompt_root / "seer" / "night_action.v6.md").exists()
+    assert state.active_version == "v7"
+    assert state.challenger_version == "v7"
+    assert (prompt_root / "seer" / "night_action.v7.md").exists()
 
 
 def test_dry_run_does_not_write_snapshot_or_state(tmp_path: Path, game_config) -> None:
@@ -40,17 +46,22 @@ def test_dry_run_does_not_write_snapshot_or_state(tmp_path: Path, game_config) -
     settings = Settings(runs_dir=tmp_path / "runs", evolution_enabled=True)
     for index in range(5):
         game_id = f"game-{index}"
-        _write_review_run(settings.runs_dir / game_id, game_id, prompt_version="v5", seer_score=50)
+        _write_review_run(
+            settings.runs_dir / game_id,
+            game_id,
+            prompt_version=DEFAULT_PROMPT_VERSION,
+            seer_score=50,
+        )
         record_finished_game(
             runs_dir=settings.runs_dir,
             game_id=game_id,
-            prompt_version="v5",
+            prompt_version=DEFAULT_PROMPT_VERSION,
             window_size=5,
         )
     result = step(config_path=config_path, settings=settings, dry_run=True)
     assert result["dry_run"] is True
-    assert not (prompt_root / "seer" / "night_action.v6.md").exists()
-    assert load_state(settings.runs_dir).active_version == "v5"
+    assert not (prompt_root / "seer" / "night_action.v7.md").exists()
+    assert load_state(settings.runs_dir).active_version == DEFAULT_PROMPT_VERSION
 
 
 def test_record_finished_game_ignores_human_player_runs(tmp_path: Path) -> None:
@@ -62,7 +73,7 @@ def test_record_finished_game_ignores_human_player_runs(tmp_path: Path) -> None:
         json.dumps(
             {
                 "ended_at": "2026-01-01T00:00:00+00:00",
-                "prompt_pack_version": "v5",
+                "prompt_pack_version": DEFAULT_PROMPT_VERSION,
                 "human_seat": 4,
                 "seat_presentation": {},
             }
@@ -73,7 +84,7 @@ def test_record_finished_game_ignores_human_player_runs(tmp_path: Path) -> None:
     state = record_finished_game(
         runs_dir=settings.runs_dir,
         game_id=game_id,
-        prompt_version="v5",
+        prompt_version=DEFAULT_PROMPT_VERSION,
         window_size=5,
     )
 

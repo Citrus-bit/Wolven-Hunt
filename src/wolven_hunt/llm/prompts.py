@@ -3,8 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 from wolven_hunt.core.seat import Role
-from wolven_hunt.llm.context import build_prompt_visible_events, build_speech_context
+from wolven_hunt.llm.context import (
+    build_current_turn_context,
+    build_prompt_visible_events,
+    build_speech_context,
+)
 from wolven_hunt.referee.view import PlayerView
 
 PHASE_TEMPLATE_KIND: dict[str, str] = {
@@ -37,7 +42,7 @@ SPEECH_COMPRESSED_PHASES = frozenset(
 
 
 class PromptRenderer:
-    def __init__(self, prompt_root: Path, *, version: str = "v5") -> None:
+    def __init__(self, prompt_root: Path, *, version: str = DEFAULT_PROMPT_VERSION) -> None:
         self.prompt_root = prompt_root
         self.version = version
 
@@ -85,6 +90,11 @@ class PromptRenderer:
                 current_day=_speech_context_day(view, phase),
                 alive_seats=_int_tuple(view.rule_set_summary.get("alive_seats")),
                 max_speeches=12,
+            ),
+            "current_turn_context": build_current_turn_context(
+                view.visible_events,
+                current_seat=current_seat,
+                phase=phase,
             ),
             "output_schema": schema_json,
         }

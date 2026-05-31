@@ -11,6 +11,7 @@ import {
 } from '../lib/gameApi';
 import { buildAgentSpecs } from '../lib/agentSpecs';
 import { clearLiveGameSession, writeLiveGameSession } from '../lib/liveGameSession';
+import type { HumanIdentityMarks } from '../lib/identityMarks';
 import {
   buildSeatPresentation,
   type SeatPresentationMap,
@@ -29,6 +30,7 @@ type LiveSessionSnapshotDraft = {
   humanSeat?: number | null;
   playerToken?: string | null;
   humanRole?: HumanRole;
+  humanIdentityMarks?: HumanIdentityMarks;
 };
 
 type UseGameLaunchFlowParams = {
@@ -50,6 +52,7 @@ type UseGameLaunchFlowParams = {
     streamCursor: number;
     effectSeq: number;
     recentEffects: unknown[];
+    humanIdentityMarks?: HumanIdentityMarks;
   }>;
   streamCursorRef: MutableRefObject<number>;
   effectSeqRef: MutableRefObject<number>;
@@ -133,6 +136,7 @@ export function useGameLaunchFlow({
         humanSeat: isHumanGame ? humanSeatIndex + 1 : null,
         playerToken: null,
         humanRole,
+        humanIdentityMarks: {},
       };
       const created = await createGame({
         agents,
@@ -170,6 +174,7 @@ export function useGameLaunchFlow({
         humanSeat: nextHumanContext?.seat ?? null,
         playerToken: nextHumanContext?.token ?? null,
         humanRole,
+        humanIdentityMarks: {},
       };
       liveSessionSnapshotRef.current = createdSnapshot;
       writeLiveGameSession(createdSnapshot);

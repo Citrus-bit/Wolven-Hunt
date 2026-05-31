@@ -55,6 +55,7 @@ describe('liveGameSession', () => {
       humanSeat: null,
       playerToken: null,
       humanRole: 'random',
+      humanIdentityMarks: {},
       savedAtMs: 12345,
     });
   });
@@ -75,6 +76,10 @@ describe('liveGameSession', () => {
       humanSeat: 3,
       playerToken: 'token-123',
       humanRole: 'witch',
+      humanIdentityMarks: {
+        1: 'wolf',
+        6: 'seer',
+      },
     }, storage);
 
     expect(readLiveGameSession(storage)).toMatchObject({
@@ -82,6 +87,36 @@ describe('liveGameSession', () => {
       humanSeat: 3,
       playerToken: 'token-123',
       humanRole: 'witch',
+      humanIdentityMarks: {
+        1: 'wolf',
+        6: 'seer',
+      },
+    });
+  });
+
+  it('filters malformed human identity marks from restored snapshots', () => {
+    storage = new MemoryStorage();
+    storage.setItem(
+      LIVE_GAME_SESSION_KEY,
+      JSON.stringify({
+        gameId: 'game-human',
+        assignments: [0, 1, null, 3, 4, 5, 6, 7, 8, 9],
+        seatPresentation: {},
+        launchState: 'running',
+        humanIdentityMarks: {
+          0: 'wolf',
+          1: 'wolf',
+          4: 'seer',
+          11: 'witch',
+          bad: 'guard',
+          6: 'unknown',
+        },
+      }),
+    );
+
+    expect(readLiveGameSession(storage)?.humanIdentityMarks).toEqual({
+      1: 'wolf',
+      4: 'seer',
     });
   });
 
@@ -138,6 +173,7 @@ describe('liveGameSession', () => {
       humanSeat: null,
       playerToken: null,
       humanRole: 'random',
+      humanIdentityMarks: {},
       savedAtMs: 987,
     });
   });

@@ -3,11 +3,12 @@ import { Check, Clock3, Plus, X as XIcon } from 'lucide-react';
 import { gameEffectAssetPath } from '../../lib/effectAssets';
 import type { SeatEffectState } from '../../lib/gameEffects';
 import type { HumanRole } from '../../lib/gameApi';
+import type { SeatIdentityBadge, SeatRole } from '../../lib/identityMarks';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import type { ModelTestStatus } from '../../lib/modelTest';
 import type { SeatPresentation } from '../../lib/seatPresentation';
 
-export type SeatRole = 'wolf' | 'villager' | 'seer' | 'witch' | 'guard';
+export type { SeatRole } from '../../lib/identityMarks';
 
 type GameSeatProps = {
   seatIndex: number;
@@ -15,6 +16,9 @@ type GameSeatProps = {
   assignment: number | null;
   presentation?: SeatPresentation | null;
   role?: SeatRole | null;
+  identityBadge?: SeatIdentityBadge | null;
+  identityMarkEnabled?: boolean;
+  identityMarkValue?: SeatRole | null;
   testStatus?: ModelTestStatus;
   showTestBadge?: boolean;
   thinkingEnabled?: boolean;
@@ -27,6 +31,7 @@ type GameSeatProps = {
   pickRoleEnabled?: boolean;
   targetable?: boolean;
   selectedAsTarget?: boolean;
+  privateWolfAttackCue?: boolean;
   witchSplit?: {
     active: boolean;
     canSave: boolean;
@@ -35,6 +40,7 @@ type GameSeatProps = {
     onPoison: () => void;
   };
   onPickHumanRole?: (role: HumanRole) => void;
+  onPickIdentityMark?: (seatIndex: number, role: SeatRole | null) => void;
   onClickSeat: (seatIndex: number) => void;
 };
 
@@ -44,6 +50,9 @@ export function GameSeat({
   assignment,
   presentation = null,
   role = null,
+  identityBadge = null,
+  identityMarkEnabled = false,
+  identityMarkValue = null,
   testStatus,
   showTestBadge = true,
   thinkingEnabled = false,
@@ -56,13 +65,18 @@ export function GameSeat({
   pickRoleEnabled = false,
   targetable = false,
   selectedAsTarget = false,
+  privateWolfAttackCue = false,
   witchSplit,
   onPickHumanRole,
+  onPickIdentityMark,
   onClickSeat,
 }: GameSeatProps) {
   const roleMenuId = useId();
+  const identityMenuId = useId();
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
+  const [identityMenuOpen, setIdentityMenuOpen] = useState(false);
   const rolePickerRef = useRef<HTMLSpanElement | null>(null);
+  const identityPickerRef = useRef<HTMLSpanElement | null>(null);
   const slot = assignment === null ? null : MODEL_SLOTS[assignment];
   const display = slot
     ? { nickname: slot.nickname, iconPath: slot.iconPath }
@@ -78,6 +92,8 @@ export function GameSeat({
   const label = display
     ? targetable
       ? `选择 ${seatIndex + 1}号 ${display.nickname}`
+      : identityMarkEnabled
+      ? `标注 ${seatIndex + 1}号 ${display.nickname} 的可能身份`
       : disabled
       ? `${seatIndex + 1}号席位 ${display.nickname}`
       : `更换 ${display.nickname}`
@@ -86,6 +102,17 @@ export function GameSeat({
   const outBadgeKey = effects?.outBadgeSeq ?? (showOutBadge ? 'eliminated' : undefined);
   const selectedHumanRole =
     HUMAN_ROLE_OPTIONS.find((option) => option.role === humanRole) ?? HUMAN_ROLE_OPTIONS[0];
+  const visibleIdentityBadge = identityBadge ?? (role ? toTrueRoleBadge(role) : null);
+  const identityMarkLabel = identityMarkValue
+    ? ROLE_LABELS[identityMarkValue]
+    : '未标注';
+  const handleSeatClick = () => {
+    if (identityMarkEnabled) {
+      setIdentityMenuOpen(!identityMenuOpen);
+      return;
+    }
+    onClickSeat(seatIndex);
+  };
 
   useEffect(() => {
     if (!roleMenuOpen) {
@@ -113,6 +140,32 @@ export function GameSeat({
     };
   }, [roleMenuOpen]);
 
+  useEffect(() => {
+    if (!identityMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && identityPickerRef.current?.contains(target)) {
+        return;
+      }
+      setIdentityMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIdentityMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [identityMenuOpen]);
+
   return (
     <div
       className={[
@@ -133,8 +186,8 @@ export function GameSeat({
             isTesting ? 'game-seat-circle--testing' : ''
           }`}
           aria-label={label}
-          onClick={() => onClickSeat(seatIndex)}
-          disabled={isTesting || (disabled && !targetable)}
+          onClick={handleSeatClick}
+          disabled={isTesting || (disabled && !targetable && !identityMarkEnabled)}
         >
           {display?.iconPath ? (
             <img src={display.iconPath} alt="" className="game-seat-avatar" />
@@ -154,12 +207,82 @@ export function GameSeat({
           )}
         </button>
         <span className="game-seat-number">{seatIndex + 1}</span>
-        {role && (
+        {visibleIdentityBadge && (
           <span
-            className={`game-seat-role game-seat-role--${role}`}
-            aria-label={`身份：${ROLE_LABELS[role]}`}
+            className={identityBadgeClassName(visibleIdentityBadge)}
+            aria-label={identityBadgeAriaLabel(visibleIdentityBadge)}
+            title={identityBadgeAriaLabel(visibleIdentityBadge)}
           >
-            {ROLE_BADGES[role]}
+            {identityBadgeText(visibleIdentityBadge)}
+          </span>
+        )}
+        {identityMarkEnabled && (
+          <span
+            className="game-seat-identity-picker"
+            ref={identityPickerRef}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="game-seat-identity-picker-button"
+              aria-label={`${seatIndex + 1}号身份标注，当前${identityMarkLabel}`}
+              aria-haspopup="listbox"
+              aria-expanded={identityMenuOpen}
+              aria-controls={identityMenuOpen ? identityMenuId : undefined}
+              title={`${seatIndex + 1}号身份标注：${identityMarkLabel}`}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => setIdentityMenuOpen((open) => !open)}
+            >
+              <span>{identityMarkValue ? ROLE_SHORT_LABELS[identityMarkValue] : '标'}</span>
+              <span className="game-seat-role-picker-caret" aria-hidden="true" />
+            </button>
+            {identityMenuOpen && (
+              <span
+                id={identityMenuId}
+                className="game-seat-role-menu game-seat-identity-menu"
+                role="listbox"
+                aria-label={`${seatIndex + 1}号可能身份`}
+              >
+                {IDENTITY_MARK_OPTIONS.map((option) => {
+                  const selected = option.role === identityMarkValue;
+                  return (
+                    <button
+                      key={option.role}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      className={[
+                        'game-seat-role-option',
+                        selected ? 'game-seat-role-option--selected' : '',
+                      ].join(' ')}
+                      onClick={() => {
+                        onPickIdentityMark?.(seatIndex, option.role);
+                        setIdentityMenuOpen(false);
+                      }}
+                    >
+                      <span>{option.label}</span>
+                      {selected && <Check size={12} strokeWidth={3} aria-hidden="true" />}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={identityMarkValue === null}
+                  className={[
+                    'game-seat-role-option',
+                    'game-seat-role-option--clear',
+                    identityMarkValue === null ? 'game-seat-role-option--selected' : '',
+                  ].join(' ')}
+                  onClick={() => {
+                    onPickIdentityMark?.(seatIndex, null);
+                    setIdentityMenuOpen(false);
+                  }}
+                >
+                  清除
+                </button>
+              </span>
+            )}
           </span>
         )}
         {isHuman && pickRoleEnabled && (
@@ -256,6 +379,14 @@ export function GameSeat({
               ].join(' ')}
             />
           )}
+          {privateWolfAttackCue && !effects?.wolfAttack && (
+            <img
+              key={`private-wolf-attack-${seatIndex}`}
+              src={gameEffectAssetPath('wolf_attack')}
+              alt=""
+              className="game-seat-effect game-seat-effect--wolf game-seat-effect--private-wolf-cue"
+            />
+          )}
           {effects?.seerVisionSeq && (
             <img
               key={effects.seerVisionSeq}
@@ -316,6 +447,14 @@ const ROLE_BADGES: Record<SeatRole, string> = {
   guard: '守卫',
 };
 
+const ROLE_SHORT_LABELS: Record<SeatRole, string> = {
+  wolf: '狼',
+  villager: '民',
+  seer: '预',
+  witch: '巫',
+  guard: '守',
+};
+
 const HUMAN_ROLE_OPTIONS: { role: HumanRole; label: string; shortLabel: string }[] = [
   { role: 'random', label: '随机', shortLabel: '随机' },
   { role: 'villager', label: '平民', shortLabel: '民' },
@@ -324,3 +463,48 @@ const HUMAN_ROLE_OPTIONS: { role: HumanRole; label: string; shortLabel: string }
   { role: 'guard', label: '守卫', shortLabel: '守' },
   { role: 'wolf', label: '狼人', shortLabel: '狼' },
 ];
+
+const IDENTITY_MARK_OPTIONS: { role: SeatRole; label: string }[] = [
+  { role: 'wolf', label: '狼人' },
+  { role: 'villager', label: '村民' },
+  { role: 'seer', label: '预言家' },
+  { role: 'witch', label: '女巫' },
+  { role: 'guard', label: '守卫' },
+];
+
+function toTrueRoleBadge(role: SeatRole): SeatIdentityBadge {
+  return { kind: 'role', role, source: 'true' };
+}
+
+function identityBadgeClassName(badge: SeatIdentityBadge) {
+  if (badge.kind === 'camp') {
+    return [
+      'game-seat-role',
+      'game-seat-role--camp',
+      `game-seat-role--camp-${badge.camp}`,
+      'game-seat-role--locked',
+    ].join(' ');
+  }
+  return [
+    'game-seat-role',
+    `game-seat-role--${badge.role}`,
+    badge.source === 'guess' ? 'game-seat-role--guess' : '',
+  ].join(' ');
+}
+
+function identityBadgeText(badge: SeatIdentityBadge) {
+  if (badge.kind === 'camp') {
+    return badge.camp === 'wolf' ? '狼人' : '好人';
+  }
+  return ROLE_BADGES[badge.role];
+}
+
+function identityBadgeAriaLabel(badge: SeatIdentityBadge) {
+  if (badge.kind === 'camp') {
+    return `预言家查验锁定阵营：${badge.camp === 'wolf' ? '狼人阵营' : '好人阵营'}`;
+  }
+  if (badge.source === 'guess') {
+    return `可能身份：${ROLE_LABELS[badge.role]}`;
+  }
+  return `身份：${ROLE_LABELS[badge.role]}`;
+}

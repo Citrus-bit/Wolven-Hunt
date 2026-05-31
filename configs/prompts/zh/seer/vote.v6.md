@@ -1,4 +1,4 @@
-# Seer Vote v5
+# Seer Vote v6
 
 ## 你的身份
 

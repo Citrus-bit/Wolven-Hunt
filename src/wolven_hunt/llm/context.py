@@ -122,6 +122,47 @@ def build_speech_context(
     }
 
 
+def build_current_turn_context(
+    events: tuple[Event, ...],
+    *,
+    current_seat: int | None,
+    phase: str,
+) -> dict[str, Any]:
+    latest_vote_result = _latest_event_of_type(events, "vote_result")
+    vote_events = _vote_events_for_result(events, latest_vote_result)
+    own_vote = next(
+        (_vote_row(event) for event in reversed(vote_events) if event.actor == current_seat),
+        None,
+    )
+    votes_on_me = tuple(
+        _vote_row(event)
+        for event in vote_events
+        if current_seat is not None and _payload_int(event, "target") == current_seat
+    )
+    latest_own_speech = next(
+        (
+            _speech_row(event)
+            for event in reversed(events)
+            if _is_public_speech(event) and event.actor == current_seat
+        ),
+        None,
+    )
+    return {
+        "reason": _current_turn_reason(
+            events,
+            current_seat=current_seat,
+            phase=phase,
+        ),
+        "actor_seat": current_seat,
+        "latest_own_speech": latest_own_speech,
+        "votes_on_me": votes_on_me,
+        "own_vote": own_vote,
+        "latest_vote_result": (
+            None if latest_vote_result is None else event_to_prompt_dict(latest_vote_result)
+        ),
+    }
+
+
 def summarize_events_for_prompt(events: Iterable[Event]) -> dict[str, Any]:
     event_tuple = tuple(events)
     if not event_tuple:
@@ -191,6 +232,18 @@ def _speech_row(event: Event) -> dict[str, Any]:
     }
 
 
+def _vote_row(event: Event) -> dict[str, Any]:
+    payload = event.payload
+    return {
+        "seq": event.seq,
+        "day": event.day,
+        "phase": event.phase,
+        "actor": event.actor,
+        "target": payload.get("target"),
+        "abstain": bool(payload.get("abstain", False)),
+    }
+
+
 def _is_public_speech(event: Event) -> bool:
     return _event_type(event) == "speech" and event.visibility.public and event.actor is not None
 
@@ -208,3 +261,61 @@ def _one_line_event_summary(event: Event) -> str:
 
 def _event_type(event: Event) -> str:
     return event.type.value
+
+
+def _latest_event_of_type(events: tuple[Event, ...], event_type: str) -> Event | None:
+    for event in reversed(events):
+        if _event_type(event) == event_type:
+            return event
+    return None
+
+
+def _vote_events_for_result(
+    events: tuple[Event, ...],
+    latest_vote_result: Event | None,
+) -> tuple[Event, ...]:
+    if latest_vote_result is None:
+        return tuple(event for event in events if _event_type(event) == "vote_cast")
+    return tuple(
+        event
+        for event in events
+        if _event_type(event) == "vote_cast"
+        and event.day == latest_vote_result.day
+        and event.phase == latest_vote_result.phase
+        and event.seq < latest_vote_result.seq
+    )
+
+
+def _current_turn_reason(
+    events: tuple[Event, ...],
+    *,
+    current_seat: int | None,
+    phase: str,
+) -> str:
+    if phase != "DAY_LAST_WORDS" or current_seat is None:
+        return "normal_turn"
+    latest_exile = _latest_event_of_type(events, "exile")
+    if latest_exile is not None and _payload_int(latest_exile, "seat") == current_seat:
+        return "exiled"
+    if any(
+        _event_type(event) == "death_at_night"
+        and event.day == 1
+        and _payload_int(event, "seat") == current_seat
+        for event in events
+    ):
+        return "first_night_death"
+    return "other_last_words"
+
+
+def _payload_int(event: Event, key: str) -> int | None:
+    value = event.payload.get(key)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None

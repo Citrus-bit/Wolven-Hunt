@@ -99,6 +99,43 @@ _DOUBLE_DEATH_POISON_PATTERNS = (
     re.compile(r"(?:双死|死了两|死两|两个.{0,4}倒).{0,16}(?:必然|一定|肯定|确定|坐实).{0,8}(?:毒|女巫)"),
     re.compile(r"(?:必然|一定|肯定|确定|坐实).{0,8}(?:毒|女巫).{0,16}(?:双死|死了两|死两|两个.{0,4}倒)"),
 )
+_SELF_CRITIQUE_SUBJECTS = (
+    "发言",
+    "立场",
+    "逻辑",
+    "行为",
+    "票型",
+    "视角",
+    "嫌疑",
+    "狼面",
+)
+_SELF_CRITIQUE_NEGATIVE_MARKERS = (
+    "太空",
+    "空",
+    "没有明确",
+    "无明确",
+    "没立场",
+    "无立场",
+    "可疑",
+    "有问题",
+    "漏洞",
+    "划水",
+    "被利用",
+    "狼面",
+    "像狼",
+)
+_SELF_QUOTE_MARKERS = (
+    "别人说",
+    "他们说",
+    "有人说",
+    "被说",
+    "被指",
+    "被打成",
+    "说我",
+    "指控我",
+    "认为我",
+    "质疑我",
+)
 
 
 def validate_text_consistency(
@@ -127,6 +164,9 @@ def validate_text_consistency(
     night_result_rejection = _validate_night_result_text(state, text, events)
     if night_result_rejection is not None:
         return night_result_rejection
+    self_reference_rejection = _validate_last_words_self_reference_text(action, text)
+    if self_reference_rejection is not None:
+        return self_reference_rejection
     future_speaker_rejection = _validate_future_speaker_text(state, action, text, events)
     if future_speaker_rejection is not None:
         return future_speaker_rejection
@@ -280,6 +320,29 @@ def _validate_future_speaker_text(
                     "text.future_speaker_claim",
                     f"seat {seat_number} has not spoken in current day speech order",
                 )
+    return None
+
+
+def _validate_last_words_self_reference_text(
+    action: Action,
+    text: str,
+) -> ValidationResult:
+    if not isinstance(action, LastWords):
+        return None
+    for match in _seat_mentions(text, action.actor.number):
+        start = match.start()
+        end = match.end()
+        window = text[max(0, start - 10) : min(len(text), end + 28)]
+        if any(marker in window for marker in _SELF_QUOTE_MARKERS):
+            continue
+        if (
+            any(subject in window for subject in _SELF_CRITIQUE_SUBJECTS)
+            and any(marker in window for marker in _SELF_CRITIQUE_NEGATIVE_MARKERS)
+        ):
+            return Reject(
+                "text.last_words_self_reference",
+                "last words must not critique the actor in third person",
+            )
     return None
 
 

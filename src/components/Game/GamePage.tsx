@@ -48,6 +48,12 @@ import {
   deriveStageFromEvents,
   isGameFinished,
 } from '../../lib/gameSnapshot';
+import {
+  deriveSeatIdentityBadges,
+  deriveSelfRoleInfo,
+  type HumanIdentityMarks,
+  type SeatRole,
+} from '../../lib/identityMarks';
 import { MODEL_SLOTS } from '../../lib/modelConfigs';
 import {
   missingModelConfigResult,
@@ -64,13 +70,14 @@ import {
 import { GameChat } from './GameChat';
 import { GameEffectsLayer } from './GameEffectsLayer';
 import { GamePhaseHeader } from './GamePhaseHeader';
-import { GameSeat, type SeatRole } from './GameSeat';
+import { GameSeat } from './GameSeat';
 import { GameTopBar } from './GameTopBar';
 import { ModelPicker } from './ModelPicker';
 import { RulesModal } from './RulesModal';
 import { StageIndicator } from './StageIndicator';
 import { toNarrative } from '../../lib/narrative';
 import { deriveDaySpeechProgress } from '../../lib/speechProgress';
+import { parseWitchWolfKillTarget } from '../../lib/humanTurn';
 import {
   HUMAN_SEAT_PRESENTATION,
   type SeatPresentationMap,
@@ -142,6 +149,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
   );
   const [humanRole, setHumanRole] = useState<HumanRole>(
     restoredLiveSession?.humanRole ?? 'random',
+  );
+  const [humanIdentityMarks, setHumanIdentityMarks] = useState<HumanIdentityMarks>(
+    () => restoredLiveSession?.humanIdentityMarks ?? {},
   );
   const [humanContext, setHumanContext] = useState<{ seat: number; token: string } | null>(
     () =>
@@ -244,6 +254,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     humanSeat: humanContext?.seat ?? null,
     playerToken: humanContext?.token ?? null,
     humanRole,
+    humanIdentityMarks,
   });
 
   const allSeatsAssigned = assignments.every(
@@ -300,9 +311,17 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     : null;
   const turnExpired = turnSecondsLeft !== null && turnSecondsLeft <= 0;
   const textTurnKind = turn && isTextTurn(turn.kind) ? turn.kind : null;
+  const showHumanPerspective = Boolean(humanContext && liveShellActive);
+  const activeHumanTurn = humanContext && turn && !textTurnKind ? turn : null;
+  const showHumanTurnPanel = activeHumanTurn !== null;
+  const witchWolfKillTarget = parseWitchWolfKillTarget(activeHumanTurn);
   const inputMaxChars = Number(turn?.constraints.max_chars) || 300;
   const deadSeats = publicEliminatedSeats(events, spectatorEffects);
-  const seatRoles = deriveSeatRoles(events);
+  const seatIdentityBadges = deriveSeatIdentityBadges({
+    events,
+    humanSeat: humanContext?.seat ?? null,
+    humanIdentityMarks,
+  });
   const failedModelSummaries =
     !liveShellActive && allTestsCompleted
       ? assignments
@@ -368,6 +387,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       humanSeat: number | null;
       playerToken: string | null;
       humanRole: HumanRole;
+      humanIdentityMarks: HumanIdentityMarks;
     }> = {},
   ) => {
     const next = { ...liveSessionSnapshotRef.current, ...overrides };
@@ -393,6 +413,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       humanSeat: next.humanSeat,
       playerToken: next.playerToken,
       humanRole: next.humanRole,
+      humanIdentityMarks: next.humanIdentityMarks,
     });
   };
 
@@ -519,11 +540,13 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       humanSeat: humanContext?.seat ?? null,
       playerToken: humanContext?.token ?? null,
       humanRole,
+      humanIdentityMarks,
     };
   }, [
     assignments,
     gameId,
     humanContext,
+    humanIdentityMarks,
     humanRole,
     launchState,
     recentEffects,
@@ -877,6 +900,33 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     setPickerSeat(seatIndex);
   };
 
+  const handlePickIdentityMark = (seatIndex: number, role: SeatRole | null) => {
+    const seatNumber = seatIndex + 1;
+    const existingBadge = seatIdentityBadges[seatNumber];
+    if (
+      !humanContext ||
+      !liveShellActive ||
+      isReplay ||
+      finished ||
+      isTargetTurn(turn) ||
+      humanContext.seat === seatNumber ||
+      (existingBadge && existingBadge.source !== 'guess')
+    ) {
+      return;
+    }
+
+    setHumanIdentityMarks((prev) => {
+      const next = { ...prev };
+      if (role) {
+        next[seatNumber] = role;
+      } else {
+        delete next[seatNumber];
+      }
+      persistLiveSessionSnapshot({ humanIdentityMarks: next });
+      return next;
+    });
+  };
+
   const handlePickModel = (slotIndex: number) => {
     if (pickerSeat === null || liveShellActive) {
       return;
@@ -1127,6 +1177,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
       setTestMessage('模型测试存在失败；再次点击“仍然开局”将继续，后端 fallback 会兜底');
       return;
     }
+    setHumanIdentityMarks({});
     await startGameWithAssignments();
   };
 
@@ -1207,7 +1258,11 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
 
   return (
     <main
-      className={['game-page', finished ? 'game-page--final-freeze' : ''].join(' ')}
+      className={[
+        'game-page',
+        finished ? 'game-page--final-freeze' : '',
+        showHumanTurnPanel ? 'game-page--human-turn-panel' : '',
+      ].join(' ')}
       aria-label="Wolven Hunt 游戏"
     >
       <img
@@ -1235,24 +1290,28 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         onToggleGameAudio={handleToggleGameAudio}
       />
       <StageIndicator stage={stage} />
-      {liveShellActive && (
-        <GamePhaseHeader
-          phase={phaseHeaderPhase}
-          timings={timings}
-          speakerSeat={currentSpeakerSeat}
-          speechComplete={finished || speechProgress.complete}
-          startupPending={startupPending}
-          startupMessage={startupMessageForLaunchState(launchState)}
-        />
-      )}
-      {humanContext && liveShellActive && (
-        <div className="human-perspective-chip">
-          <strong>
-            你是 {humanContext.seat}号
-            {selfRoleInfo.role ? ` · ${HUMAN_ROLE_LABELS[selfRoleInfo.role]}` : ''}
-          </strong>
-          {selfRoleInfo.teammates.length > 0 && (
-            <span>狼队友：{selfRoleInfo.teammates.join('、')}号</span>
+      {(liveShellActive || showHumanPerspective) && (
+        <div className="game-status-stack">
+          {liveShellActive && (
+            <GamePhaseHeader
+              phase={phaseHeaderPhase}
+              timings={timings}
+              speakerSeat={currentSpeakerSeat}
+              speechComplete={finished || speechProgress.complete}
+              startupPending={startupPending}
+              startupMessage={startupMessageForLaunchState(launchState)}
+            />
+          )}
+          {showHumanPerspective && humanContext && (
+            <div className="human-perspective-chip">
+              <strong>
+                你是 {humanContext.seat}号
+                {selfRoleInfo.role ? ` · ${HUMAN_ROLE_LABELS[selfRoleInfo.role]}` : ''}
+              </strong>
+              {selfRoleInfo.teammates.length > 0 && (
+                <span>狼队友：{selfRoleInfo.teammates.join('、')}号</span>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -1280,19 +1339,24 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         terminal={finished}
         onEffectRendered={handleRenderedSpectatorEffect}
       />
-      {humanContext && turn && !textTurnKind && (
+      {showHumanTurnPanel && (
         <div className="human-turn-panel" aria-live="polite">
           <div className="human-turn-panel__main">
-            <strong>{turnTitle(turn)}</strong>
+            <strong>{turnTitle(activeHumanTurn)}</strong>
             <span>{turnSecondsLeft ?? 0}s</span>
           </div>
-          {selectedTarget !== null && turn.kind !== 'witch' && (
+          {witchWolfKillTarget !== null && (
+            <span className="human-turn-panel__target human-turn-panel__target--danger">
+              今晚被袭击：{witchWolfKillTarget}号
+            </span>
+          )}
+          {selectedTarget !== null && activeHumanTurn.kind !== 'witch' && (
             <span className="human-turn-panel__target">
               已选 {selectedTarget}号
             </span>
           )}
           <div className="human-turn-panel__actions">
-            {turn.kind === 'witch' ? (
+            {activeHumanTurn.kind === 'witch' ? (
               <button
                 type="button"
                 onClick={() => handleWitchAction('skip', null)}
@@ -1309,8 +1373,8 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 确认
               </button>
             )}
-            {(turn.kind === 'vote' || turn.kind === 'pk_vote') &&
-              turn.constraints.can_abstain === true && (
+            {(activeHumanTurn.kind === 'vote' || activeHumanTurn.kind === 'pk_vote') &&
+              activeHumanTurn.constraints.can_abstain === true && (
                 <button
                   type="button"
                   onClick={handleAbstain}
@@ -1348,6 +1412,16 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 turn?.valid_targets?.includes(seatNumber),
             );
             const selected = selectedTarget === seatNumber;
+            const identityBadge = seatIdentityBadges[seatNumber] ?? null;
+            const identityMarkEnabled = Boolean(
+              humanContext &&
+                liveShellActive &&
+                !isReplay &&
+                !finished &&
+                !isTargetTurn(turn) &&
+                humanContext.seat !== seatNumber &&
+                (!identityBadge || identityBadge.source === 'guess'),
+            );
 
             return (
               <GameSeat
@@ -1360,7 +1434,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                     ? HUMAN_SEAT_PRESENTATION
                     : seatPresentation[seatNumber] ?? null
                 }
-                role={seatRoles[seatNumber] ?? null}
+                identityBadge={identityBadge}
+                identityMarkEnabled={identityMarkEnabled}
+                identityMarkValue={humanIdentityMarks[seatNumber] ?? null}
                 testStatus={
                   assignment !== null && !isHumanSeat
                     ? testResults[assignment]?.status
@@ -1381,6 +1457,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 pickRoleEnabled={!liveShellActive}
                 targetable={targetable}
                 selectedAsTarget={selected}
+                privateWolfAttackCue={witchWolfKillTarget === seatNumber}
                 witchSplit={witchSplitProps({
                   turn,
                   seatNumber,
@@ -1391,6 +1468,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                   onPoison: () => handleWitchAction('poison', seatNumber),
                 })}
                 onPickHumanRole={setHumanRole}
+                onPickIdentityMark={handlePickIdentityMark}
                 onClickSeat={handleClickSeat}
               />
             );
@@ -1408,6 +1486,16 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 turn?.valid_targets?.includes(seatNumber),
             );
             const selected = selectedTarget === seatNumber;
+            const identityBadge = seatIdentityBadges[seatNumber] ?? null;
+            const identityMarkEnabled = Boolean(
+              humanContext &&
+                liveShellActive &&
+                !isReplay &&
+                !finished &&
+                !isTargetTurn(turn) &&
+                humanContext.seat !== seatNumber &&
+                (!identityBadge || identityBadge.source === 'guess'),
+            );
 
             return (
               <GameSeat
@@ -1420,7 +1508,9 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                     ? HUMAN_SEAT_PRESENTATION
                     : seatPresentation[seatNumber] ?? null
                 }
-                role={seatRoles[seatNumber] ?? null}
+                identityBadge={identityBadge}
+                identityMarkEnabled={identityMarkEnabled}
+                identityMarkValue={humanIdentityMarks[seatNumber] ?? null}
                 testStatus={
                   assignment !== null && !isHumanSeat
                     ? testResults[assignment]?.status
@@ -1441,6 +1531,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                 pickRoleEnabled={!liveShellActive}
                 targetable={targetable}
                 selectedAsTarget={selected}
+                privateWolfAttackCue={witchWolfKillTarget === seatNumber}
                 witchSplit={witchSplitProps({
                   turn,
                   seatNumber,
@@ -1451,6 +1542,7 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
                   onPoison: () => handleWitchAction('poison', seatNumber),
                 })}
                 onPickHumanRole={setHumanRole}
+                onPickIdentityMark={handlePickIdentityMark}
                 onClickSeat={handleClickSeat}
               />
             );
@@ -1559,22 +1651,6 @@ function turnTitle(turn: TurnRequest) {
   return titles[turn.kind];
 }
 
-function deriveSelfRoleInfo(events: GameEvent[]) {
-  const start = events.find((event) => event.type === 'game_start');
-  const role = typeof start?.payload.self_role === 'string'
-    ? start.payload.self_role
-    : null;
-  const teammates = Array.isArray(start?.payload.teammates)
-    ? start.payload.teammates
-        .map((value) => Number(value))
-        .filter((value) => Number.isInteger(value) && value > 0)
-    : [];
-  return {
-    role: isSeatRole(role) ? role : null,
-    teammates,
-  };
-}
-
 function witchSplitProps({
   turn,
   seatNumber,
@@ -1613,35 +1689,6 @@ function useLatestRef<T>(value: T) {
   return ref;
 }
 
-function deriveSeatRoles(events: GameEvent[]): Partial<Record<number, SeatRole>> {
-  const roles: Partial<Record<number, SeatRole>> = {};
-  for (const event of events) {
-    if (event.type === 'game_start') {
-      const assignment = event.payload.role_assignment;
-      if (assignment && typeof assignment === 'object' && !Array.isArray(assignment)) {
-        for (const [seat, role] of Object.entries(assignment as Record<string, unknown>)) {
-          if (isSeatRole(role)) {
-            roles[Number(seat)] = role;
-          }
-        }
-      }
-    }
-    if (event.type === 'role_reveal' && Array.isArray(event.payload.seats)) {
-      for (const seatInfo of event.payload.seats) {
-        if (!seatInfo || typeof seatInfo !== 'object') {
-          continue;
-        }
-        const seat = 'seat' in seatInfo ? Number(seatInfo.seat) : NaN;
-        const role = 'role' in seatInfo ? seatInfo.role : null;
-        if (Number.isFinite(seat) && isSeatRole(role)) {
-          roles[seat] = role;
-        }
-      }
-    }
-  }
-  return roles;
-}
-
 function deriveCurrentDay(events: GameEvent[], fallbackDay: number) {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     if (events[index].type === 'phase_enter') {
@@ -1649,14 +1696,4 @@ function deriveCurrentDay(events: GameEvent[], fallbackDay: number) {
     }
   }
   return fallbackDay;
-}
-
-function isSeatRole(value: unknown): value is SeatRole {
-  return (
-    value === 'wolf' ||
-    value === 'villager' ||
-    value === 'seer' ||
-    value === 'witch' ||
-    value === 'guard'
-  );
 }

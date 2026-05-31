@@ -51,6 +51,23 @@ describe('GameSeat', () => {
     expect(html).toContain('/assets/game/effects/out_badge.png');
   });
 
+  it('renders a private wolf attack cue without spectator effect state', () => {
+    const html = renderToStaticMarkup(
+      <GameSeat
+        seatIndex={3}
+        side="left"
+        assignment={null}
+        showTestBadge={false}
+        disabled={true}
+        privateWolfAttackCue={true}
+        onClickSeat={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('game-seat-effect--private-wolf-cue');
+    expect(html).toContain('/assets/game/effects/wolf_attack.png');
+  });
+
   it('marks seats that have thinking mode enabled', () => {
     const html = renderToStaticMarkup(
       <GameSeat
@@ -84,6 +101,43 @@ describe('GameSeat', () => {
     expect(html).toContain('选择你的角色，当前女巫');
     expect(html).toContain('game-seat-role-picker-button');
     expect(html).toContain('你自己');
+  });
+
+  it('renders a private guessed identity badge and marker control', () => {
+    const html = renderToStaticMarkup(
+      <GameSeat
+        seatIndex={4}
+        side="left"
+        assignment={0}
+        identityBadge={{ kind: 'role', role: 'seer', source: 'guess' }}
+        identityMarkEnabled={true}
+        identityMarkValue="seer"
+        onClickSeat={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('game-seat-role--guess');
+    expect(html).toContain('可能身份：预言家');
+    expect(html).toContain('game-seat-identity-picker');
+    expect(html).toContain('5号身份标注，当前预言家');
+  });
+
+  it('renders a locked seer camp badge without the marker control', () => {
+    const html = renderToStaticMarkup(
+      <GameSeat
+        seatIndex={5}
+        side="right"
+        assignment={0}
+        identityBadge={{ kind: 'camp', camp: 'good', source: 'seer' }}
+        identityMarkEnabled={false}
+        onClickSeat={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('game-seat-role--camp-good');
+    expect(html).toContain('game-seat-role--locked');
+    expect(html).toContain('预言家查验锁定阵营：好人阵营');
+    expect(html).not.toContain('game-seat-identity-picker');
   });
 
   it('renders the witch split action overlay with disabled halves', () => {

@@ -1,4 +1,4 @@
-# Wolf Night Action v5
+# Wolf Night Action v6
 
 ## 你的身份
 

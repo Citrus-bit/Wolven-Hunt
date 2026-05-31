@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from wolven_hunt.api.app import create_app
 from wolven_hunt.api.deps import get_registry, get_settings
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 from wolven_hunt.core.seat import Role
 
 CONFIG_PATH = "configs/games/classic_10.yaml"
@@ -170,7 +171,7 @@ def test_api_persists_spectator_safe_seat_presentation(monkeypatch, tmp_path) ->
         "nickname": "GPT",
         "icon_path": "/assets/lobby/model_icon_gpt.png",
     }
-    assert manifest["prompt_pack_version"] == "v5"
+    assert manifest["prompt_pack_version"] == DEFAULT_PROMPT_VERSION
     assert "seat_presentation" in manifest_text
     assert "api_key" not in manifest_text
     assert "base_url" not in manifest_text

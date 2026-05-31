@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 from wolven_hunt.config.schema import GameConfig, RolePack, RuleSet
 
 
@@ -51,10 +52,12 @@ def load_game_config(path: str | Path) -> GameConfig:
 
     if not prompt_pack_root.exists():
         raise ConfigError(f"missing prompt pack root: {prompt_pack_root}")
-    missing_templates = missing_prompt_templates(prompt_pack_root, "v5")
+    missing_templates = missing_prompt_templates(prompt_pack_root, DEFAULT_PROMPT_VERSION)
     if missing_templates:
         missing = ", ".join(missing_templates)
-        raise ConfigError(f"prompt pack root is missing current v5 templates: {missing}")
+        raise ConfigError(
+            f"prompt pack root is missing current {DEFAULT_PROMPT_VERSION} templates: {missing}"
+        )
 
     role_pack = RolePack.model_validate(role_pack_raw)
     rule_set = RuleSet.model_validate(rule_set_raw)

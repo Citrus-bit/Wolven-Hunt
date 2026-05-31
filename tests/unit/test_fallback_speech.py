@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import pytest
 
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 from wolven_hunt.config.schema import GameConfig
 from wolven_hunt.core.actions import GuardProtect, LastWords, Speech
 from wolven_hunt.core.events import Event, EventType, draft_event, seats_visibility
@@ -34,7 +35,7 @@ class TimeoutSpeechAgent:
             model="unknown",
             tokens=TokenUsage(),
             cost_usd=0.0,
-            prompt_version="v1",
+            prompt_version=DEFAULT_PROMPT_VERSION,
             error=LLMError(LLMErrorType.TIMEOUT, "too slow"),
         )
 

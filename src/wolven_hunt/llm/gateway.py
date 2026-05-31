@@ -11,6 +11,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from wolven_hunt.config.prompts import DEFAULT_PROMPT_VERSION
 from wolven_hunt.core.rng import DeterministicRNG
 from wolven_hunt.core.seat import Seat
 from wolven_hunt.llm.cost import CostEntry, CostTracker, TokenUsage
@@ -84,7 +85,7 @@ class LLMGateway:
         retry_backoff_max_seconds: float = 0.0,
         retry_backoff_jitter: bool = False,
         sleep_fn: SleepFn | None = None,
-        prompt_version: str = "v5",
+        prompt_version: str = DEFAULT_PROMPT_VERSION,
         cost_tracker: CostTracker | None = None,
         raw_response_sink: RawResponseSink | None = None,
     ) -> None:

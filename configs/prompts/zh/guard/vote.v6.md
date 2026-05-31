@@ -1,4 +1,4 @@
-# Guard Vote v5
+# Guard Vote v6
 
 ## 你的身份
 

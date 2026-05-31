@@ -828,6 +828,7 @@ button {
 .model-picker-card-main:focus-visible,
 .model-picker-swap:focus-visible,
 .game-seat-role-picker-button:focus-visible,
+.game-seat-identity-picker-button:focus-visible,
 .game-seat-role-option:focus-visible,
 .game-seat-witch-half:focus-visible {
   outline: 2px solid #ffd166;
@@ -947,6 +948,32 @@ button {
   background: rgba(88, 74, 150, 0.92);
 }
 
+.game-seat-role--guess {
+  color: rgba(255, 247, 223, 0.94);
+  background: rgba(26, 20, 16, 0.78);
+  border-style: dashed;
+  border-color: rgba(255, 217, 138, 0.82);
+}
+
+.game-seat-role--camp {
+  border-color: rgba(255, 247, 223, 0.86);
+}
+
+.game-seat-role--camp-wolf {
+  background: rgba(154, 28, 42, 0.94);
+}
+
+.game-seat-role--camp-good {
+  background: rgba(45, 111, 94, 0.94);
+}
+
+.game-seat-role--locked {
+  box-shadow:
+    0 0 0 3px rgba(255, 209, 102, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
 .game-seat--human .game-seat-circle {
   border-style: solid;
   border-color: rgba(255, 211, 106, 0.9);
@@ -981,6 +1008,20 @@ button {
   left: auto;
 }
 
+.game-seat-identity-picker {
+  position: absolute;
+  top: calc(50% - var(--seat-circle-size) / 2 + 2px);
+  left: calc(50% + var(--seat-circle-size) / 2 + 4px);
+  z-index: 14;
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.game-seat--right .game-seat-identity-picker {
+  right: calc(50% + var(--seat-circle-size) / 2 + 4px);
+  left: auto;
+}
+
 .game-seat-role-picker-button {
   position: relative;
   display: inline-flex;
@@ -1009,9 +1050,43 @@ button {
   touch-action: manipulation;
 }
 
+.game-seat-identity-picker-button {
+  position: relative;
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 24px;
+  padding: 2px 6px;
+  color: rgba(255, 247, 223, 0.96);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  background: rgba(21, 16, 13, 0.82);
+  border: 1px dashed rgba(255, 217, 138, 0.72);
+  border-radius: 999px;
+  box-shadow:
+    0 4px 10px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+  touch-action: manipulation;
+}
+
 .game-seat-role-picker-button::before {
   position: absolute;
   inset: -6px;
+  content: "";
+}
+
+.game-seat-identity-picker-button::before {
+  position: absolute;
+  inset: -8px;
   content: "";
 }
 
@@ -1020,7 +1095,17 @@ button {
   transform: translateY(-1px);
 }
 
+.game-seat-identity-picker-button:hover {
+  background: rgba(42, 31, 22, 0.92);
+  border-color: rgba(255, 217, 138, 0.96);
+  transform: translateY(-1px);
+}
+
 .game-seat-role-picker-button:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.game-seat-identity-picker-button:active {
   transform: translateY(0) scale(0.96);
 }
 
@@ -1055,6 +1140,11 @@ button {
   right: 0;
   left: auto;
   transform-origin: top right;
+}
+
+.game-seat-identity-menu {
+  grid-template-columns: repeat(2, minmax(56px, 1fr));
+  width: 132px;
 }
 
 .game-seat-role-option {
@@ -1639,7 +1729,7 @@ button {
   position: absolute;
   top: clamp(218px, 24vh, 258px);
   right: clamp(118px, 25vw, 220px);
-  bottom: max(26px, calc(env(safe-area-inset-bottom) + 18px));
+  bottom: var(--game-chat-bottom, max(26px, calc(env(safe-area-inset-bottom) + 18px)));
   left: clamp(118px, 25vw, 220px);
   z-index: 2;
   display: grid;
@@ -1648,7 +1738,12 @@ button {
   pointer-events: none;
   transition:
     grid-template-columns 280ms ease,
+    bottom 220ms ease,
     gap 280ms ease;
+}
+
+.game-page--human-turn-panel {
+  --game-chat-bottom: max(126px, calc(env(safe-area-inset-bottom) + 118px));
 }
 
 .game-chat--general-expanded {
@@ -1851,14 +1946,26 @@ button {
   opacity: 0.84;
 }
 
-.human-perspective-chip {
+.game-status-stack {
   position: absolute;
-  top: clamp(154px, 16vh, 190px);
+  top: clamp(104px, 12vh, 132px);
   left: 50%;
   z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  width: min(540px, calc(100vw - 32px));
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.human-perspective-chip {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  justify-content: center;
   max-width: min(520px, calc(100vw - 40px));
   padding: 8px 12px;
   color: #fff7df;
@@ -1866,7 +1973,7 @@ button {
   border: 1px solid rgba(255, 224, 160, 0.34);
   border-radius: 8px;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.26);
-  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .human-perspective-chip strong,
@@ -1882,9 +1989,11 @@ button {
   left: clamp(118px, 25vw, 220px);
   z-index: 11;
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
   justify-content: center;
+  min-height: 54px;
   padding: 10px 12px;
   color: #fff7df;
   background: rgba(15, 11, 10, 0.82);
@@ -1899,10 +2008,16 @@ button {
   display: inline-flex;
   gap: 8px;
   align-items: center;
+  flex: 0 0 auto;
 }
 
 .human-turn-panel__target {
   color: rgba(255, 247, 223, 0.86);
+}
+
+.human-turn-panel__target--danger {
+  color: #ffd0c4;
+  font-weight: 800;
 }
 
 .human-turn-panel__actions button {
@@ -1922,7 +2037,9 @@ button {
 }
 
 .human-turn-panel__error {
+  flex-basis: 100%;
   margin: 0;
+  text-align: center;
   color: #ffb7a4;
 }
 
@@ -2080,6 +2197,11 @@ button {
   border-radius: 10px;
   transform: translateX(-50%);
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.78);
+}
+
+.game-status-stack .game-phase-header {
+  position: static;
+  transform: none;
 }
 
 .game-phase-header--startup {
@@ -2362,6 +2484,18 @@ button {
 }
 
 @media (max-width: 640px) {
+  .game-status-stack {
+    top: clamp(96px, 13vh, 124px);
+    width: min(420px, calc(100vw - 24px));
+    gap: 6px;
+  }
+
+  .human-perspective-chip {
+    max-width: calc(100vw - 32px);
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+
   .game-chat {
     top: clamp(228px, 28vh, 258px);
     right: clamp(92px, 24vw, 104px);
@@ -2372,6 +2506,17 @@ button {
     transition:
       grid-template-rows 280ms ease,
       gap 280ms ease;
+  }
+
+  .game-page--human-turn-panel {
+    --game-chat-bottom: max(154px, calc(env(safe-area-inset-bottom) + 144px));
+  }
+
+  .human-turn-panel {
+    right: clamp(18px, 5vw, 42px);
+    left: clamp(18px, 5vw, 42px);
+    min-height: 74px;
+    padding: 9px 10px;
   }
 
   .game-chat--general-expanded {
