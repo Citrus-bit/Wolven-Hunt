@@ -4,7 +4,7 @@
 
 **一个基于 AI 的 10 人狼人杀游戏**
 
-[English](README.md) | 📖 **中文**
+[English](README.en.md) | 📖 **中文**
 
 </div>
 
