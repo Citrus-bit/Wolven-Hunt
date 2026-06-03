@@ -3285,7 +3285,7 @@ button {
   z-index: 10;
   display: grid;
   gap: 10px;
-  width: min(820px, calc(100vw - 32px));
+  width: min(1120px, calc(100vw - 32px));
   margin: 0 auto;
   color: #fff7df;
   pointer-events: none;
@@ -3396,15 +3396,15 @@ button {
 }
 
 .final-freeze-drawer {
-  max-height: min(58vh, 560px);
-  padding: 12px;
+  max-height: min(72vh, 720px);
+  padding: 16px;
   overflow: auto;
 }
 
 .final-freeze-report {
   display: grid;
   gap: 14px;
-  width: min(980px, calc(100vw - 32px));
+  width: 100%;
 }
 
 .review-report-summary {
