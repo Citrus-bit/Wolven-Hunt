@@ -75,6 +75,16 @@ open http://localhost:7002
 http://localhost:7002
 ```
 
+### 方法 C：让本地 AI 小助手帮你启动
+
+如果方法 A 和方法 B 都没跑通，可以打开你电脑上的本地 AI 小助手，把这个项目目录交给它，并直接说：
+
+```text
+请帮我启动这个 Wolven Hunt 项目。先尝试运行 ./start.sh；如果失败，请检查 Python、Node.js、uv 是否安装，再按 README 里的手动启动方式运行 npm install、uv sync --extra dev 和 make serve-prod。启动成功后告诉我应该打开哪个本地地址。
+```
+
+这样它可以根据你电脑上的实际报错继续排查，比如依赖没装好、端口被占用、uv 不在 PATH 里，或前端构建失败。
+
 ## 第一次运行会发生什么？
 
 1. `npm install` 安装前端依赖。

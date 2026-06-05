@@ -75,6 +75,16 @@ If your system does not have the `open` command, visit this URL directly:
 http://localhost:7002
 ```
 
+### Option C: Ask A Local AI Assistant To Start It
+
+If Option A and Option B do not work, open the local AI assistant on your computer, point it at this project folder, and say:
+
+```text
+Please help me start this Wolven Hunt project. First try ./start.sh. If that fails, check whether Python, Node.js, and uv are installed, then follow the manual README steps: npm install, uv sync --extra dev, and make serve-prod. When it starts successfully, tell me which local URL to open.
+```
+
+It can then keep working from your actual local error messages, such as missing dependencies, a busy port, uv not being on PATH, or a frontend build failure.
+
 ## What Happens On First Run?
 
 1. `npm install` installs frontend dependencies.
