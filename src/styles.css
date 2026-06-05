@@ -2308,7 +2308,7 @@ button {
 }
 
 .game-test-timings {
-  width: min(640px, 88vw);
+  width: min(500px, 88vw);
   max-height: 184px;
   overflow: auto;
   color: rgba(255, 255, 255, 0.92);
@@ -2324,8 +2324,8 @@ button {
 .game-test-timings-header,
 .game-test-timings-row {
   display: grid;
-  grid-template-columns: minmax(130px, 1.7fr) 54px 54px 54px minmax(72px, 0.8fr);
-  gap: 8px;
+  grid-template-columns: minmax(150px, 1fr) 54px minmax(92px, auto);
+  gap: 10px;
   align-items: center;
   padding: 7px 10px;
 }
@@ -2515,7 +2515,7 @@ button {
 
   .game-test-timings-header,
   .game-test-timings-row {
-    grid-template-columns: minmax(108px, 1.6fr) 44px 46px 46px minmax(66px, 0.8fr);
+    grid-template-columns: minmax(118px, 1fr) 44px minmax(82px, auto);
     gap: 6px;
     padding: 6px 8px;
   }

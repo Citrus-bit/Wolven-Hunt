@@ -26,10 +26,14 @@ describe('GameBottomActions', () => {
     expect(html).toContain('aria-label="模型连通性耗时表"');
     expect(html.indexOf('小豆包儿')).toBeLessThan(html.indexOf('GPT'));
     expect(html.indexOf('GPT')).toBeLessThan(html.indexOf('万问'));
-    expect(html).toContain('8.65s');
+    expect(html).toContain('8.65秒');
+    expect(html).not.toContain('<span>开始</span>');
+    expect(html).not.toContain('<span>结束</span>');
+    expect(html).not.toContain('8.65s');
     expect(html).toContain('失败');
     expect(html).toContain('最慢');
     expect(html.indexOf('最慢')).toBeLessThan(html.indexOf('GPT'));
+    expect(html).toContain('translate="no"');
   });
 
   it('shows pass and fail timings without rendering an empty table by default', () => {
@@ -47,8 +51,8 @@ describe('GameBottomActions', () => {
 
     expect(html).toContain('通过');
     expect(html).toContain('失败');
-    expect(html).toContain('0.82s');
-    expect(html).toContain('0.51s');
+    expect(html).toContain('0.82秒');
+    expect(html).toContain('0.51秒');
   });
 
   it('can show the service connection label while startup is in progress', () => {

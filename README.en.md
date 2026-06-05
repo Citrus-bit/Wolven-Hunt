@@ -1,209 +1,322 @@
-# 🐺 Wolven Hunt
+# Wolven Hunt
 
 <div align="center">
 
-**A 10-player AI Werewolf Game**
+**Open the web app and watch 10 AI players run a full Werewolf game.**
 
-📖 **English** | [中文](README.md)
+English | [中文](README.md)
 
 </div>
 
 ---
 
-## 🎮 What is Wolven Hunt?
+## What Is This?
 
-Wolven Hunt is a fully automated AI werewolf game where 10 AI agents compete in a classic werewolf setup. Watch AI players debate, deceive, and deduce their way to victory through a real-time web interface.
+Wolven Hunt is a local AI Werewolf project. Start the server, open the browser, click Start Game, and watch 10 AI players speak, vote, act at night, and play until the final role reveal.
 
-**Key Features:**
-- 🎭 **Classic 10-seat board**: 3 Werewolves, 4 Villagers, 1 Seer, 1 Witch, 1 Guard
-- 🤖 **Multi-LLM support**: Route each seat to different LLM providers via LiteLLM
-- 📺 **Real-time spectator view**: Watch games unfold with SSE streaming, audio cues, and final role reveal
-- 🎯 **Deterministic engine**: Python-based game logic with append-only event log
-- 🔄 **Replay & Resimulation**: Review completed games or resimulate from any state
-- ⚡ **Built-in API keys**: Start playing immediately with rotating author-funded keys
+The default board is a fixed 10-seat setup:
 
-## 🚀 Quick Start (3 Commands)
+- 3 Werewolves
+- 4 Villagers
+- 1 Seer
+- 1 Witch
+- 1 Guard
+
+It is useful for two groups:
+
+- **Players and viewers**: start the app and watch an AI game from the browser.
+- **Developers and researchers**: inspect event logs, replays, model routing, post-game reports, and the backend API.
+
+## What It Supports Now
+
+- **Live spectator mode**: SSE event streaming, audio cues, night effects, countdowns, and vote histograms.
+- **Per-seat model routing**: each seat can use a different LLM provider / model through LiteLLM.
+- **Built-in public rotating keys**: the committed `.env` includes shared keys for quick trials. They are rate-limited; use your own keys for stable long-term use.
+- **Single human player mode**: one human can take a seat while the other 9 seats are AI-controlled.
+- **History replay**: finished games are saved under `runs/` and can be reviewed later.
+- **Final reveal**: the end state shows every seat's role, the winning side, and highlights.
+- **Post-game review report**: spectator-safe analysis without exposing API keys, raw responses, or private player views.
+- **Deterministic engine**: Python FSM game logic with an append-only event log as the source of truth for replay and tests.
+
+## Quick Start
+
+### Option A: One-Command Start
+
+macOS / Linux:
+
+```bash
+./start.sh
+```
+
+Windows:
+
+```cmd
+start.bat
+```
+
+The script checks prerequisites, installs dependencies, builds the frontend, starts the backend, and opens `http://localhost:7002`.
+
+### Option B: Manual Start
 
 ```bash
 # 1. Install dependencies
 npm install && uv sync --extra dev
 
-# 2. Build frontend and start server
+# 2. Build the frontend and start the server
 make serve-prod
 
-# 3. Open your browser
+# 3. Open the browser
 open http://localhost:7002
 ```
 
-That's it! The game includes pre-configured API keys, so you can start a real AI game immediately.
+If your system does not have the `open` command, visit this URL directly:
 
-## 📋 Prerequisites
-
-- **Python 3.11+** (tested with 3.11-3.13)
-- **Node.js 20+** (for frontend)
-- **uv** (Python package manager) - Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-
-## 🎯 Usage
-
-### Production Mode (Recommended for first try)
-```bash
-make serve-prod
+```text
+http://localhost:7002
 ```
-- Builds optimized frontend
-- Serves everything from port 7002
-- Open http://localhost:7002
 
-### Development Mode (Hot reload)
+## What Happens On First Run?
+
+1. `npm install` installs frontend dependencies.
+2. `uv sync --extra dev` creates the Python environment and installs backend dependencies.
+3. `make serve-prod` builds the frontend and starts the FastAPI server.
+4. The browser opens `http://localhost:7002`.
+5. In the lobby, start an AI spectator game or choose a single human seat.
+6. Game data is saved to `runs/{game_id}/`.
+
+The first install can take a while. After that, you usually only need `make serve-prod` or `./start.sh`.
+
+## Requirements
+
+- Python 3.11+, tested with 3.11 through 3.13
+- Node.js 20+
+- uv, the Python package manager
+
+Install uv:
+
 ```bash
-make dev
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-- Frontend dev server on port 7001 with hot reload
-- Backend API on port 7002
-- Vite proxies API requests automatically
 
-### Headless Simulation (No UI)
+On Windows:
+
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+```
+
+## Common Tasks
+
+### Watch An AI Game
+
+1. Start the project and open `http://localhost:7002`.
+2. Click Start Game.
+3. Use the default model setup, or assign models to seats before starting.
+4. Enter the game view and watch the AI players speak, act, and vote.
+
+### Join As One Human Player
+
+1. In the Start Game dialog, choose a human seat or use a random seat.
+2. Choose a human role: Villager, Werewolf, Seer, Witch, Guard, or Random.
+3. When it is your turn, the UI shows the valid targets or text input.
+4. You only see what your seat is allowed to see. Private views are filtered by the backend Referee.
+
+### Configure Models
+
+Browser setup:
+
+1. Open `http://localhost:7002`.
+2. Click Settings.
+3. Open Model Configs.
+4. Enter `apiKey`, `baseUrl`, and `modelName`.
+5. The settings are stored in browser localStorage.
+
+Environment setup, by editing `.env`:
+
+```bash
+WH_LLM_PROVIDER=litellm
+WH_LLM_API_KEY=your-key-here
+WH_LLM_BASE_URL=https://api.openai.com/v1
+WH_LLM_MODEL=gpt-4-turbo
+```
+
+Useful variables:
+
+- `WH_LLM_PROVIDER`: `mock` or `litellm`
+- `WH_LLM_API_KEY`: LLM API key
+- `WH_LLM_BASE_URL`: OpenAI-compatible API base URL
+- `WH_LLM_MODEL`: model name
+- `WH_LLM_PROVIDER_MAP`: path to a per-seat model routing file
+- `WH_PACING_PROFILE`: spectator pacing, one of `live`, `fast`, `off`
+
+See `.env.example` for more settings.
+
+### Review Past Games
+
+After a game finishes, open History Replay from the lobby. The backend reads saved games from `runs/`.
+
+### Run A Headless Simulation
+
 ```bash
 make simulate
 ```
-Runs a complete game with deterministic seed and saves results to `runs/` directory.
 
-## 🔧 Configuration
+This runs a full game with a deterministic seed. It is useful for checking the engine and event log.
 
-### Using Built-in Keys
-The project includes rotating API keys in `.env` that work out of the box. These are publicly shared and rate-limited - perfect for trying the game.
+## Where Data Is Saved
 
-### Using Your Own Keys
-For stable long-term use:
+Each game is saved under:
 
-1. **Option A: Browser Settings** (Recommended)
-   - Open the game at http://localhost:7002
-   - Click **Settings** → **Model Configs**
-   - Enter your `apiKey`, `baseUrl`, and `modelName`
-   - Settings persist in browser localStorage
+```text
+runs/{game_id}/
+```
 
-2. **Option B: Environment Variables**
-   Edit `.env` file:
-   ```bash
-   WH_LLM_PROVIDER=litellm
-   WH_LLM_API_KEY=your-key-here
-   WH_LLM_BASE_URL=https://api.openai.com/v1
-   WH_LLM_MODEL=gpt-4-turbo
-   ```
+Common files:
 
-### Key Environment Variables
-- `WH_LLM_PROVIDER`: LLM provider type (`mock`, `litellm`, etc.)
-- `WH_LLM_API_KEY`: Your API key
-- `WH_LLM_MODEL`: Model name (e.g., `gpt-4-turbo`, `claude-3-5-sonnet`)
-- `WH_PACING_PROFILE`: Game speed (`instant`, `fast`, `live`, `cinematic`)
+- `manifest.json`: game config, seed, start/end time, and seat presentation metadata.
+- `events.jsonl`: the full event log and core source for replay and win checks.
+- `narrative.jsonl`: spectator-facing narrative rows.
+- `final_reveal.json`: final role reveal.
+- `review_report.json`: post-game review report.
+- `raw_responses.jsonl`: private LLM raw responses for debugging and resimulation only. They do not enter PlayerView, spectator API, narrative, or SSE.
 
-See `.env.example` for all available options.
+## Development Mode
 
-## 🧪 Testing
+Run frontend hot reload and the backend together:
 
 ```bash
-# Run all tests
+make dev
+```
+
+Ports:
+
+- Vite frontend: `http://localhost:7001`
+- Backend API: `http://localhost:7002`
+
+Start only the backend:
+
+```bash
+uv run python -m wolven_hunt.cli serve --host 127.0.0.1 --port 7002
+```
+
+Start only the frontend:
+
+```bash
+npm run dev
+```
+
+## API Entry Points
+
+When the server is running, open:
+
+```text
+http://localhost:7002/docs
+```
+
+Useful endpoints:
+
+- `POST /games`: create a game.
+- `POST /games/{game_id}/run`: run a created game.
+- `GET /games/{game_id}/stream`: spectator SSE stream.
+- `GET /games/{game_id}/narrative`: spectator-safe narrative rows.
+- `GET /games/{game_id}/effects`: spectator effect projections.
+- `GET /games/{game_id}/reveal`: final role reveal.
+- `GET|POST /games/{game_id}/review-report`: read or generate the post-game review report.
+- `GET /games/{game_id}/seat/{seat}/stream`: private human-seat SSE, requires `player_token`.
+- `POST /games/{game_id}/seat/{seat}/action`: submit a human-seat action, requires `player_token`.
+
+## Tests And Checks
+
+Regular users do not need these commands. Use them when developing or changing code.
+
+```bash
+# Run all Python tests
 make test
 
-# Quick tests (skip slow ones)
+# Quick tests, skipping slower golden/property tests
 make test-fast
 
 # Frontend tests
 npm run test:frontend
 
-# Type checking
+# Python type checking
 make typecheck
 
 # Linting
 make lint
 ```
 
-## 📁 Project Structure
+CI and default tests should use the mock provider. Real LLM smoke tests must be explicitly enabled by environment variables so they do not network or spend API keys by default.
 
-```
+## Project Structure
+
+```text
 Wolven Hunt/
 ├── src/
-│   ├── wolven_hunt/          # Python backend
-│   │   ├── agents/           # AI agent logic
-│   │   ├── api/              # FastAPI server
-│   │   ├── core/             # Game engine
-│   │   └── llm/              # LLM integration
+│   ├── wolven_hunt/          # Python backend, FSM, Referee, LLM integration
 │   ├── components/           # React components
 │   ├── hooks/                # React hooks
 │   └── lib/                  # Frontend utilities
-├── configs/                  # Game configuration files
-├── runs/                     # Game history and logs
-├── tests/                    # Python test suite
-└── public/                   # Static assets
+├── configs/                  # Game, model, and prompt configs
+├── tests/                    # Python and frontend tests
+├── public/                   # Static assets
+├── runs/                     # Local game history, not committed by default
+├── plan.md                   # Project rules and stage baseline
+└── architecture.md           # Architecture contract derived from plan.md
 ```
 
-## 🛠️ Development
+## Troubleshooting
 
-### Backend Development
+### Port 7002 Is Already In Use
+
+Stop the process using the port:
+
 ```bash
-# Start API server with auto-reload
-uv run python -m wolven_hunt.cli serve --host 127.0.0.1 --port 7002
-```
-
-### Frontend Development
-```bash
-# Start Vite dev server
-npm run dev
-```
-
-### Run Both (Recommended)
-```bash
-make dev
-```
-
-## 🐛 Troubleshooting
-
-### Port Already in Use
-```bash
-# Kill process on port 7002
 lsof -ti:7002 | xargs kill -9
-
-# Or use different ports
-WH_API_PORT=8000 make serve-prod
 ```
 
-### Python Dependencies Issue
+Or temporarily start production mode on another port:
+
 ```bash
-# Clean and reinstall
+npm run build
+uv run python -m wolven_hunt.cli serve-prod --host 0.0.0.0 --port 8000
+```
+
+Then visit:
+
+```text
+http://localhost:8000
+```
+
+### Python Dependency Problems
+
+```bash
 rm -rf .venv
 uv sync --extra dev
 ```
 
 ### Frontend Build Fails
+
 ```bash
-# Clean and rebuild
 rm -rf node_modules dist
 npm install
 npm run build
 ```
 
-### Game Won't Start
-- Check browser console for errors (F12)
-- Verify API is running: `curl http://localhost:7002/healthz`
-- Check `.env` file has valid configuration
+### Page Does Not Open Or Game Does Not Start
 
-## 📚 Learn More
+```bash
+curl http://localhost:7002/healthz
+```
 
-- **Architecture**: See `architecture.md` for system design
-- **Agent Logic**: See `AGENTS.md` for AI behavior details
-- **API Docs**: Visit `http://localhost:7002/docs` when server is running
+If the health endpoint responds, the backend is running. If the page still fails, check the browser DevTools Console and Network tabs.
 
-## 🤝 Contributing
+## Learn More
 
-This is a research project. Feel free to fork and experiment!
+- Quick reference: [QUICKSTART.md](QUICKSTART.md)
+- Architecture: [architecture.md](architecture.md)
+- Project development constraints: [AGENTS.md](AGENTS.md)
+- Prompt notes: [configs/prompts/README.md](configs/prompts/README.md)
 
-## 📄 License
+## License
 
-Proprietary - See project for details
-
----
-
-<div align="center">
-
-**Made with ❤️ for AI Gaming Research**
-
-</div>
+Proprietary. Usage and redistribution boundaries follow the project documentation.

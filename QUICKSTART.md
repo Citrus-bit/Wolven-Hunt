@@ -52,7 +52,10 @@ make typecheck       # Type checking
 
 ## Environment Variables | 环境变量
 
-The project includes working API keys in `.env` for immediate use.
+The project includes public rotating API keys in `.env` for immediate trials.
+They are rate-limited; use your own keys for stable long-term use.
+
+项目 `.env` 中包含可直接试玩的公开轮换密钥，有速率限制；长期稳定使用建议换成自己的 key。
 
 To use your own keys, edit `.env`:
 
@@ -64,7 +67,7 @@ WH_LLM_BASE_URL=https://api.openai.com/v1
 WH_LLM_MODEL=gpt-4-turbo
 
 # Game Pacing
-WH_PACING_PROFILE=live    # instant | fast | live | cinematic
+WH_PACING_PROFILE=live    # live | fast | off
 ```
 
 Or configure via browser Settings after starting the game.
@@ -76,6 +79,12 @@ Or configure via browser Settings after starting the game.
 ### Port 7002 already in use | 端口被占用
 ```bash
 lsof -ti:7002 | xargs kill -9
+```
+
+Or use another port | 或临时换端口:
+```bash
+npm run build
+uv run python -m wolven_hunt.cli serve-prod --host 0.0.0.0 --port 8000
 ```
 
 ### Clean install | 重新安装

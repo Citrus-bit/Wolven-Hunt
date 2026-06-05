@@ -1,28 +1,62 @@
-# 🐺 Wolven Hunt | 狼人杀 AI 竞技场
+# Wolven Hunt | 狼人杀 AI 竞技场
 
 <div align="center">
 
-**一个基于 AI 的 10 人狼人杀游戏**
+**打开网页，就能看 10 个 AI 玩一局完整狼人杀。**
 
-[English](README.en.md) | 📖 **中文**
+[English](README.en.md) | 中文
 
 </div>
 
 ---
 
-## 🎮 什么是 Wolven Hunt？
+## 这是什么？
 
-Wolven Hunt 是一个完全自动化的 AI 狼人杀游戏，10 个 AI 智能体在经典的狼人杀设定中竞技。通过实时网页界面观看 AI 玩家辩论、欺骗和推理，直到最终胜利。
+Wolven Hunt 是一个可以本地运行的 AI 狼人杀项目。你启动服务器后，在浏览器里点击开始游戏，就能观看 10 个 AI 玩家按狼人杀规则发言、投票、夜晚行动，直到游戏结束并公开全部身份。
 
-**核心特性：**
-- 🎭 **经典 10 人局**：3 狼人、4 村民、1 预言家、1 女巫、1 守卫
-- 🤖 **多模型支持**：通过 LiteLLM 为每个座位路由不同的大语言模型
-- 📺 **实时观战视图**：SSE 流式传输、音效提示、最终身份揭示
-- 🎯 **确定性引擎**：基于 Python 的游戏逻辑，仅追加事件日志
-- 🔄 **回放与重模拟**：回顾已完成的游戏或从任意状态重新模拟
-- ⚡ **内置 API 密钥**：使用作者提供的轮换密钥立即开始游戏
+默认板子是固定 10 人局：
 
-## 🚀 快速开始（3 条命令）
+- 3 个狼人
+- 4 个村民
+- 1 个预言家
+- 1 个女巫
+- 1 个守卫
+
+项目适合两类人：
+
+- **只想体验的人**：按快速开始启动，打开网页观看 AI 对局。
+- **想开发或研究的人**：查看事件日志、回放、模型配置、复盘报告和后端 API。
+
+## 现在支持什么？
+
+- **实时观赛**：网页通过 SSE 接收游戏事件，支持音效、夜晚特效、倒计时和投票直方图。
+- **多模型座位**：每个座位可以配置不同的 LLM provider / model，通过 LiteLLM 调用。
+- **内置公开轮换密钥**：项目 `.env` 中包含可直接试玩的公开共享密钥，有速率限制；长期使用建议换成你自己的 key。
+- **单真人玩家模式**：可以让 1 个真人坐进某个座位，其余 9 个座位由 AI 托管。
+- **历史复盘**：已完成的游戏会保存到 `runs/`，可在网页里回看。
+- **终局揭示**：游戏结束后公开所有座位身份、阵营胜负和关键摘要。
+- **赛后复盘报告**：可生成 spectator-safe 的赛后分析，不暴露 API key、raw response 或玩家私有视角。
+- **确定性引擎**：核心游戏逻辑由 Python FSM 驱动，事件日志 append-only，是回放和测试的单一事实源。
+
+## 快速开始
+
+### 方法 A：一键启动
+
+macOS / Linux:
+
+```bash
+./start.sh
+```
+
+Windows:
+
+```cmd
+start.bat
+```
+
+脚本会检查环境、安装依赖、构建前端、启动后端，并打开 `http://localhost:7002`。
+
+### 方法 B：手动启动
 
 ```bash
 # 1. 安装依赖
@@ -35,175 +69,254 @@ make serve-prod
 open http://localhost:7002
 ```
 
-就这么简单！游戏包含预配置的 API 密钥，你可以立即开始真实的 AI 对局。
+如果你的系统没有 `open` 命令，直接在浏览器地址栏访问：
 
-## 📋 环境要求
-
-- **Python 3.11+**（已在 3.11-3.13 测试）
-- **Node.js 20+**（用于前端）
-- **uv**（Python 包管理器） - 安装：`curl -LsSf https://astral.sh/uv/install.sh | sh`
-
-## 🎯 使用方法
-
-### 生产模式（首次推荐）
-```bash
-make serve-prod
+```text
+http://localhost:7002
 ```
-- 构建优化后的前端
-- 从 7002 端口提供所有服务
-- 打开 http://localhost:7002
 
-### 开发模式（热重载）
+## 第一次运行会发生什么？
+
+1. `npm install` 安装前端依赖。
+2. `uv sync --extra dev` 创建 Python 虚拟环境并安装后端依赖。
+3. `make serve-prod` 先构建前端，再启动 FastAPI 服务器。
+4. 浏览器打开 `http://localhost:7002`。
+5. 在大厅点击开始游戏，选择 AI 观赛局或真人单座模式。
+6. 游戏过程和结果会保存到 `runs/{game_id}/`。
+
+首次安装会慢一些；之后再次启动通常只需要运行 `make serve-prod` 或 `./start.sh`。
+
+## 环境要求
+
+- Python 3.11+，已在 3.11 到 3.13 测试
+- Node.js 20+
+- uv，Python 包管理器
+
+安装 uv:
+
 ```bash
-make dev
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-- 前端开发服务器在 7001 端口，支持热重载
-- 后端 API 在 7002 端口
-- Vite 自动代理 API 请求
 
-### 无头模拟（无 UI）
+Windows 用户也可以用：
+
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+```
+
+## 常用操作
+
+### 看一局 AI 对局
+
+1. 启动项目并打开 `http://localhost:7002`。
+2. 点击开始游戏。
+3. 使用默认模型配置，或在开始前给不同座位分配模型。
+4. 进入游戏现场后观看 AI 自动发言、行动和投票。
+
+### 让真人加入一局
+
+1. 在开始游戏弹窗中选择真人座位，或选择随机座位。
+2. 可选择真人角色：村民、狼人、预言家、女巫、守卫或随机。
+3. 游戏轮到真人时，网页会显示可选目标或文本输入。
+4. 真人只能看到自己座位该看到的信息；私有视角仍由后端 Referee 过滤。
+
+### 配置模型
+
+浏览器方式：
+
+1. 打开 `http://localhost:7002`。
+2. 点击 Settings。
+3. 进入 Model Configs。
+4. 填入 `apiKey`、`baseUrl`、`modelName`。
+5. 配置会保存到浏览器 localStorage。
+
+环境变量方式，编辑 `.env`：
+
+```bash
+WH_LLM_PROVIDER=litellm
+WH_LLM_API_KEY=你的密钥
+WH_LLM_BASE_URL=https://api.openai.com/v1
+WH_LLM_MODEL=gpt-4-turbo
+```
+
+常用变量：
+
+- `WH_LLM_PROVIDER`：`mock` 或 `litellm`
+- `WH_LLM_API_KEY`：LLM API key
+- `WH_LLM_BASE_URL`：兼容 OpenAI API 的服务地址
+- `WH_LLM_MODEL`：模型名
+- `WH_LLM_PROVIDER_MAP`：每个座位单独路由模型的配置文件路径
+- `WH_PACING_PROFILE`：观赛节奏，支持 `live`、`fast`、`off`
+
+更多配置见 `.env.example`。
+
+### 查看历史复盘
+
+游戏结束后，在大厅进入历史复盘即可查看已经保存的对局。后端也会从 `runs/` 读取历史记录。
+
+### 无 UI 模拟一局
+
 ```bash
 make simulate
 ```
-使用确定性种子运行完整游戏，并将结果保存到 `runs/` 目录。
 
-## 🔧 配置
+这个命令使用确定性 seed 跑完整局，适合检查引擎和事件日志。
 
-### 使用内置密钥
-项目在 `.env` 中包含开箱即用的轮换 API 密钥。这些密钥是公开共享的，有速率限制 - 非常适合试玩。
+## 数据保存在哪里？
 
-### 使用你自己的密钥
-长期稳定使用：
+每局默认保存到：
 
-1. **方法 A：浏览器设置**（推荐）
-   - 在 http://localhost:7002 打开游戏
-   - 点击 **Settings** → **Model Configs**
-   - 输入你的 `apiKey`、`baseUrl` 和 `modelName`
-   - 设置保存在浏览器 localStorage 中
+```text
+runs/{game_id}/
+```
 
-2. **方法 B：环境变量**
-   编辑 `.env` 文件：
-   ```bash
-   WH_LLM_PROVIDER=litellm
-   WH_LLM_API_KEY=你的密钥
-   WH_LLM_BASE_URL=https://api.openai.com/v1
-   WH_LLM_MODEL=gpt-4-turbo
-   ```
+常见文件：
 
-### 关键环境变量
-- `WH_LLM_PROVIDER`：LLM 提供商类型（`mock`、`litellm` 等）
-- `WH_LLM_API_KEY`：你的 API 密钥
-- `WH_LLM_MODEL`：模型名称（例如 `gpt-4-turbo`、`claude-3-5-sonnet`）
-- `WH_PACING_PROFILE`：游戏速度（`instant`、`fast`、`live`、`cinematic`）
+- `manifest.json`：本局配置、seed、开始结束时间、座位展示信息。
+- `events.jsonl`：完整事件日志，是回放和胜负判定的核心来源。
+- `narrative.jsonl`：给观众看的中文叙事流。
+- `final_reveal.json`：终局身份揭示。
+- `review_report.json`：赛后复盘报告。
+- `raw_responses.jsonl`：LLM 原始响应私有文件，只用于调试和重模拟，不进入 PlayerView、spectator API、narrative 或 SSE。
 
-查看 `.env.example` 了解所有可用选项。
+## 开发模式
 
-## 🧪 测试
+同时启动前端热重载和后端：
 
 ```bash
-# 运行所有测试
+make dev
+```
+
+端口：
+
+- 前端 Vite：`http://localhost:7001`
+- 后端 API：`http://localhost:7002`
+
+单独启动后端：
+
+```bash
+uv run python -m wolven_hunt.cli serve --host 127.0.0.1 --port 7002
+```
+
+单独启动前端：
+
+```bash
+npm run dev
+```
+
+## API 入口
+
+服务器运行后，可以打开：
+
+```text
+http://localhost:7002/docs
+```
+
+常用接口：
+
+- `POST /games`：创建游戏。
+- `POST /games/{game_id}/run`：开始运行已创建的游戏。
+- `GET /games/{game_id}/stream`：观众 SSE 事件流。
+- `GET /games/{game_id}/narrative`：观众安全的叙事流。
+- `GET /games/{game_id}/effects`：观赛特效投影。
+- `GET /games/{game_id}/reveal`：终局身份揭示。
+- `GET|POST /games/{game_id}/review-report`：读取或生成赛后复盘报告。
+- `GET /games/{game_id}/seat/{seat}/stream`：真人座位私有 SSE，需要 `player_token`。
+- `POST /games/{game_id}/seat/{seat}/action`：真人提交动作，需要 `player_token`。
+
+## 测试和检查
+
+普通体验用户不需要运行这些命令；开发或改代码时再看。
+
+```bash
+# 运行全部 Python 测试
 make test
 
-# 快速测试（跳过慢速测试）
+# 快速测试，跳过较慢的 golden/property 测试
 make test-fast
 
 # 前端测试
 npm run test:frontend
 
-# 类型检查
+# Python 类型检查
 make typecheck
 
 # 代码检查
 make lint
 ```
 
-## 📁 项目结构
+CI 和默认测试应使用 mock provider。真实 LLM smoke test 需要显式环境变量开启，避免默认联网或消耗 API key。
 
-```
+## 项目结构
+
+```text
 Wolven Hunt/
 ├── src/
-│   ├── wolven_hunt/          # Python 后端
-│   │   ├── agents/           # AI 智能体逻辑
-│   │   ├── api/              # FastAPI 服务器
-│   │   ├── core/             # 游戏引擎
-│   │   └── llm/              # LLM 集成
+│   ├── wolven_hunt/          # Python 后端、FSM、Referee、LLM 接入
 │   ├── components/           # React 组件
-│   ├── hooks/                # React 钩子
+│   ├── hooks/                # React hooks
 │   └── lib/                  # 前端工具
-├── configs/                  # 游戏配置文件
-├── runs/                     # 游戏历史和日志
-├── tests/                    # Python 测试套件
-└── public/                   # 静态资源
+├── configs/                  # 游戏、模型、prompt 配置
+├── tests/                    # Python 和前端测试
+├── public/                   # 静态资源
+├── runs/                     # 本地游戏历史，默认不提交
+├── plan.md                   # 项目规则和阶段基准
+└── architecture.md           # 从 plan.md 落地的架构契约
 ```
 
-## 🛠️ 开发
+## 故障排除
 
-### 后端开发
+### 端口 7002 被占用
+
+结束占用端口的进程：
+
 ```bash
-# 启动 API 服务器（自动重载）
-uv run python -m wolven_hunt.cli serve --host 127.0.0.1 --port 7002
-```
-
-### 前端开发
-```bash
-# 启动 Vite 开发服务器
-npm run dev
-```
-
-### 同时运行（推荐）
-```bash
-make dev
-```
-
-## 🐛 故障排除
-
-### 端口被占用
-```bash
-# 杀掉 7002 端口的进程
 lsof -ti:7002 | xargs kill -9
-
-# 或使用不同端口
-WH_API_PORT=8000 make serve-prod
 ```
 
-### Python 依赖问题
+或临时换端口启动生产服务：
+
 ```bash
-# 清理并重新安装
+npm run build
+uv run python -m wolven_hunt.cli serve-prod --host 0.0.0.0 --port 8000
+```
+
+然后访问：
+
+```text
+http://localhost:8000
+```
+
+### Python 依赖异常
+
+```bash
 rm -rf .venv
 uv sync --extra dev
 ```
 
 ### 前端构建失败
+
 ```bash
-# 清理并重新构建
 rm -rf node_modules dist
 npm install
 npm run build
 ```
 
-### 游戏无法启动
-- 检查浏览器控制台错误（F12）
-- 验证 API 是否运行：`curl http://localhost:7002/healthz`
-- 检查 `.env` 文件配置是否有效
+### 页面打不开或游戏无法启动
 
-## 📚 了解更多
+```bash
+curl http://localhost:7002/healthz
+```
 
-- **架构**：查看 `architecture.md` 了解系统设计
-- **智能体逻辑**：查看 `AGENTS.md` 了解 AI 行为细节
-- **API 文档**：服务器运行时访问 `http://localhost:7002/docs`
+如果返回健康状态，说明后端已启动。仍有问题时，打开浏览器开发者工具查看 Console 和 Network。
 
-## 🤝 贡献
+## 了解更多
 
-这是一个研究项目，欢迎 fork 和实验！
+- 快速参考：[QUICKSTART.md](QUICKSTART.md)
+- 架构说明：[architecture.md](architecture.md)
+- 项目开发约束：[AGENTS.md](AGENTS.md)
+- Prompt 说明：[configs/prompts/README.md](configs/prompts/README.md)
 
-## 📄 许可证
+## 许可证
 
-专有 - 查看项目了解详情
-
----
-
-<div align="center">
-
-**Made with ❤️ for AI Gaming Research**
-
-</div>
+Proprietary。具体使用和分发边界以项目说明为准。

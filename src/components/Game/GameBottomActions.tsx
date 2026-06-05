@@ -89,8 +89,6 @@ export function GameBottomActions({
           <div className="game-test-timings-header">
             <span>模型</span>
             <span>结果</span>
-            <span>开始</span>
-            <span>结束</span>
             <span>耗时</span>
           </div>
           {sortedTimings.map((timing, index) => (
@@ -112,9 +110,7 @@ export function GameBottomActions({
               >
                 {timing.status === 'pass' ? '通过' : '失败'}
               </span>
-              <span>{formatTimingSeconds(timing.startedOffsetMs)}</span>
-              <span>{formatTimingSeconds(timing.finishedOffsetMs)}</span>
-              <span className="game-test-timings-duration">
+              <span className="game-test-timings-duration" translate="no">
                 {formatTimingSeconds(timing.durationMs)}
                 {index === 0 && <b>最慢</b>}
               </span>
@@ -127,5 +123,5 @@ export function GameBottomActions({
 }
 
 function formatTimingSeconds(ms: number) {
-  return `${Math.max(0, ms / 1000).toFixed(2)}s`;
+  return `${Math.max(0, ms / 1000).toFixed(2)}秒`;
 }
