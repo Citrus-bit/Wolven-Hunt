@@ -50,7 +50,6 @@ import {
 } from '../../lib/gameSnapshot';
 import {
   deriveSeatIdentityBadges,
-  deriveSelfRoleInfo,
   type HumanIdentityMarks,
   type SeatRole,
 } from '../../lib/identityMarks';
@@ -94,15 +93,6 @@ const leftSeats = [0, 1, 2, 3, 4];
 const rightSeats = [5, 6, 7, 8, 9];
 type BgPhase = 'idle' | 'fade-out' | 'fade-in';
 const EMPTY_ASSIGNMENTS = Array.from({ length: SEAT_COUNT }, () => null);
-const HUMAN_ROLE_LABELS: Record<HumanRole | SeatRole, string> = {
-  random: '随机',
-  villager: '平民',
-  witch: '女巫',
-  seer: '预言家',
-  guard: '守卫',
-  wolf: '狼人',
-};
-
 type GamePageProps = {
   onExitGame: () => void;
   replayGameId?: string | null;
@@ -305,13 +295,11 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
     nowMs: effectClockMs,
     seenAtByKey: effectSeenAtRef.current,
   });
-  const selfRoleInfo = deriveSelfRoleInfo(events);
   const turnSecondsLeft = turn
     ? Math.max(0, Math.ceil(turn.deadline_ts - nowMs / 1000))
     : null;
   const turnExpired = turnSecondsLeft !== null && turnSecondsLeft <= 0;
   const textTurnKind = turn && isTextTurn(turn.kind) ? turn.kind : null;
-  const showHumanPerspective = Boolean(humanContext && liveShellActive);
   const activeHumanTurn = humanContext && turn && !textTurnKind ? turn : null;
   const showHumanTurnPanel = activeHumanTurn !== null;
   const witchWolfKillTarget = parseWitchWolfKillTarget(activeHumanTurn);
@@ -1290,29 +1278,16 @@ export function GamePage({ onExitGame, replayGameId = null }: GamePageProps) {
         onToggleGameAudio={handleToggleGameAudio}
       />
       <StageIndicator stage={stage} />
-      {(liveShellActive || showHumanPerspective) && (
+      {liveShellActive && (
         <div className="game-status-stack">
-          {liveShellActive && (
-            <GamePhaseHeader
-              phase={phaseHeaderPhase}
-              timings={timings}
-              speakerSeat={currentSpeakerSeat}
-              speechComplete={finished || speechProgress.complete}
-              startupPending={startupPending}
-              startupMessage={startupMessageForLaunchState(launchState)}
-            />
-          )}
-          {showHumanPerspective && humanContext && (
-            <div className="human-perspective-chip">
-              <strong>
-                你是 {humanContext.seat}号
-                {selfRoleInfo.role ? ` · ${HUMAN_ROLE_LABELS[selfRoleInfo.role]}` : ''}
-              </strong>
-              {selfRoleInfo.teammates.length > 0 && (
-                <span>狼队友：{selfRoleInfo.teammates.join('、')}号</span>
-              )}
-            </div>
-          )}
+          <GamePhaseHeader
+            phase={phaseHeaderPhase}
+            timings={timings}
+            speakerSeat={currentSpeakerSeat}
+            speechComplete={finished || speechProgress.complete}
+            startupPending={startupPending}
+            startupMessage={startupMessageForLaunchState(launchState)}
+          />
         </div>
       )}
       <GameChat

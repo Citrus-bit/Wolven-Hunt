@@ -1960,28 +1960,6 @@ button {
   transform: translateX(-50%);
 }
 
-.human-perspective-chip {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-  justify-content: center;
-  max-width: min(520px, calc(100vw - 40px));
-  padding: 8px 12px;
-  color: #fff7df;
-  background: rgba(14, 10, 10, 0.62);
-  border: 1px solid rgba(255, 224, 160, 0.34);
-  border-radius: 8px;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.26);
-  pointer-events: none;
-}
-
-.human-perspective-chip strong,
-.human-perspective-chip span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 .human-turn-panel {
   position: absolute;
   right: clamp(118px, 25vw, 220px);
@@ -2488,12 +2466,6 @@ button {
     top: clamp(96px, 13vh, 124px);
     width: min(420px, calc(100vw - 24px));
     gap: 6px;
-  }
-
-  .human-perspective-chip {
-    max-width: calc(100vw - 32px);
-    padding: 7px 10px;
-    font-size: 13px;
   }
 
   .game-chat {
