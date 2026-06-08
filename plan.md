@@ -12,7 +12,7 @@
 - 投票只能投存活玩家，允许投自己；PK 重投只能投 PK 台上玩家，且 PK 台上玩家不参与重投。
 - 编排核心采用**纯 Python FSM 优先**；裁判层（Referee）负责视角隔离与合法性校验；**事件日志是单一事实源**。
 - 规则、角色、模型、提示词全部**配置驱动**，核心代码不随板子变化。
-- 当前阶段：**STEP-07 / P3 观赛 MVP**。在 STEP-06 外部接入基础上允许实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与终局定格态。
+- 答辩口径：**STEP-07 / P3 观赛 MVP 已落地，STEP-08 生产可玩能力已纳入当前展示范围并部分落地**。STEP-07 在 STEP-06 外部接入基础上实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与终局定格态；STEP-08 约束同源部署、单命令启动、模型连通性测试、SSE 自动重连、历史复盘和生产静态文件服务等可玩化能力。
 - STEP-07 增加 **spectator-only 观赛特效流**：观众上帝视角可以看到护盾、狼袭、预言、女巫药瓶与死亡揭晓动画；普通 PlayerView、prompt、玩家 SSE、narrative 仍不得暴露守卫/预言家/女巫私有结果、狼刀投票细节、provider 配置或 raw response。
 - `DAY_SPEECH` / `DAY_LAST_WORDS` 输出必须经过 Referee 文本事实一致性 hook；确定性违反规则机制、本人私有行动历史或越权私有事实的文本按 `illegal_action` 处理，不得进入 EventLog、narrative、spectator API 或 SSE。
 - STEP-07 允许默认关闭的 **Prompt Evolution** 子系统：只能通过配置开关启用，基于已结束对局的复盘报告生成新 prompt pack 快照；事件日志仍是单一事实源，ack、replay hash、胜负判定、Referee 权限边界和事件 schema 不得受进化状态影响。
@@ -663,8 +663,8 @@ STEP-07 额外推送同源 `event: narrative_row` 与 `event: spectator_effect`�
 8. **PK 重投只投 PK 台上玩家**，PK 台上玩家不参与重投；二次平票平安日入夜。
 9. **死亡 Agent 仍接收公开事件**，便于回放完整性。
 10. **Referee 不审查发言内容**：发言里的虚假信息属合法策略。
-11. **STEP-07 / P3 阶段开始实现观赛 MVP**：per-seat provider map、pacing/ack、narrative/reveal API、前端音视频、倒计时和终局定格态可以落地；CI 默认仍使用 mock provider。
-12. **STEP-08 / P3 生产可玩阶段**：目标是 10 个 AI 自动对局可从前端无卡点观赛到终局。允许实现同源部署、单命令启动、后端模型连通性测试代理、SSE 自动重连、pacing 模式切换、历史复盘 UI、生产静态文件服务和 CI。默认测试仍使用 mock provider；真实 LLM smoke 必须由环境变量显式开启。
+11. **STEP-07 / P3 观赛 MVP 已落地**：per-seat provider map、pacing/ack、narrative/reveal API、前端音视频、倒计时和终局定格态进入当前答辩展示口径；CI 默认仍使用 mock provider。
+12. **STEP-08 / P3 生产可玩能力已纳入当前展示范围并部分落地**：目标是 10 个 AI 自动对局可从前端无卡点观赛到终局。允许实现同源部署、单命令启动、后端模型连通性测试代理、SSE 自动重连、pacing 模式切换、历史复盘 UI、生产静态文件服务和 CI。默认测试仍使用 mock provider；真实 LLM smoke 必须由环境变量显式开启。
 
 ## 13. 项目系统提示词与变更纪律
 

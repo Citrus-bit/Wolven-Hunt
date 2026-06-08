@@ -14,7 +14,7 @@
 - 女巫 1 人
 - 守卫 1 人
 
-当前阶段为 STEP-07 / P3 观赛 MVP：允许在 STEP-06 外部接入基础上实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与终局定格态。
+答辩口径为：STEP-07 / P3 观赛 MVP 已落地，STEP-08 生产可玩能力已纳入当前展示范围并部分落地。STEP-07 允许在 STEP-06 外部接入基础上实现 per-seat LLM provider 路由、观赛 pacing/ack、叙事化事件流、角色揭晓、前端音视频、倒计时、投票直方图、女巫夜晚行动状态与终局定格态；STEP-08 约束同源部署、单命令启动、模型连通性测试、SSE 自动重连、历史复盘和生产静态文件服务等可玩化能力。
 
 `DAY_SPEECH` / `DAY_LAST_WORDS` 输出必须经过 Referee 文本事实一致性 hook；确定性违反规则机制、本人私有行动历史或越权私有事实的文本按 `illegal_action` 处理，不得进入 EventLog、narrative、spectator API 或 SSE。
 
