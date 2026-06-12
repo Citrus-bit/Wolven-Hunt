@@ -61,22 +61,22 @@ open http://localhost:7002
 ## 🔑 API Key Management | API 密钥管理
 
 ### Current Setup | 当前设置
-- `.env` contains working API keys | `.env` 包含可用的 API 密钥
-- Keys are rotation-ready | 密钥可轮换
+- `.env` is local-only and ignored by Git | `.env` 仅限本地使用并已被 Git 忽略
+- API keys are not committed | API 密钥不提交到仓库
 - Users can override via browser settings | 用户可通过浏览器设置覆盖
 
 ### Security Notes | 安全说明
-- ✅ Keys are publicly shared and rate-limited | 密钥公开共享且有速率限制
-- ✅ Keys will be rotated regularly | 密钥会定期轮换
+- ✅ Contact the developer for the corresponding agent keys | 联系开发者获取对应 agent 的密钥
+- ✅ Rotate any key that was previously exposed | 轮换任何曾经暴露过的密钥
 - ✅ Users encouraged to use their own keys for production | 鼓励用户生产环境使用自己的密钥
-- ✅ No sensitive production keys in repo | 仓库中无敏感生产密钥
+- ✅ No API keys in repo | 仓库中不包含 API 密钥
 
 ---
 
 ## 📦 Files to Commit | 需要提交的文件
 
 ### Modified Files | 修改的文件
-- `.gitignore` - Updated to allow `.env`
+- `.gitignore` - Updated to ignore `.env`
 - `README.md` - Complete bilingual documentation
 
 ### New Files | 新文件

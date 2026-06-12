@@ -4,9 +4,8 @@ export type ModelConfigSlot = {
   iconPath: string;
 };
 
-// NOTE: The default apiKey values are author-funded rotating keys for the
-// clone-and-play experience. Users can override them in the settings UI; those
-// overrides stay in browser localStorage and take precedence over these values.
+// API keys are intentionally not committed. Users can enter them in the
+// settings UI; those overrides stay in browser localStorage.
 
 export type ModelConfigUserInput = {
   baseUrl: string;
@@ -78,61 +77,61 @@ export const EMPTY_USER_INPUT: ModelConfigUserInput = {
 export const MODEL_CONFIG_DEFAULTS: readonly ModelConfigUserInput[] = [
   {
     baseUrl: 'https://api.minimaxi.com/v1',
-    apiKey: 'sk-cp-J9LpYlhs5Q8issU-lrXNRA_hxvpTptheFq7h75UQYVHXMwgkcM1Vo9XNk2CQ5EWerz5cyN4OqKZQDQ7lOag-a6kwbYDS77LP5fDD3qt1UcrdDsDwAhk5IlQ',
+    apiKey: '',
     modelName: 'MiniMax-M2.7-highspeed',
     thinkingEnabled: false,
   },
   {
     baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
-    apiKey: 'sk-sp-D.HDXRM.WBYB.MEUCIQDsTRWgINcmA5E+3jY2ESrb/zPm3LwWcbPBQ6HxCxq6lAIgLWMi8mhr+FFH3q6fQxCqWSp4UUQEOLWLK1zHgnCQKj0=',
+    apiKey: '',
     modelName: 'qwen3.6-flash',
     thinkingEnabled: false,
   },
   {
     baseUrl: 'https://yunwu.ai/v1',
-    apiKey: 'sk-oYxZIF9K6UWfnodFX8mWoSer32fzlnTlFU18uLAznCC6UWOQ',
+    apiKey: '',
     modelName: 'kimi-k2.5',
     thinkingEnabled: false,
   },
   {
     baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1',
-    apiKey: 'tp-snbqlbrzy2c08jcyumrk4bs166tzbl02u5focufi7kqry1g6',
+    apiKey: '',
     modelName: 'mimo-v2.5-pro',
     thinkingEnabled: false,
   },
   {
     baseUrl: 'https://yunwu.ai/v1',
-    apiKey: 'sk-3xVFT4xdHR3DYvBf7haR7A1Fb1ndJznxwrs1onoZ5JrywzRV',
+    apiKey: '',
     modelName: 'glm-4-flash',
     thinkingEnabled: false,
   },
   {
     baseUrl: 'https://ark.cn-beijing.volces.com/api/plan/v3',
-    apiKey: 'ark-b3d6e149-e38b-4f12-a544-aeb2be4a7cf5-4adae',
+    apiKey: '',
     modelName: 'doubao-seed-2.0-pro',
     thinkingEnabled: false,
   },
   {
     baseUrl: 'https://api.deepseek.com',
-    apiKey: 'sk-303313d10b7149bf831b7909bf70ad4f',
+    apiKey: '',
     modelName: 'deepseek-v4-flash',
     thinkingEnabled: false,
   },
   {
     baseUrl: 'https://yunwu.ai/v1',
-    apiKey: 'sk-rp77BMMBfwtVUhSdRFEpjBf7OHXPFzodJvO0vQLFwKabnSDa',
+    apiKey: '',
     modelName: 'gemini-3.5-flash',
     thinkingEnabled: false,
   },
   {
     baseUrl: 'https://yunwu.ai/v1',
-    apiKey: 'sk-iXCFTRD3WI7v1xTc6zwPOSqA9uQMDq0tevGh7J2P1QjvoJoz',
+    apiKey: '',
     modelName: 'claude-sonnet-4-6',
     thinkingEnabled: false,
   },
   {
     baseUrl: 'https://yunwu.ai/v1',
-    apiKey: 'sk-E6zcCAknXsLSLTL51m74vwDyn09cBnVYTx7X0xmXyuOdojZM',
+    apiKey: '',
     modelName: 'gpt-5.4',
     thinkingEnabled: false,
   },

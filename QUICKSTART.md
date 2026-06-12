@@ -52,10 +52,9 @@ make typecheck       # Type checking
 
 ## Environment Variables | 环境变量
 
-The project includes public rotating API keys in `.env` for immediate trials.
-They are rate-limited; use your own keys for stable long-term use.
+API keys are not committed to the repository. To avoid API key abuse, contact the developer for the corresponding agent keys.
 
-项目 `.env` 中包含可直接试玩的公开轮换密钥，有速率限制；长期稳定使用建议换成自己的 key。
+为避免API KEY被恶意盗用，请联系开发者获取对应agent的密钥。
 
 To use your own keys, edit `.env`:
 

@@ -31,7 +31,7 @@ It is useful for two groups:
 
 - **Live spectator mode**: SSE event streaming, audio cues, night effects, countdowns, and vote histograms.
 - **Per-seat model routing**: each seat can use a different LLM provider / model through LiteLLM.
-- **Built-in public rotating keys**: the committed `.env` includes shared keys for quick trials. They are rate-limited; use your own keys for stable long-term use.
+- **Keys are not committed**: to avoid API key abuse, contact the developer for the corresponding agent keys.
 - **Single human player mode**: one human can take a seat while the other 9 seats are AI-controlled.
 - **History replay**: finished games are saved under `runs/` and can be reviewed later.
 - **Final reveal**: the end state shows every seat's role, the winning side, and highlights.

@@ -14,6 +14,12 @@ describe('modelConfigs', () => {
     ).toBe(true);
   });
 
+  it('does not commit default API keys', () => {
+    expect(MODEL_CONFIG_DEFAULTS.every((config) => config.apiKey === '')).toBe(
+      true,
+    );
+  });
+
   it('uses qwen3.6-flash for the Qwen model slot', () => {
     const slot = MODEL_SLOTS.find((candidate) => candidate.nickname === '万问');
     expect(slot).toBeDefined();

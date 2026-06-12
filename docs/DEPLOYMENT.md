@@ -36,11 +36,11 @@ Open `http://localhost:7001`. Vite proxies `/games`, `/models`, and `/healthz` t
 - `WH_PACING_PROFILE`: `live`, `fast`, or `off`
 - `VITE_WH_API_BASE`: leave empty for same-origin mode; set only to bypass the proxy
 
-## API Key Rotation
+## API Keys
 
-The repository includes 10 author-funded rotating default model keys in `src/lib/modelConfigs.ts` so players can clone and play immediately. Users can override them in Settings -> Model Configs; localStorage values take precedence.
+API keys are intentionally not committed. Users can enter them in Settings -> Model Configs; localStorage values take precedence. For shared demo credentials, contact the developer for the corresponding agent keys.
 
-When rotating defaults, update `MODEL_CONFIG_DEFAULTS`, verify a full game, and push a normal code change. Do not write API keys into backend manifests, EventLog, raw responses exposed to clients, README, or deployment docs.
+Do not write API keys into frontend defaults, backend manifests, EventLog, raw responses exposed to clients, README, or deployment docs.
 
 ## LAN Access
 
