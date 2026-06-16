@@ -19,7 +19,7 @@ export function StartModal({
   return (
     <LobbyModal open={open} onClose={onClose} title="开始游戏">
       <p className="lobby-modal-text">
-        作者已预填 10 个模型的 API key（自费购买），每月轮换一次。你可以直接开始 AI 对局。
+        由于API key泄漏，作者将不再提供密钥，如果需要进行游戏，可以联系作者获取，感谢您的支持
       </p>
       <p className="lobby-modal-tip">
         所有 API key 将会在 2026 年 6 月 19 日过期；如果出现模型无法调用的情况，请联系作者微信：Erammanviimeinen。
